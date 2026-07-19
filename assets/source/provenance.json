@@ -1,0 +1,52 @@
+[
+  {
+    "source": "assets/source/characters/huchu.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/huchu-animation-v2.png",
+    "sha256": "a7a1d484dba37380f767ae4fcb5a6f9b9a1a9e4fe978a8a7b9fd903c98b26c8c"
+  },
+  {
+    "source": "assets/source/characters/deokbae.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/deokbae-animation-v2.png",
+    "sha256": "7eab5a03892b85c4dda787d5d2e01154fd3354837e1a53c82acc2aae263ead13"
+  },
+  {
+    "source": "assets/source/characters/enemy-poop-male-base.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-poop-male-v2.png",
+    "sha256": "472647eab3ce4f3cfba445bf690e7c9a156a3cc0bfcb38935aa1bbcc8bc229ae"
+  },
+  {
+    "source": "assets/source/characters/enemy-poop-female-base.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-poop-female-v2.png",
+    "sha256": "7c63f4080a16c214bd1d2619865990300d356280a5c632288fe8c659ec096afc"
+  },
+  {
+    "source": "assets/source/characters/enemy-offleash-male.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-offleash-male-v2.png",
+    "sha256": "485d6124a69128328ecab068f55418f324c5ddca1661785b5aa963603b42e3a0"
+  },
+  {
+    "source": "assets/source/characters/enemy-offleash-female.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-offleash-female-v2.png",
+    "sha256": "7d8535bbd6f6d81a381be7205148adf448b98c1c5a115ee8a24bd0f21c5935d1"
+  },
+  {
+    "source": "assets/source/characters/enemy-trader.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-trader-v2.png",
+    "sha256": "cdccdfd4836c4f38a07490af49db864f2a9b49511095d7b9b9139537e0778dd7"
+  },
+  {
+    "source": "assets/source/characters/enemy-breeder-male.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-breeder-male-v2.png",
+    "sha256": "de4ef0cb2c0d7abff9c9e9236c9e55a7c95a690b455bb99b79eece792267e0c8"
+  },
+  {
+    "source": "assets/source/characters/enemy-breeder-female.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/enemy-breeder-female-v2.png",
+    "sha256": "7bb2356d235069bce45cd73ab6552db0a2ce2e98ecadaa02ea29a4035ba87b04"
+  },
+  {
+    "source": "assets/source/map/map-option-a-simple-v2.png",
+    "original": ".superpowers/brainstorm/98371-1784435992/content/map-option-a-simple-v2.png",
+    "sha256": "14e2b0369ddd014734c6b713ae8958b5cf1348f4db8dbd571cdc961852e5adf5"
+  }
+]
