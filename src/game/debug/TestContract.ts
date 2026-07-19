@@ -1,18 +1,24 @@
 import type { GameMode } from '../core/GameMode';
+import type { RunSnapshot } from '../session/RunSnapshot';
+import type { EnemySpawnRequest } from '../waves/WaveTypes';
 
-export type TestScenarioId = 'empty-run';
+export type TestScenarioId = 'empty-run' | 'wave-schedule';
 
-export interface GameDebugSnapshot {
-  mode: GameMode;
-  player: { x: number; y: number };
-  simulationMs: number;
+export interface GameDebugSnapshot extends RunSnapshot {
+  readonly player: { readonly x: number; readonly y: number };
 }
 
-export type GameDebugEvent = {
-  sequence: number;
-  atMs: number;
-  type: 'modeChanged' | 'playerMoved';
+type GameDebugEventMetadata = {
+  readonly sequence: number;
+  readonly atMs: number;
 };
+
+export type GameDebugEvent = GameDebugEventMetadata & (
+  | { readonly type: 'modeChanged'; readonly mode: GameMode }
+  | { readonly type: 'playerMoved' }
+  | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }
+  | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number }
+);
 
 export interface HuchuTestBridge {
   readonly ready: Promise<void>;

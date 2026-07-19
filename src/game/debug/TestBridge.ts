@@ -1,8 +1,9 @@
 import { FIXED_STEP_MS } from '../constants';
-import type { GameMode } from '../core/GameMode';
+import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
+import type { RunSnapshot } from '../session/RunSnapshot';
 import { ManualStepScheduler } from './ManualStepScheduler';
-import { loadEmptyRun, type PlayerOnlyScenarioRuntime } from './ScenarioFactory';
+import { loadScenario, type SessionScenarioRuntime } from './ScenarioFactory';
 import type {
   GameDebugEvent,
   GameDebugSnapshot,
@@ -10,33 +11,35 @@ import type {
   TestScenarioId,
 } from './TestContract';
 
-interface PlayerOnlyScenePort {
-  advancePlayerOnlyStep(stepMs: number): void;
-  resetManualSimulation(): void;
+type DebugEventPayload<T extends GameDebugEvent = GameDebugEvent> = T extends GameDebugEvent
+  ? Omit<T, 'sequence' | 'atMs'>
+  : never;
+
+interface SessionScenePort {
+  advanceSimulationStep(stepMs: number): readonly GameEvent[];
+  resetSession(seed: number): void;
   resetPlayer(x: number, y: number): void;
   playerSnapshot(): PlayerSnapshot;
-  simulationMs(): number;
-  currentMode(): GameMode;
+  sessionSnapshot(): RunSnapshot;
   setVisibilityForTest(hidden: boolean): void;
   waitForRenderFlush(): Promise<void>;
 }
 
-class PlayerOnlyTestBridge implements HuchuTestBridge, PlayerOnlyScenarioRuntime {
+class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   readonly ready: Promise<void>;
   private readonly scheduler = new ManualStepScheduler();
   private readonly eventLog: GameDebugEvent[] = [];
   private nextSequence = 1;
 
   constructor(
-    private readonly scene: PlayerOnlyScenePort,
+    private readonly scene: SessionScenePort,
     readonly seed: number,
   ) {
     this.ready = scene.waitForRenderFlush();
   }
 
   async loadScenario(id: TestScenarioId): Promise<void> {
-    if (id !== 'empty-run') throw new RangeError(`Unknown test scenario: ${String(id)}`);
-    loadEmptyRun(this);
+    loadScenario(this, id);
     await this.scene.waitForRenderFlush();
   }
 
@@ -51,9 +54,8 @@ class PlayerOnlyTestBridge implements HuchuTestBridge, PlayerOnlyScenarioRuntime
 
   snapshot(): GameDebugSnapshot {
     return {
-      mode: this.scene.currentMode(),
+      ...this.scene.sessionSnapshot(),
       player: this.scene.playerSnapshot(),
-      simulationMs: this.scene.simulationMs(),
     };
   }
 
@@ -62,20 +64,26 @@ class PlayerOnlyTestBridge implements HuchuTestBridge, PlayerOnlyScenarioRuntime
   }
 
   async simulateVisibility(hidden: boolean): Promise<void> {
-    const previousMode = this.scene.currentMode();
+    const previousMode = this.scene.sessionSnapshot().mode;
     this.scene.setVisibilityForTest(hidden);
-    if (this.scene.currentMode() !== previousMode) this.appendEvent('modeChanged');
+    const currentMode = this.scene.sessionSnapshot().mode;
+    if (currentMode !== previousMode) {
+      this.appendEvent({ type: 'modeChanged', mode: currentMode });
+    }
     await this.scene.waitForRenderFlush();
   }
 
   resetManualScheduler(): void {
     this.scheduler.reset();
-    this.scene.resetManualSimulation();
   }
 
   resetEventLog(): void {
     this.eventLog.length = 0;
     this.nextSequence = 1;
+  }
+
+  resetSession(): void {
+    this.scene.resetSession(this.seed);
   }
 
   resetPlayer(x: number, y: number): void {
@@ -86,31 +94,51 @@ class PlayerOnlyTestBridge implements HuchuTestBridge, PlayerOnlyScenarioRuntime
     if (!Number.isFinite(ms) || ms < 0) {
       throw new RangeError('advance duration must be finite and non-negative');
     }
-    if (this.scene.currentMode() !== 'playing') return;
+    if (this.scene.sessionSnapshot().mode !== 'playing') return;
     for (let ticks = this.scheduler.take(ms); ticks > 0; ticks -= 1) {
       const before = this.scene.playerSnapshot();
-      this.scene.advancePlayerOnlyStep(FIXED_STEP_MS);
+      const sessionEvents = this.scene.advanceSimulationStep(FIXED_STEP_MS);
       const after = this.scene.playerSnapshot();
-      if (after.x !== before.x || after.y !== before.y) this.appendEvent('playerMoved');
+      if (after.x !== before.x || after.y !== before.y) {
+        this.appendEvent({ type: 'playerMoved' });
+      }
+      sessionEvents.forEach((event) => this.appendSessionEvent(event));
     }
   }
 
-  private appendEvent(type: GameDebugEvent['type']): void {
-    this.eventLog.push({
+  private appendSessionEvent(event: GameEvent): void {
+    switch (event.type) {
+      case 'enemySpawnRequested':
+        this.appendEvent({ type: event.type, request: event.request });
+        return;
+      case 'waveCountdownChanged':
+        this.appendEvent({ type: event.type, remainingMs: event.remainingMs });
+        return;
+      case 'modeChanged':
+        this.appendEvent({ type: event.type, mode: event.mode });
+        return;
+      case 'runEnded':
+        return;
+    }
+  }
+
+  private appendEvent(event: DebugEventPayload): void {
+    const loggedEvent = {
       sequence: this.nextSequence,
-      atMs: this.scene.simulationMs(),
-      type,
-    });
+      atMs: this.scene.sessionSnapshot().simulationMs,
+      ...event,
+    };
+    this.eventLog.push(loggedEvent);
     this.nextSequence += 1;
   }
 }
 
-export function installTestBridge(scene: PlayerOnlyScenePort): () => void {
+export function installTestBridge(scene: SessionScenePort): () => void {
   if (import.meta.env.MODE !== 'e2e') return NOOP;
   const params = new URLSearchParams(window.location.search);
   if (params.get('e2e') !== '1' || params.get('clock') !== 'manual') return NOOP;
   const seed = parseSeed(params.get('seed'));
-  return installOwnedTestBridge(window, new PlayerOnlyTestBridge(scene, seed));
+  return installOwnedTestBridge(window, new SessionTestBridge(scene, seed));
 }
 
 export function installOwnedTestBridge(
