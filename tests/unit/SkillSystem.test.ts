@@ -92,6 +92,60 @@ describe('SkillSystem', () => {
     expect(whole.snapshot('scold').cooldownRemainingMs).toBe(4000);
   });
 
+  it('여러 learned skill의 큰 step event는 전역 시간순이며 같은 시각만 정의 순서다', () => {
+    const context = {
+      player: { x: 0, y: 0 },
+      enemies: [candidateAt(100, 0, 10, { id: 3, pathProgress: 100 })],
+    };
+    const whole = new SkillSystem(skillLevels({ scold: 1, aquaBeam: 1 }));
+    const split = new SkillSystem(skillLevels({ scold: 1, aquaBeam: 1 }));
+
+    const wholeEvents = whole.step(18_000, context);
+    const splitEvents = Array.from(
+      { length: 18 },
+      () => split.step(1000, context),
+    ).flat();
+
+    expect(wholeEvents.map(({ skillId }) => skillId)).toEqual([
+      'scold',
+      'aquaBeam',
+      'scold',
+      'aquaBeam',
+    ]);
+    expect(wholeEvents).toEqual(splitEvents);
+    expect(whole.snapshot('scold')).toEqual(split.snapshot('scold'));
+    expect(whole.snapshot('aquaBeam')).toEqual(split.snapshot('aquaBeam'));
+  });
+
+  it('ready-no-target 뒤 overshoot와 여러 cadence도 arbitrary split과 event/remaining이 같다', () => {
+    const context = {
+      player: { x: 0, y: 0 },
+      enemies: [candidateAt(100, 0, 10, { id: 3, pathProgress: 100 })],
+    };
+    const whole = new SkillSystem(skillLevels({ scold: 1, aquaBeam: 1 }));
+    const split = new SkillSystem(skillLevels({ scold: 1, aquaBeam: 1 }));
+    whole.step(9500, emptySkillContext());
+    split.step(9500, emptySkillContext());
+
+    const wholeEvents = whole.step(27_500, context);
+    const splitEvents = [0, 1250, 6750, 500, 8500, 10_500]
+      .flatMap((stepMs) => split.step(stepMs, context));
+
+    expect(wholeEvents.map(({ skillId }) => skillId)).toEqual([
+      'scold',
+      'aquaBeam',
+      'scold',
+      'aquaBeam',
+      'scold',
+      'aquaBeam',
+      'scold',
+      'aquaBeam',
+    ]);
+    expect(wholeEvents).toEqual(splitEvents);
+    expect(whole.snapshot('scold')).toEqual(split.snapshot('scold'));
+    expect(whole.snapshot('aquaBeam')).toEqual(split.snapshot('aquaBeam'));
+  });
+
   it('ready에서 대상이 생기면 step 0에도 즉시 cast하고 full cooldown으로 돌아간다', () => {
     const system = learnedSkillSystem('aquaBeam');
     system.step(9000, emptySkillContext());

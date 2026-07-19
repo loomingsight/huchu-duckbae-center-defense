@@ -401,7 +401,13 @@ export class GameSession {
         if (hit.stunMs !== undefined) {
           const enemy = this.requireActiveEnemy(hit.targetId);
           this.enemies.stun(hit.targetId, hit.stunMs);
-          this.attacks[enemy.kind].stun(hit.targetId, hit.stunMs, enemy.pathProgress);
+          const stunnedEnemy = this.requireActiveEnemy(hit.targetId);
+          // Enemy movement already consumed this tick; the attack track consumes it below.
+          this.attacks[enemy.kind].stun(
+            hit.targetId,
+            stunnedEnemy.stunnedMs + FIXED_STEP_MS,
+            enemy.pathProgress,
+          );
         }
       }
       this.eventBuffer.push(cast);

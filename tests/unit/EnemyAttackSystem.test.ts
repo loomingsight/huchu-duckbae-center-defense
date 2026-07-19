@@ -38,6 +38,24 @@ it('기절은 windup을 취소하고 interval을 처음부터 다시 센다', ()
   expect(attack.snapshot(1)).toMatchObject({ state: 'moving', cooldownMs: 1600 });
 });
 
+it('attack track도 더 짧은 재기절로 기존 남은 duration을 줄이지 않는다', () => {
+  const attack = attackSystemFor('offLeashGuardian');
+  attack.stun(1, 9000);
+  attack.step(1000, inRangeEnemy({ state: 'stunned', stunnedMs: 8000 }));
+
+  attack.stun(1, 3000);
+
+  expect(attack.step(3000, inRangeEnemy({ state: 'stunned', stunnedMs: 5000 }))).toEqual([]);
+  expect(attack.snapshot(1).state).toBe('stunned');
+  expect(attack.step(4999, inRangeEnemy({ state: 'stunned', stunnedMs: 1 }))).toEqual([]);
+  expect(attack.snapshot(1).state).toBe('stunned');
+  expect(attack.step(1, inRangeEnemy())).toEqual([]);
+  expect(attack.snapshot(1).state).toBe('moving');
+  expect(attack.step(FIXED_STEP_MS, inRangeEnemy()).map(({ type }) => type)).toEqual([
+    'attackStarted',
+  ]);
+});
+
 it('release 뒤 holding 상태로 위치를 고정하고 시작 시각 기준 interval에 다음 windup을 연다', () => {
   const attack = attackSystemFor('offLeashGuardian');
   const target = inRangeEnemy({ pathProgress: 77 });

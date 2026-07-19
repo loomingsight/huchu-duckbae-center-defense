@@ -258,8 +258,9 @@ export class EnemySystem {
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
 
+    const remainingStunMs = enemy.state === 'stunned' ? enemy.stunnedMs : 0;
     enemy.state = 'stunned';
-    enemy.stunnedMs = durationMs;
+    enemy.stunnedMs = Math.max(remainingStunMs, durationMs);
     enemy.animationElapsedMs = 0;
   }
 

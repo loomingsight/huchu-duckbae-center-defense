@@ -240,12 +240,42 @@ export class SkillSystem {
     assertFiniteNonNegative(stepMs, 'Skill stepMs');
     validateGeometryInput(context.player, context.enemies);
     const commands: SkillCastCommand[] = [];
-    for (const id of AUTO_SKILL_IDS) {
-      const level = this.levels[id];
-      if (level === 0) continue;
-      this.stepSkill(id, level, stepMs, context, commands);
+    const readyWithoutTarget = new Set<AutoSkillId>();
+    let unconsumedMs = stepMs;
+
+    while (true) {
+      for (const id of AUTO_SKILL_IDS) {
+        const level = this.levels[id];
+        if (
+          level === 0
+          || (this.remaining.get(id) ?? 0) > TIME_EPSILON_MS
+          || readyWithoutTarget.has(id)
+        ) {
+          continue;
+        }
+        const command = resolveCast(id, level, context);
+        if (command === undefined) {
+          readyWithoutTarget.add(id);
+          continue;
+        }
+        commands.push(command);
+        this.remaining.set(id, resolveSkillStats(id, level).cooldownMs);
+      }
+
+      if (unconsumedMs <= TIME_EPSILON_MS) return commands;
+      const charging = AUTO_SKILL_IDS.filter((id) => (
+        this.levels[id] > 0 && (this.remaining.get(id) ?? 0) > TIME_EPSILON_MS
+      ));
+      if (charging.length === 0) return commands;
+      const untilNextBoundaryMs = Math.min(
+        ...charging.map((id) => this.remaining.get(id)!),
+      );
+      const advanceMs = Math.min(unconsumedMs, untilNextBoundaryMs);
+      for (const id of charging) {
+        this.remaining.set(id, subtractBoundary(this.remaining.get(id)!, advanceMs));
+      }
+      unconsumedMs = subtractBoundary(unconsumedMs, advanceMs);
     }
-    return commands;
   }
 
   levelUp(id: SkillId): Exclude<SkillLevel, 0> {
@@ -319,32 +349,6 @@ export class SkillSystem {
     }
   }
 
-  private stepSkill(
-    id: AutoSkillId,
-    level: Exclude<SkillLevel, 0>,
-    stepMs: number,
-    context: SkillContext,
-    commands: SkillCastCommand[],
-  ): void {
-    let unconsumedMs = stepMs;
-    while (true) {
-      const remainingMs = this.remaining.get(id) ?? 0;
-      if (remainingMs > TIME_EPSILON_MS) {
-        if (unconsumedMs + TIME_EPSILON_MS < remainingMs) {
-          this.remaining.set(id, remainingMs - unconsumedMs);
-          return;
-        }
-        unconsumedMs = subtractBoundary(unconsumedMs, remainingMs);
-        this.remaining.set(id, 0);
-      }
-
-      const command = resolveCast(id, level, context);
-      if (command === undefined) return;
-      commands.push(command);
-      this.remaining.set(id, resolveSkillStats(id, level).cooldownMs);
-      if (unconsumedMs <= TIME_EPSILON_MS) return;
-    }
-  }
 }
 
 function resolveCast(

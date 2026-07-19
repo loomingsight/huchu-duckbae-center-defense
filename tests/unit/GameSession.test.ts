@@ -446,6 +446,69 @@ describe('GameSession', () => {
     expect(run.snapshot().shelterHp).toBe(100);
   });
 
+  it('안전신문고의 짧은 재기절은 기존 9초 stun과 attack track을 같은 remaining으로 보존한다', () => {
+    const { run, card } = sessionOfferingUnlock('safetyReport');
+    run.selectCard(card.id);
+    finishSelectionCountdown(run);
+    seedCooldownAnchor(run);
+    for (let tick = 0; tick < 1185; tick += 1) run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'offLeashGuardian',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'attackBoundary' },
+      currentHp: 10_000,
+      maxHp: 10_000,
+      state: 'stunned',
+      stunnedMs: 9000,
+    });
+    for (let tick = 0; tick < 14; tick += 1) run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+
+    const castEvents = run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+    const afterCast = run.snapshot().enemies.find(({ id }) => id === enemyId)!;
+
+    expect(castEvents.find((event) => event.type === 'skillCast')).toMatchObject({
+      skillId: 'safetyReport',
+      hits: [{ targetId: enemyId, damage: 90, stunMs: 3000 }],
+    });
+    expect(afterCast).toMatchObject({ currentHp: 9910, state: 'stunned' });
+    expect(afterCast.stunnedMs).toBeCloseTo(9000 - 15 * FIXED_STEP_MS, 8);
+
+    const firstThreeSeconds: GameEvent[] = [];
+    for (let tick = 0; tick < 180; tick += 1) {
+      firstThreeSeconds.push(...run.step(FIXED_STEP_MS, SAFETY_PLAYER));
+    }
+    const afterThreeSeconds = run.snapshot().enemies.find(({ id }) => id === enemyId)!;
+
+    expect(afterThreeSeconds.state).toBe('stunned');
+    expect(afterThreeSeconds.stunnedMs).toBeCloseTo(9000 - 195 * FIXED_STEP_MS, 8);
+    expect(firstThreeSeconds.filter(({ type }) => (
+      type === 'attackStarted' || type === 'shelterDamageRequested'
+    ))).toEqual([]);
+
+    const beforeReleaseEvents: GameEvent[] = [];
+    for (let tick = 0; tick < 344; tick += 1) {
+      beforeReleaseEvents.push(...run.step(FIXED_STEP_MS, SAFETY_PLAYER));
+    }
+    expect(run.snapshot().enemies.find(({ id }) => id === enemyId)).toMatchObject({
+      state: 'stunned',
+      stunnedMs: expect.closeTo(FIXED_STEP_MS, 8),
+    });
+    expect(beforeReleaseEvents.filter(({ type }) => type === 'attackStarted')).toEqual([]);
+
+    const releaseEvents = run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+    expect(releaseEvents.filter(({ type }) => type === 'attackStarted')).toEqual([]);
+    expect(run.snapshot().enemies.find(({ id }) => id === enemyId)).toMatchObject({
+      state: 'moving',
+      stunnedMs: 0,
+    });
+
+    const firstActiveEvents = run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+    expect(firstActiveEvents.filter(({ type }) => type === 'attackStarted')).toEqual([
+      { type: 'attackStarted', enemyId },
+    ]);
+  });
+
   it('skill due 없는 wave clear는 next wave countdown 하나를 즉시 시작한다', () => {
     const run = GameSession.create({ seed: 1 });
     run.suppressWaveSpawnsForScenario();

@@ -154,8 +154,9 @@ export class EnemyAttackSystem {
       pathProgress,
     } satisfies AttackTrack;
     this.tracks.set(enemyId, track);
+    const remainingStunMs = track.phase === 'stunned' ? track.stunMs : 0;
     track.phase = 'stunned';
-    track.stunMs = durationMs;
+    track.stunMs = Math.max(remainingStunMs, durationMs);
     track.cycleMs = 0;
     track.windupMs = 0;
   }

@@ -44,6 +44,19 @@ it('3000ms 기절은 60Hz 정확히 180 tick 뒤 풀린다', () => {
   expect(system.snapshots().at(0)!.state).toBe('moving');
 });
 
+it('이미 남은 기절보다 짧은 재기절은 기존 duration을 줄이지 않는다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+
+  system.stun(0, 9000);
+  system.step(1000);
+  system.stun(0, 3000);
+
+  expect(system.snapshots().at(0)).toMatchObject({
+    state: 'stunned',
+    stunnedMs: 8000,
+  });
+});
+
 it('fractional 기절 종료 tick은 남은 시간만 이동과 animation에 소비한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
   const stunMs = 17;

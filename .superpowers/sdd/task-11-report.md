@@ -9,14 +9,14 @@
 
 - `SkillSystem`을 Bark를 포함한 스킬 level, 비-Bark 습득 순서, cooldown remaining/progress의 단일 원본으로 만들었다. `GameSession`의 별도 mutable skill level 사본은 제거했다.
 - 새 자동 스킬은 full cooldown, 즉 0% 충전에서 시작한다. selection/countdown/visibility pause에서는 world step 자체가 멈추므로 cooldown도 진행하지 않는다.
-- 대상이 없을 때 cooldown은 ready 0ms를 유지하고, 대상이 생긴 다음 fixed step에 즉시 시전한다. 큰 step은 cadence 경계를 모두 소비하며 split step과 같은 command/remaining을 낸다.
+- 대상이 없을 때 cooldown은 ready 0ms를 유지하고, 대상이 생긴 다음 fixed step에 즉시 시전한다. 큰 step은 모든 learned skill의 다음 cadence 경계를 전역 시간축으로 함께 전진시킨다. 서로 다른 cadence의 event도 시간순이며 같은 시각만 `AUTO_SKILL_IDS` 순서로 처리해 split step과 같은 command/remaining을 낸다.
 - 레벨 계산은 공용 `SKILL_DEFINITIONS`에서 파생한다. Lv2 피해 1.25배 반올림, Lv3 cooldown 0.8배 및 스킬별 범위/knockback/stun 강화를 정확히 적용한다.
 - 공용 위협 정렬은 기존 `rankThreatTargets`/`selectThreatTarget`을 재사용한다. ETA, player 거리, boss, spawn sequence 기준과 dead 제외를 모든 방향성/단일 대상 스킬에 동일하게 적용한다.
 - 호통치기는 70도 cone과 115/138 거리 안의 모든 적에게 피해를 주고, 일반 28/34 및 boss 반값 path progress를 absolute progress로 되돌린다.
 - 아쿠아빔은 player에서 위협 대상 방향의 길이 250/300, 폭 22/26.4 선분을 사용해 경계를 포함한 모든 적을 관통한다.
 - 덕배 하울링은 80x80 spatial bucket을 count 내림차순, 최소 ETA, bucket y/x 순으로 결정하고, 선택 bucket의 clamp된 평균 중심 반경 80/96 안을 공격한다.
-- 안전신문고는 전역 최소 ETA 대상 하나에게 90/113 피해 후 일반 3000/3600ms, boss 1500/1800ms stun을 적용한다.
-- `GameSession`은 enemy 이동 다음, enemy attack release 전에 자동 스킬을 적용한다. 피해를 먼저 처리하고 생존한 target에만 knockback/stun 및 attack track sync를 수행해 lethal death/snack을 정확히 한 번 발생시킨다.
+- 안전신문고는 전역 최소 ETA 대상 하나에게 90/113 피해 후 일반 3000/3600ms, boss 1500/1800ms stun을 적용한다. 이미 더 긴 stun이 남아 있으면 `EnemySystem`과 `EnemyAttackSystem` 모두 기존 remaining을 보존한다.
+- `GameSession`은 enemy 이동 다음, enemy attack release 전에 자동 스킬을 적용한다. 피해를 먼저 처리하고 생존한 target에만 knockback/stun 및 attack track sync를 수행해 lethal death/snack을 정확히 한 번 발생시킨다. enemy model이 먼저 소비한 한 fixed tick을 attack track 입력에 보정해 fresh/re-stun 모두 같은 tick 종료 remaining을 유지한다.
 - `EnemySystem.applyPathProgress()`는 호통의 이미 계산된 absolute progress를 distance로 재해석하지 않고 position/state를 동기화한다.
 - projectile impact, Bark wave, 네 자동 스킬 효과는 lifecycle당 하나의 `CombatEffectPool` 120 actor를 공유한다. cap 이후에는 새 할당이나 crash 없이 effect를 drop하고 release/reset 뒤 actor identity를 재사용한다.
 - 기존 Task 9 projectile actor 80개는 그대로 분리해 유지한다. 기존 impact의 world hit 위치, 4 frame/120ms 및 Bark 180ms fixed-step age도 shared pool 위에서 보존한다.
@@ -28,7 +28,7 @@
 - 기존 임시 skill text HUD는 제거하고 canonical `SkillSystem` snapshot만 실제 HUD와 debug snapshot에 공급한다.
 - `all-skills`는 `src/game/debug`와 E2E 계약에만 존재한다. production skill level/cooldown 설정 hook은 추가하지 않았다.
 - `all-skills` E2E는 DOM 카드 버튼을 네 번 실제 클릭해 production `selectCard()` 경로로 네 스킬을 배운다. off-leash 31명의 실제 Bark 사망 보상 62로 네 threshold를 정확히 열어 다섯 번째 selection 간섭을 막는다.
-- safety 전용 HP 90 target은 다른 local skill 범위 밖에서 global Safety 90 피해로 사망한다. 최종 HP 10,000 일반 4명+boss 1명은 남아 네 cooldown/targeting/cast와 shelter safety를 실제 코드로 검증한다.
+- safety 전용 HP 90 target은 다른 local skill 범위 밖에서 global Safety 90 피해로 사망해 damage-before-stun lifecycle을 결정적으로 검증한다. 장기 stun 단축 버그를 피하기 위한 workaround는 더 이상 아니며, 최종 HP 10,000 일반 4명+boss 1명은 남아 네 cooldown/targeting/cast와 shelter safety를 실제 코드로 검증한다.
 - shared effect actor reset은 inactive 상태에서 texture manager를 다시 조회하지 않는다. Phaser Scene shutdown 뒤 파괴된 sprite를 건드리던 restart 오류를 없애고 새 lifecycle pool identity로 복구한다.
 
 ## RED -> GREEN 기록
@@ -59,7 +59,8 @@
 5. Safety target RED
    - 네 cast set 통과 뒤 shelter HP `Expected: 100 / Received: 97`
    - safety 3000ms stun이 scenario target의 장기 stun을 덮은 뒤 poop projectile이 도착한 것이 원인
-   - 범위 밖 HP 90 lethal Safety target을 추가해 production damage-before-stun 동작을 유지하면서 최종 다섯 target과 shelter를 보존, desktop/mobile GREEN
+   - 당시 범위 밖 HP 90 lethal Safety target을 추가해 production damage-before-stun 동작을 유지하면서 최종 다섯 target과 shelter를 보존, desktop/mobile GREEN
+   - 이후 독립 리뷰에서 overwrite 자체를 Important로 재검출해 아래 9번에서 제거했다. HP 90 target은 lifecycle 결정성 검증용으로 유지한다.
 6. Scene lifecycle RED
    - 관련 E2E 28개 중 24 PASS, restart/shutdown 4개 timeout
    - exact error: `TypeError: Cannot read properties of undefined (reading 'sys')` at `Sprite.setTexture` -> `CombatEffectActor.reset`
@@ -67,6 +68,14 @@
 7. Full unit 회귀 RED
    - invalid data Boot test에서 `TypeError: Cannot read properties of undefined (reading 'exists')`
    - game data 검증 성공 뒤에만 icon texture를 만드는 순서로 고쳐 invalid Boot 경로와 icon cache test 22/22 GREEN
+8. 독립 리뷰: 다중 skill event order RED
+   - `whole.step(18_000)`은 `scold, scold, aquaBeam, aquaBeam`, 1초 split은 `scold, aquaBeam, scold, aquaBeam`으로 달랐다.
+   - 두 cadence의 다음 boundary를 전역 시간축에서 함께 전진하고 같은 시각만 정의 순서로 처리했다.
+   - ready-no-target 뒤 overshoot와 arbitrary split까지 회귀 테스트로 고정해 `SkillSystem` 26/26 GREEN
+9. 독립 리뷰: Safety shorter re-stun RED
+   - `EnemySystem`은 기존 8000ms 대신 3000ms, `EnemyAttackSystem`은 재기절 3초 뒤 `stunned` 대신 `moving`, session은 Safety cast 직후 8750ms 대신 3000ms를 만들었다.
+   - 양쪽 stun은 `max(existingRemaining, newDuration)`을 사용하고, session의 같은-tick step 순서를 보정했다.
+   - 9초 stun target에 Safety가 nonlethal 적중한 뒤 3초 후에도 양쪽이 같은 release tick까지 stunned임을 통합 테스트로 고정해 focused 4 files / 86 tests GREEN
 
 ## 변경 파일
 
@@ -91,6 +100,7 @@
 ### 수정
 
 - `src/game/assets/AssetKeys.ts`
+- `src/game/combat/EnemyAttackSystem.ts`
 - `src/game/combat/ProjectileActorPool.ts`
 - `src/game/debug/ScenarioFactory.ts`
 - `src/game/debug/TestBridge.ts`
@@ -104,6 +114,7 @@
 - `tests/e2e/combat.spec.ts`
 - `tests/e2e/skill-selection.spec.ts`
 - `tests/unit/BarkSystem.test.ts`
+- `tests/unit/EnemyAttackSystem.test.ts`
 - `tests/unit/EnemySystem.test.ts`
 - `tests/unit/GameSession.test.ts`
 - `tests/unit/ProjectileSystem.test.ts`
@@ -116,7 +127,8 @@
 | 검증 | 결과 |
 | --- | --- |
 | focused skill/session/shared pool/HUD unit | PASS, 10 files / 129 tests |
-| `npm run test:unit` | PASS, 40 files / 402 tests |
+| external review focused skill/enemy/attack/session unit | PASS, 4 files / 86 tests |
+| `npm run test:unit` | PASS, 40 files / 407 tests |
 | `npm run typecheck` | PASS |
 | `npm run build` | PASS, TypeScript 및 Vite production build |
 | `npm run assets:verify` | PASS |
@@ -135,5 +147,5 @@
 
 - Vite production build는 Phaser를 포함한 단일 JS chunk 약 1.44MB에 대해 500kB 초과 경고를 출력한다. build exit는 0이며 기존 bundle-splitting 항목이다.
 - Playwright는 `FORCE_COLOR` 때문에 `NO_COLOR`가 무시된다는 경고를 출력한다. 전체 55 tests는 통과했다.
-- 독립 리뷰는 thread slot 제한 때문에 구현 agent 내부에서 새로 dispatch하지 못했고 parent가 기존 review agent를 재사용해 별도로 수행한다.
+- 독립 리뷰 결과는 Critical 0 / Important 2 / Minor 0이었고, 두 Important 모두 위 회귀 테스트와 구현으로 닫았다.
 - 구현 agent의 diff audit과 전체 검증 기준으로 기능상 미해결 오류는 없다.
