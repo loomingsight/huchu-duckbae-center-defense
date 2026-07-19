@@ -122,7 +122,7 @@ export function validateGameData({ paths, waves }: GameDataInput): readonly stri
         previousAtMs = spawn.atMs;
       }
 
-      if (paths[spawn.pathId] === undefined) {
+      if (!REQUIRED_PATH_SET.has(spawn.pathId)) {
         errors.push(`${label}[${spawnIndex}]: unknown path ${spawn.pathId}`);
       }
 

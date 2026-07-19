@@ -308,6 +308,29 @@ describe('validateGameData', () => {
     ]));
   });
 
+  it('Object prototype에서 상속되는 이름도 unknown path로 거부한다', () => {
+    const firstWave = WAVE_DEFINITIONS[0];
+    const waves = WAVE_DEFINITIONS.map((wave) => (
+      wave.wave === 1
+        ? {
+            wave: firstWave.wave,
+            spawns: [
+              { ...firstWave.spawns[0]!, pathId: 'toString' },
+              { ...firstWave.spawns[1]!, pathId: 'constructor' },
+              ...firstWave.spawns.slice(2),
+            ],
+          }
+        : wave
+    ));
+
+    const errors = validateGameData({ paths: PATH_DEFINITIONS, waves });
+
+    expect(errors).toEqual(expect.arrayContaining([
+      'wave 1[0]: unknown path toString',
+      'wave 1[1]: unknown path constructor',
+    ]));
+  });
+
   it('공식 경로와 5개 웨이브를 오류 없이 승인한다', () => {
     expect(validateGameData({ paths: PATH_DEFINITIONS, waves: WAVE_DEFINITIONS })).toEqual([]);
   });

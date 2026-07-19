@@ -26,6 +26,10 @@ describe('PathSystem', () => {
     expect(path.knockBack(20, 50)).toBe(0);
     expect(path.knockBack(90, -10)).toBe(90);
     expect(path.knockBack(Number.POSITIVE_INFINITY, 0)).toBe(100);
+    expect(path.knockBack(50, Number.POSITIVE_INFINITY)).toBe(0);
+    expect(path.knockBack(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY)).toBe(0);
+    expect(path.knockBack(Number.NEGATIVE_INFINITY, 10)).toBe(0);
+    expect(path.knockBack(50, Number.NEGATIVE_INFINITY)).toBe(50);
     expect(path.eta(10, 0)).toBe(Number.POSITIVE_INFINITY);
     expect(path.eta(10, -1)).toBe(Number.POSITIVE_INFINITY);
     expect(path.eta(10, Number.NEGATIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);

@@ -83,6 +83,9 @@ export class PathSystem {
   knockBack(progress: number, pathDistance: number): number {
     rejectNaN(progress, 'progress');
     rejectNaN(pathDistance, 'pathDistance');
+    if (pathDistance === Number.POSITIVE_INFINITY) {
+      return 0;
+    }
     return clamp(progress - Math.max(0, pathDistance), 0, this.length);
   }
 
