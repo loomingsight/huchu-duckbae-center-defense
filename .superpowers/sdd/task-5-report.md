@@ -65,27 +65,47 @@
 - 추가 GREEN: 두 번째 pointer 무시, pointerup/pointercancel 후 정지, 조이스틱과 키보드 동시 입력의 키보드 우선을 브라우저에서 확인했다
 - 최종 focused E2E: 19 passed / 3 expected skipped / 0 failed
 
+### 최종 리뷰 lifecycle·bounds RED / GREEN
+
+- RED 명령: `npm run test:unit -- tests/unit/ManualStepScheduler.test.ts tests/unit/InputVector.test.ts tests/unit/PlayerController.test.ts tests/unit/AnimationFrameResolver.test.ts tests/unit/KeyboardInput.test.ts tests/unit/TestBridgeLifecycle.test.ts`
+- 최초 결과: 6 files failed, 7 failed / 6 passed
+- scheduler max·overflow RED exact failure: `expected function to throw an error, but it didn't`
+- epsilon RED assertion: expected `0`, received `1`
+- joystick·controller·animation validation RED exact failure: `expected function to throw an error, but it didn't`
+- Phaser module을 직접 import한 lifecycle·keyboard 테스트는 Node 환경에서 `ReferenceError: window is not defined`로 실패해, Phaser와 분리한 순수 lifecycle port 계약으로 테스트 경계를 바로잡았다
+- 순수 경계 RED exact failure: `Cannot find module '../../src/game/player/KeyboardInputLifecycle'`
+- 순수 경계 RED exact failure: `Cannot find module '../../src/game/scenes/SceneRuntimeLifecycle'`
+- GREEN: TestBridge disposer가 설치한 bridge identity가 일치할 때만 전역을 삭제하고, Scene generation이 shutdown 전·후 dynamic import를 모두 무효화한다
+- GREEN: scheduler는 `120000ms = 7200 ticks`를 허용하고 호출당 10000 tick 초과 및 unsafe target을 상태 변경 전에 `RangeError`로 거부한다
+- GREEN: 키보드는 방향키·WASD 8개만 소유하고 `removeKey(code, true, true)`로 key와 capture를 대칭 해제한다
+- GREEN: epsilon을 tick 변환 전에 ms 단위로 적용하고, joystick·controller·animation public API의 non-finite·range 경계를 `RangeError`로 고정했다
+- 최종 focused unit: 6 files / 16 tests 통과
+
 ## 변경 파일
 
 - `src/game/player/*`
+- `src/game/player/KeyboardInputLifecycle.ts`
 - `src/game/world/MapView.ts`
 - `src/game/world/DebugPathOverlay.ts`
 - `src/game/world/AnimationFrameResolver.ts`
 - `src/game/debug/*`
 - `src/game/scenes/GameScene.ts`
+- `src/game/scenes/SceneRuntimeLifecycle.ts`
 - `tests/unit/InputVector.test.ts`
 - `tests/unit/PlayerController.test.ts`
 - `tests/unit/AnimationFrameResolver.test.ts`
 - `tests/unit/ManualStepScheduler.test.ts`
+- `tests/unit/KeyboardInput.test.ts`
+- `tests/unit/TestBridgeLifecycle.test.ts`
 - `tests/e2e/helpers.ts`
 - `tests/e2e/title-and-input.spec.ts`
 - `.superpowers/sdd/task-5-report.md`
 
 ## 검증
 
-- focused unit: 4 files / 6 tests 통과
+- focused unit: 6 files / 16 tests 통과
 - focused E2E: desktop/mobile 19 passed / 3 expected skipped / 0 failed
-- 전체 unit: 15 files / 85 tests 통과
+- 전체 unit: 17 files / 95 tests 통과
 - `npm run build`: typecheck·production build exit 0
 - `git diff --check`: exit 0
 - production dist: `index.html`, CSS, 단일 `index-*.js`만 생성; debug chunk 없음

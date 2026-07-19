@@ -7,6 +7,14 @@ it('키보드 대각선을 단위 벡터로 정규화한다', () => {
   expect(intent.magnitude).toBe(1);
 });
 
+it('조이스틱의 유한하지 않은 offset과 양수가 아닌 radius를 거부한다', () => {
+  expect(() => joystickVector({ x: Number.NaN, y: 0 }, 100)).toThrow(RangeError);
+  expect(() => joystickVector({ x: 0, y: Number.POSITIVE_INFINITY }, 100)).toThrow(RangeError);
+  for (const radius of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => joystickVector({ x: 1, y: 0 }, radius)).toThrow(RangeError);
+  }
+});
+
 it('조이스틱 반지름 15% 이하는 0이고 나머지는 0~1로 재매핑한다', () => {
   expect(joystickVector({ x: 10, y: 0 }, 100)).toEqual({ x: 0, y: 0, magnitude: 0 });
   const half = joystickVector({ x: 57.5, y: 0 }, 100);

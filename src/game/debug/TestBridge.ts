@@ -105,13 +105,28 @@ class PlayerOnlyTestBridge implements HuchuTestBridge, PlayerOnlyScenarioRuntime
   }
 }
 
-export function installTestBridge(scene: PlayerOnlyScenePort): void {
-  if (import.meta.env.MODE !== 'e2e') return;
+export function installTestBridge(scene: PlayerOnlyScenePort): () => void {
+  if (import.meta.env.MODE !== 'e2e') return NOOP;
   const params = new URLSearchParams(window.location.search);
-  if (params.get('e2e') !== '1' || params.get('clock') !== 'manual') return;
+  if (params.get('e2e') !== '1' || params.get('clock') !== 'manual') return NOOP;
   const seed = parseSeed(params.get('seed'));
-  window.__HUCHU_TEST__ = new PlayerOnlyTestBridge(scene, seed);
+  return installOwnedTestBridge(window, new PlayerOnlyTestBridge(scene, seed));
 }
+
+export function installOwnedTestBridge(
+  target: { __HUCHU_TEST__?: HuchuTestBridge },
+  bridge: HuchuTestBridge,
+): () => void {
+  target.__HUCHU_TEST__ = bridge;
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    if (target.__HUCHU_TEST__ === bridge) delete target.__HUCHU_TEST__;
+  };
+}
+
+const NOOP = (): void => {};
 
 function parseSeed(value: string | null): number {
   if (value === null) return 424242;

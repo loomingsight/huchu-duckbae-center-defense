@@ -15,6 +15,7 @@ import { PlayerView } from '../player/PlayerView';
 import { VirtualJoystick } from '../player/VirtualJoystick';
 import { DebugPathOverlay } from '../world/DebugPathOverlay';
 import { MapView } from '../world/MapView';
+import { SceneRuntimeLifecycle } from './SceneRuntimeLifecycle';
 
 const INITIAL_PLAYER_POSITION = { x: 270, y: 650 } as const;
 const MAX_CATCH_UP_STEPS = 5;
@@ -22,6 +23,7 @@ const MAX_CATCH_UP_STEPS = 5;
 export class GameScene extends Phaser.Scene {
   private readonly fixedClock = new FixedStepClock(FIXED_STEP_MS, MAX_CATCH_UP_STEPS);
   private readonly stateMachine = new GameStateMachine('playing');
+  private readonly runtimeLifecycle = new SceneRuntimeLifecycle();
   private playerController!: PlayerController;
   private playerView!: PlayerView;
   private keyboardInput!: KeyboardInput;
@@ -36,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    const generation = this.runtimeLifecycle.begin();
     const root = document.querySelector('#game-root');
     root?.setAttribute('data-scene', 'Game');
     root?.setAttribute('data-renderer', this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'other');
@@ -55,11 +58,12 @@ export class GameScene extends Phaser.Scene {
     this.virtualJoystick = new VirtualJoystick(this);
     this.renderPlayer();
 
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdownInputs, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdownRuntime(generation));
 
     if (import.meta.env.MODE === 'e2e') {
       void import('../debug/TestBridge').then(({ installTestBridge }) => {
-        installTestBridge(this);
+        if (!this.runtimeLifecycle.isActive(generation)) return;
+        this.runtimeLifecycle.attach(generation, installTestBridge(this));
       });
     }
   }
@@ -130,7 +134,8 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private shutdownInputs(): void {
+  private shutdownRuntime(generation: number): void {
+    this.runtimeLifecycle.end(generation);
     this.keyboardInput.destroy();
     this.virtualJoystick.destroy();
   }

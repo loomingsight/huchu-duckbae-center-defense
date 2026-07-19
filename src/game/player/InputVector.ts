@@ -18,6 +18,12 @@ export function joystickVector(
   offset: { x: number; y: number },
   radius: number,
 ): MovementIntent {
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
+    throw new RangeError('joystick offset must be finite');
+  }
+  if (!Number.isFinite(radius) || radius <= 0) {
+    throw new RangeError('joystick radius must be finite and positive');
+  }
   const raw = Math.min(Math.hypot(offset.x, offset.y) / radius, 1);
   if (raw <= 0.15) return { x: 0, y: 0, magnitude: 0 };
   const magnitude = (raw - 0.15) / 0.85;
