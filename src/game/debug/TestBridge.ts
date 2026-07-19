@@ -1,4 +1,10 @@
 import { FIXED_STEP_MS } from '../constants';
+import {
+  ENEMY_HP_BAR_HEIGHT,
+  ENEMY_HP_BAR_WIDTH,
+  enemyHpColor,
+  enemyHpRatio,
+} from '../enemies/EnemyHpBar';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
@@ -25,6 +31,7 @@ interface SessionScenePort {
   playerSnapshot(): PlayerSnapshot;
   sessionSnapshot(): RunSnapshot;
   enemyActorPoolSnapshot(): PoolSnapshot;
+  combatEffectsSnapshot(): PoolSnapshot;
   seedEnemyForScenario(seed: ScenarioEnemySeed): number;
   setVisibilityForTest(hidden: boolean): void;
   waitForRenderFlush(): Promise<void>;
@@ -58,10 +65,21 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   }
 
   snapshot(): GameDebugSnapshot {
+    const run = this.scene.sessionSnapshot();
     return {
-      ...this.scene.sessionSnapshot(),
+      ...run,
+      enemies: run.enemies.map((enemy) => ({
+        ...enemy,
+        hpBar: {
+          visible: true,
+          width: ENEMY_HP_BAR_WIDTH,
+          height: ENEMY_HP_BAR_HEIGHT,
+          color: enemyHpColor(enemyHpRatio(enemy.currentHp, enemy.maxHp)),
+        },
+      })),
       player: this.scene.playerSnapshot(),
       enemyPool: this.scene.enemyActorPoolSnapshot(),
+      barkWavePool: this.scene.combatEffectsSnapshot(),
     };
   }
 
@@ -126,8 +144,24 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         this.appendEvent({ type: event.type, request: event.request });
         return;
       case 'enemySpawned':
+        return;
+      case 'barkStarted':
+      case 'barkReleased':
+        this.appendEvent({
+          type: event.type,
+          attackId: event.attackId,
+          targetId: event.targetId,
+        });
+        return;
       case 'enemyDied':
+        this.appendEvent({ type: event.type, enemyId: event.enemyId });
+        return;
       case 'snackEarned':
+        this.appendEvent({
+          type: event.type,
+          enemyId: event.enemyId,
+          amount: event.amount,
+        });
         return;
       case 'waveCountdownChanged':
         this.appendEvent({ type: event.type, remainingMs: event.remainingMs });

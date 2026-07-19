@@ -1,13 +1,29 @@
 import type { GameMode } from '../core/GameMode';
+import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 
-export type TestScenarioId = 'empty-run' | 'wave-schedule' | 'health-bar-colors';
+export type TestScenarioId =
+  | 'empty-run'
+  | 'wave-schedule'
+  | 'health-bar-colors'
+  | 'bark-targeting';
 
-export interface GameDebugSnapshot extends RunSnapshot {
+export interface DebugEnemySnapshot extends EnemySnapshot {
+  readonly hpBar: {
+    readonly visible: true;
+    readonly width: number;
+    readonly height: number;
+    readonly color: number;
+  };
+}
+
+export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
+  readonly enemies: readonly DebugEnemySnapshot[];
   readonly player: { readonly x: number; readonly y: number };
   readonly enemyPool: PoolSnapshot;
+  readonly barkWavePool: PoolSnapshot;
 }
 
 type GameDebugEventMetadata = {
@@ -19,6 +35,10 @@ export type GameDebugEvent = GameDebugEventMetadata & (
   | { readonly type: 'modeChanged'; readonly mode: GameMode }
   | { readonly type: 'playerMoved' }
   | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }
+  | { readonly type: 'barkStarted'; readonly attackId: string; readonly targetId: number }
+  | { readonly type: 'barkReleased'; readonly attackId: string; readonly targetId: number }
+  | { readonly type: 'enemyDied'; readonly enemyId: number }
+  | { readonly type: 'snackEarned'; readonly enemyId: number; readonly amount: number }
   | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number }
 );
 

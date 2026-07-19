@@ -3,6 +3,7 @@ import {
   FIXED_STEP_MS,
   TIME_EPSILON_MS,
 } from '../constants';
+import { barkCadenceMs } from '../combat/BarkSystem';
 import { FixedStepClock } from '../core/FixedStepClock';
 import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
@@ -37,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   private manualClock = false;
   private worldAnimationMs = 0;
   private moving = false;
+  private barkAnimationElapsedMs: number | undefined;
 
   constructor() {
     super('Game');
@@ -53,6 +55,7 @@ export class GameScene extends Phaser.Scene {
     this.manualClock = isE2eManualClock();
     this.worldAnimationMs = 0;
     this.moving = false;
+    this.barkAnimationElapsedMs = undefined;
     this.enemyActors = new EnemyActorPool(this);
 
     new MapView(this);
@@ -100,15 +103,19 @@ export class GameScene extends Phaser.Scene {
     this.playerController.step(stepMs, intent);
     this.moving = intent.magnitude > 0;
     this.worldAnimationMs += stepMs;
+    this.advanceCombatVisuals(stepMs);
     const events = this.session.step(stepMs, this.playerController.snapshot());
     this.applySessionEvents(events);
+    if (this.session.barkSnapshot().ready) this.barkAnimationElapsedMs = undefined;
     return events;
   }
 
   resetSession(seed: number): void {
     this.enemyActors?.releaseAll();
+    this.playerView.resetCombatVisuals();
     this.session.reset(seed);
     this.fixedClock.reset();
+    this.barkAnimationElapsedMs = undefined;
     this.updateWaveCountdown(0);
     this.renderEnemies();
   }
@@ -131,6 +138,10 @@ export class GameScene extends Phaser.Scene {
   enemyActorPoolSnapshot(): PoolSnapshot {
     if (this.enemyActors === undefined) throw new Error('Enemy actor pool is not initialized');
     return this.enemyActors.snapshot();
+  }
+
+  combatEffectsSnapshot(): PoolSnapshot {
+    return this.playerView.effectPoolSnapshot();
   }
 
   seedEnemyForScenario(seed: ScenarioEnemySeed): number {
@@ -162,6 +173,7 @@ export class GameScene extends Phaser.Scene {
       ...this.playerController.snapshot(),
       worldAnimationMs: this.worldAnimationMs,
       moving: this.moving,
+      barkElapsedMs: this.barkAnimationElapsedMs,
     });
   }
 
@@ -175,6 +187,8 @@ export class GameScene extends Phaser.Scene {
         const actor = this.enemyActors?.acquire(event.enemyId);
         if (actor === undefined) throw new Error('Enemy actor pool exhausted');
       }
+      if (event.type === 'barkStarted') this.barkAnimationElapsedMs = 0;
+      if (event.type === 'barkReleased') this.playerView.showBarkWave(event.origin, event.target);
       if (event.type === 'enemyDied') this.enemyActors?.release(event.enemyId);
       if (event.type === 'waveCountdownChanged') this.updateWaveCountdown(event.remainingMs);
     });
@@ -193,8 +207,23 @@ export class GameScene extends Phaser.Scene {
   private shutdownRuntime(generation: number): void {
     this.runtimeLifecycle.end(generation);
     this.enemyActors = undefined;
+    this.playerView.destroy();
     this.keyboardInput.destroy();
     this.virtualJoystick.destroy();
+  }
+
+  private advanceCombatVisuals(stepMs: number): void {
+    this.playerView.stepSimulation(stepMs);
+    if (this.barkAnimationElapsedMs === undefined) return;
+    const barkLevel = this.session.snapshot().skills.bark;
+    if (barkLevel === 0) {
+      this.barkAnimationElapsedMs = undefined;
+      return;
+    }
+    const nextElapsedMs = this.barkAnimationElapsedMs + stepMs;
+    this.barkAnimationElapsedMs = nextElapsedMs + TIME_EPSILON_MS >= barkCadenceMs(barkLevel)
+      ? undefined
+      : nextElapsedMs;
   }
 }
 

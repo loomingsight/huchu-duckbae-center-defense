@@ -19,6 +19,10 @@ export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId
       resetRun(runtime);
       seedHealthBarColors(runtime);
       return;
+    case 'bark-targeting':
+      resetRun(runtime);
+      seedBarkTargets(runtime);
+      return;
     default:
       throw new RangeError(`Unknown test scenario: ${String(id)}`);
   }
@@ -35,6 +39,11 @@ export function loadWaveSchedule(runtime: SessionScenarioRuntime): void {
 export function loadHealthBarColors(runtime: SessionScenarioRuntime): void {
   resetRun(runtime);
   seedHealthBarColors(runtime);
+}
+
+export function loadBarkTargeting(runtime: SessionScenarioRuntime): void {
+  resetRun(runtime);
+  seedBarkTargets(runtime);
 }
 
 function resetRun(runtime: SessionScenarioRuntime): void {
@@ -62,5 +71,28 @@ function seedHealthBarColors(runtime: SessionScenarioRuntime): void {
       state: 'stunned',
       stunnedMs: 60_000,
     });
+  });
+}
+
+function seedBarkTargets(runtime: SessionScenarioRuntime): void {
+  runtime.seedEnemy({
+    kind: 'poopGuardian',
+    variant: 'male',
+    pathId: 'P6',
+    placement: { kind: 'worldPoint', x: 270, y: 625 },
+    currentHp: 20,
+    maxHp: 35,
+    state: 'stunned',
+    stunnedMs: 60_000,
+  });
+  runtime.seedEnemy({
+    kind: 'poopGuardian',
+    variant: 'female',
+    pathId: 'P6',
+    placement: { kind: 'worldPoint', x: 270, y: 704 },
+    currentHp: 35,
+    maxHp: 35,
+    state: 'stunned',
+    stunnedMs: 60_000,
   });
 }
