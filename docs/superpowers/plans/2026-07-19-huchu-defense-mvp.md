@@ -12,7 +12,7 @@ Phaser는 승인된 설계를 재해석하지 않고 `4.1.0`으로 고정한다.
 
 ## Global Constraints
 
-- 논리 해상도는 `540 × 960`, 렌더러는 `Phaser.WEBGL`, Scale은 `FIT`과 `CENTER_BOTH`, DPR은 최대 2다.
+- 논리 및 backing-store 해상도는 항상 `540 × 960`, 렌더러는 `Phaser.WEBGL`, Scale은 `FIT`과 `CENTER_BOTH`다. 브라우저 DPR로 backing-store를 늘리지 않는다.
 - 시뮬레이션은 `1000 / 60ms` 고정 스텝이며 한 렌더 프레임의 catch-up은 최대 5스텝이다.
 - 고정 스텝 횟수는 정수 tick으로 저장하고 `simulationMs = ticks * 1000 / 60` 순서로 계산한다. duration 경계 비교는 공통 `reachedDuration`을 사용해 부동소수 누적으로 한 tick 늦어지지 않게 한다.
 - 순수 규칙 모듈은 Phaser를 import하지 않고 `Math.random()`, `Date.now()`, `performance.now()`를 직접 호출하지 않는다.
@@ -279,22 +279,21 @@ declare global {
 - Test: `tests/e2e/title-and-input.spec.ts`
 
 **Interfaces:**
-- Consumes: 브라우저의 `devicePixelRatio`, WebGL 지원 여부
-- Produces: `createGameConfig(devicePixelRatio)`, 5개 Scene key, `540 × 960` canvas, 시작 버튼
+- Consumes: WebGL 지원 여부
+- Produces: `createGameConfig()`, 5개 Scene key, 고정 `540 × 960` backing-store canvas, 시작 버튼
 
 - [ ] **Step 1: Phaser 설정 계약의 실패 테스트를 작성한다.**
 
 ```ts
 // tests/unit/createGameConfig.test.ts
 import { describe, expect, it } from 'vitest';
-import { GAME_CONFIG_SPEC, resolveDpr } from '../../src/game/GameConfigSpec';
+import { GAME_CONFIG_SPEC } from '../../src/game/GameConfigSpec';
 
 describe('GAME_CONFIG_SPEC', () => {
-  it('Node 환경에서 Phaser import 없이 세로 WebGL 계약을 고정한다', () => {
+  it('Node 환경에서 Phaser import 없이 고정 backing-store WebGL 계약을 고정한다', () => {
     expect(GAME_CONFIG_SPEC).toEqual({
-      width: 540, height: 960, renderer: 'WEBGL', scaleMode: 'FIT', autoCenter: 'CENTER_BOTH', maxDpr: 2,
+      width: 540, height: 960, renderer: 'WEBGL', scaleMode: 'FIT', autoCenter: 'CENTER_BOTH',
     });
-    expect(resolveDpr(3)).toBe(2);
   });
 });
 ```
@@ -458,26 +457,24 @@ export const subtractDuration = (remainingMs: number, stepMs: number) => {
 
 // src/game/GameConfigSpec.ts
 export const GAME_CONFIG_SPEC = {
-  width: 540, height: 960, renderer: 'WEBGL', scaleMode: 'FIT', autoCenter: 'CENTER_BOTH', maxDpr: 2,
+  width: 540, height: 960, renderer: 'WEBGL', scaleMode: 'FIT', autoCenter: 'CENTER_BOTH',
 } as const;
-export const resolveDpr = (value: number) => Math.min(Math.max(value, 1), GAME_CONFIG_SPEC.maxDpr);
 
 // src/game/createGame.ts
 import Phaser from 'phaser';
-import { GAME_CONFIG_SPEC, resolveDpr } from './GameConfigSpec';
+import { GAME_CONFIG_SPEC } from './GameConfigSpec';
 import { BootScene } from './scenes/BootScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { TitleScene } from './scenes/TitleScene';
 import { GameScene } from './scenes/GameScene';
 import { ResultScene } from './scenes/ResultScene';
 
-export function createGameConfig(devicePixelRatio = 1): Phaser.Types.Core.GameConfig {
+export function createGameConfig(): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.WEBGL,
     parent: 'game-root',
     width: GAME_CONFIG_SPEC.width,
     height: GAME_CONFIG_SPEC.height,
-    resolution: resolveDpr(devicePixelRatio),
     backgroundColor: '#8fc66b',
     dom: { createContainer: true },
     render: { antialias: true, roundPixels: true, powerPreference: 'high-performance' },
@@ -487,7 +484,7 @@ export function createGameConfig(devicePixelRatio = 1): Phaser.Types.Core.GameCo
 }
 
 export function createGame(): Phaser.Game {
-  return new Phaser.Game(createGameConfig(window.devicePixelRatio));
+  return new Phaser.Game(createGameConfig());
 }
 ```
 
@@ -558,7 +555,10 @@ import { expect, test } from '@playwright/test';
 
 test('시작 버튼으로 GameScene에 진입한다', async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('canvas')).toBeVisible();
+  const canvas = page.locator('canvas');
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveJSProperty('width', 540);
+  await expect(canvas).toHaveJSProperty('height', 960);
   await page.getByRole('button', { name: '보호소 지키기' }).click();
   await expect(page.locator('#game-root')).toHaveAttribute('data-scene', 'Game');
   await expect(page.locator('#game-root')).toHaveAttribute('data-renderer', 'webgl');
