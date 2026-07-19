@@ -84,6 +84,51 @@ describe('WaveSystem', () => {
     });
   });
 
+  it('W5 preview 후 start와 spawn까지 같은 cached variant를 쓰고 RNG는 총 한 번만 소비한다', () => {
+    const values = [0.9, 0.1];
+    let calls = 0;
+    const system = new WaveSystem(WAVE_DEFINITIONS, {
+      next: () => values[calls++]!,
+    });
+
+    const preview = system.previewBoss(5);
+    system.start(5);
+    const boss = system.step(10_000, 0).at(-1);
+
+    expect(preview).toMatchObject({ kind: 'illegalBreeder', variant: 'female' });
+    expect(boss).toMatchObject({ kind: 'illegalBreeder', variant: 'female' });
+    expect(calls).toBe(1);
+  });
+
+  it('W5 start 후 preview도 start에서 고른 cached variant를 쓰고 RNG는 총 한 번만 소비한다', () => {
+    const values = [0.1, 0.9];
+    let calls = 0;
+    const system = new WaveSystem(WAVE_DEFINITIONS, {
+      next: () => values[calls++]!,
+    });
+
+    system.start(5);
+    const preview = system.previewBoss(5);
+    const boss = system.step(10_000, 0).at(-1);
+
+    expect(preview).toMatchObject({ kind: 'illegalBreeder', variant: 'male' });
+    expect(boss).toMatchObject({ kind: 'illegalBreeder', variant: 'male' });
+    expect(calls).toBe(1);
+  });
+
+  it('dogTrader preview는 seeded variant가 아니므로 RNG를 소비하지 않는다', () => {
+    let calls = 0;
+    const system = new WaveSystem(WAVE_DEFINITIONS, {
+      next: () => {
+        calls += 1;
+        return 0.9;
+      },
+    });
+
+    expect(system.previewBoss(3)).toMatchObject({ kind: 'dogTrader', variant: 'male' });
+    expect(calls).toBe(0);
+  });
+
   it('W5 start에서 RNG를 정확히 한 번 소비하고 boss variant를 고정한다', () => {
     let calls = 0;
     const system = new WaveSystem(WAVE_DEFINITIONS, {
@@ -184,5 +229,17 @@ describe('WaveSystem', () => {
 
     expect(() => system.previewBoss(1)).toThrow(RangeError);
     expect(() => system.previewBoss(0)).toThrow(RangeError);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ])('enemyCap %s를 positive safe integer가 아니면 거부한다', (enemyCap) => {
+    expect(() => new WaveSystem(WAVE_DEFINITIONS, new SeededRng(1), enemyCap))
+      .toThrow(RangeError);
   });
 });

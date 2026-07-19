@@ -87,3 +87,33 @@
 
 - 기능상 미해결 우려는 없다
 - production JS chunk가 500 kB를 넘는 기존 Vite 경고는 계속 출력되지만 build는 성공했다
+
+---
+
+## 독립 리뷰 수정: boss preview 결정성과 snapshot 격리
+
+### RED
+
+- 명령: `npm run test:unit -- tests/unit/WaveSystem.test.ts tests/unit/GameSession.test.ts`
+- 결과: 2 files failed, 9 failed / 25 passed
+- preview 후 start RED: W5 preview는 `female`이었지만 실제 boss는 `male`
+- start 후 preview RED: start에서 고른 값은 `male`이었지만 preview는 `female`
+- invalid cap RED: `0`, `-1`, `1.5`, `NaN`, `Infinity`, safe integer 초과가 모두 `expected function to throw an error, but it didn't`
+- skills mutation RED: expected `[1, 1, 1]`, received `[3, 3, 3]`
+
+### GREEN
+
+- seeded boss variant를 wave별 cache/ensure로 선택해 `preview -> start -> step`, `start -> preview -> step` 모두 같은 variant를 사용한다
+- 동일 `WaveSystem`에서 W5 RNG 소비는 호출 순서와 무관하게 총 한 번이며 dogTrader preview는 RNG를 소비하지 않는다
+- `enemyCap` 생성자는 positive safe integer만 허용한다
+- `GameSession.snapshot()`은 매번 새 skills 객체를 반환해 외부 mutation이 같은 session, 다른 session, reset 이후 snapshot을 오염시키지 않는다
+- focused WaveSystem/GameSession: 2 files / 34 tests 통과
+
+### 재검증
+
+- 전체 unit: 19 files / 129 tests 통과
+- `npm run build`: typecheck 포함 exit 0
+- Task 5 desktop/mobile + Task 6 wave E2E: 21 passed / 3 expected skipped / 0 failed
+- production debug scan과 pure WaveSystem/session wall-clock·Phaser scan: match 0
+- 변경 범위: `WaveSystem`, `GameSession`, 두 unit test와 이 보고서만 수정
+- `git diff --check`: exit 0

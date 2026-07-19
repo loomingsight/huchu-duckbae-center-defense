@@ -17,12 +17,17 @@ export class WaveSystem {
   private sequence = 0;
   private started = false;
   private finalBossVariant: 'male' | 'female' = 'male';
+  private readonly seededBossVariants = new Map<number, 'male' | 'female'>();
 
   constructor(
     private readonly definitions: readonly WaveDefinition[],
     private readonly rng: RandomSource,
     private readonly enemyCap = 60,
-  ) {}
+  ) {
+    if (!Number.isSafeInteger(enemyCap) || enemyCap <= 0) {
+      throw new RangeError('enemyCap must be a positive safe integer');
+    }
+  }
 
   start(waveNumber: number): void {
     if (!Number.isSafeInteger(waveNumber)) {
@@ -36,7 +41,7 @@ export class WaveSystem {
 
     let finalBossVariant: 'male' | 'female' = 'male';
     if (definition.spawns.some((spawn) => spawn.variant === 'seeded')) {
-      finalBossVariant = this.rng.next() < 0.5 ? 'male' : 'female';
+      finalBossVariant = this.ensureSeededBossVariant(waveNumber);
     }
 
     this.currentWaveIndex = index;
@@ -56,7 +61,7 @@ export class WaveSystem {
       throw new RangeError(`Wave ${waveNumber} has no boss`);
     }
     const variant = scheduled.variant === 'seeded'
-      ? (this.rng.next() < 0.5 ? 'male' : 'female')
+      ? this.ensureSeededBossVariant(waveNumber)
       : scheduled.variant;
     return { ...scheduled, variant, spawnSequence: 0 };
   }
@@ -109,5 +114,13 @@ export class WaveSystem {
 
   private currentDefinition(): WaveDefinition {
     return this.definitions.at(this.currentWaveIndex)!;
+  }
+
+  private ensureSeededBossVariant(waveNumber: number): 'male' | 'female' {
+    const cached = this.seededBossVariants.get(waveNumber);
+    if (cached !== undefined) return cached;
+    const selected = this.rng.next() < 0.5 ? 'male' : 'female';
+    this.seededBossVariants.set(waveNumber, selected);
+    return selected;
   }
 }

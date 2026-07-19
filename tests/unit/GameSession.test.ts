@@ -66,6 +66,23 @@ describe('GameSession', () => {
     });
   });
 
+  it('snapshot skills 외부 mutation이 다른 snapshot·session·reset을 오염시키지 않는다', () => {
+    const first = GameSession.create({ seed: 1 });
+    const exposed = first.snapshot().skills as { bark: number };
+
+    try {
+      exposed.bark = 3;
+      const currentSnapshot = first.snapshot().skills.bark;
+      const otherSession = GameSession.create({ seed: 2 }).snapshot().skills.bark;
+      first.reset(3);
+      const resetSnapshot = first.snapshot().skills.bark;
+
+      expect([currentSnapshot, otherSession, resetSnapshot]).toEqual([1, 1, 1]);
+    } finally {
+      exposed.bark = 1;
+    }
+  });
+
   it('정확히 한 fixed step만 받고 invalid step은 mode와 무관하게 fail-fast한다', () => {
     const run = GameSession.create({ seed: 1 });
     run.forceModeForTest('countdown');

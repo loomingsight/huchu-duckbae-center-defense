@@ -65,7 +65,7 @@ export class GameSession {
       activeProjectileCount: 0,
       shelterHp: BALANCE.shelter.maxHp,
       snacks: 0,
-      skills: INITIAL_SKILLS,
+      skills: { ...INITIAL_SKILLS },
     };
   }
 
