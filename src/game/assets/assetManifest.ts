@@ -66,3 +66,20 @@ export const spriteSheetAssets = [
     frameHeight: 256,
   },
 ] as const;
+
+export const requiredTextureKeys = [
+  ...imageAssets.map(({ key }) => key),
+  ...spriteSheetAssets.map(({ key }) => key),
+] as const;
+
+export function requiredAssetFailureCount(
+  requiredKeys: readonly string[],
+  textureExists: (key: string) => boolean,
+  loadFailures: number,
+): number {
+  const missingTextures = requiredKeys.reduce(
+    (count, key) => count + (textureExists(key) ? 0 : 1),
+    0,
+  );
+  return Math.max(loadFailures, missingTextures);
+}

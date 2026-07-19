@@ -1,4 +1,6 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error Asset build scripts are executable ESM JavaScript without declaration files.
@@ -28,8 +30,8 @@ describe('runtime assets', () => {
   });
 
   it('보호소 원본의 네 열을 각각 trim해 빌드한다', async () => {
-    await mkdir('public/assets/shelter', { recursive: true });
-    await expect(buildShelter()).resolves.toBeUndefined();
+    const root = await mkdtemp(path.join(tmpdir(), 'huchu-shelter-build-'));
+    await expect(buildShelter(path.join(root, 'shelter-states.png'))).resolves.toBeUndefined();
   });
 
   it('맵은 승인 해상도의 WebP다', async () => {

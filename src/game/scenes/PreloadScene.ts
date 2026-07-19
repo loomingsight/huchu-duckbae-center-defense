@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { imageAssets, spriteSheetAssets } from '../assets/assetManifest';
+import {
+  imageAssets,
+  requiredAssetFailureCount,
+  requiredTextureKeys,
+  spriteSheetAssets,
+} from '../assets/assetManifest';
 
 export class PreloadScene extends Phaser.Scene {
   private failedFiles = 0;
@@ -22,12 +27,17 @@ export class PreloadScene extends Phaser.Scene {
 
   create(): void {
     this.load.off(Phaser.Loader.Events.FILE_LOAD_ERROR, this.onLoadError, this);
-    if (this.failedFiles === 0) {
+    const failedFiles = requiredAssetFailureCount(
+      requiredTextureKeys,
+      (key) => this.textures.exists(key),
+      this.failedFiles,
+    );
+    if (failedFiles === 0) {
       this.scene.start('Title');
       return;
     }
     this.add
-      .text(270, 390, `필수 그림 ${this.failedFiles}개를 불러오지 못했어요`, {
+      .text(270, 390, `필수 그림 ${failedFiles}개를 불러오지 못했어요`, {
         fontFamily: 'system-ui, sans-serif',
         fontSize: '22px',
         color: '#5b2117',

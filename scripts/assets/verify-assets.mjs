@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
-import { buildMaskedMapBuffer } from './build-assets.mjs';
+import {
+  buildCharacterBuffer,
+  buildMapBuffer,
+  buildMaskedMapBuffer,
+  buildShelterBuffer,
+} from './build-assets.mjs';
 import { characterOutput, characterSheets, mapAsset, shelterAsset } from './manifest.mjs';
 
 const failures = [];
@@ -151,6 +158,17 @@ function outsideEditMask(x, y) {
   return dx * dx + dy * dy > 1;
 }
 
+export function percentileFromByteHistogram(histogram, count, quantile) {
+  if (count === 0) return 0;
+  const targetIndex = Math.min(count - 1, Math.floor(count * quantile));
+  let cumulative = 0;
+  for (let value = 0; value < histogram.length; value += 1) {
+    cumulative += histogram[value];
+    if (cumulative > targetIndex) return value;
+  }
+  return histogram.length - 1;
+}
+
 async function verifyMap() {
   const metadata = await sharp(mapAsset.output).metadata();
   if (
@@ -166,7 +184,9 @@ async function verifyMap() {
     sharp(await buildMaskedMapBuffer()).removeAlpha().raw().toBuffer(),
     sharp(mapAsset.output).removeAlpha().raw().toBuffer(),
   ]);
-  const errors = [];
+  const errorHistogram = new Uint32Array(256);
+  let errorCount = 0;
+  let errorSum = 0;
   for (let y = 0; y < mapAsset.height; y += 1) {
     for (let x = 0; x < mapAsset.width; x += 1) {
       if (!outsideEditMask(x, y)) continue;
@@ -180,13 +200,15 @@ async function verifyMap() {
           });
           return;
         }
-        errors.push(Math.abs(source[offset + channel] - encoded[offset + channel]));
+        const error = Math.abs(source[offset + channel] - encoded[offset + channel]);
+        errorHistogram[error] += 1;
+        errorCount += 1;
+        errorSum += error;
       }
     }
   }
-  errors.sort((a, b) => a - b);
-  const mean = errors.reduce((sum, value) => sum + value, 0) / errors.length;
-  const p99 = errors.at(Math.floor(errors.length * 0.99)) ?? 0;
+  const mean = errorCount === 0 ? 0 : errorSum / errorCount;
+  const p99 = percentileFromByteHistogram(errorHistogram, errorCount, 0.99);
   if (mean > 3 || p99 > 12) {
     fail(mapAsset.output, 'WebP drift outside edit mask exceeds tolerance', { mean, p99 });
   }
@@ -202,19 +224,115 @@ async function verifyProvenance() {
   }
 }
 
-await mkdir('.cache/asset-review', { recursive: true });
-try {
-  await verifyProvenance();
-  for (const entry of characterSheets) await verifyCharacter(entry);
-  await Promise.all([verifyShelter(), verifyMap()]);
-} catch (error) {
-  fail('asset-pipeline', error instanceof Error ? error.message : String(error));
+export async function verifyGeneratedApprovals(root = '.') {
+  const manifest = path.resolve(root, 'assets/source/generated-approvals.json');
+  const entries = JSON.parse(await readFile(manifest, 'utf8'));
+  const approvalFailures = [];
+  for (const entry of entries) {
+    const actual = createHash('sha256')
+      .update(await readFile(path.resolve(root, entry.source)))
+      .digest('hex');
+    if (actual !== entry.sha256) {
+      approvalFailures.push({
+        source: entry.source,
+        reason: 'SHA-256 differs from generated approval',
+        expected: entry.sha256,
+        actual,
+      });
+    }
+  }
+  return approvalFailures;
 }
-await writeFile(
-  '.cache/asset-review/asset-report.json',
-  `${JSON.stringify({ failures }, null, 2)}\n`,
-);
-if (failures.length > 0) {
-  console.error(JSON.stringify({ failures }, null, 2));
-  process.exitCode = 1;
+
+async function rawPixelsEqual(expected, actual) {
+  const [expectedPixels, actualPixels] = await Promise.all([
+    rgbaPixels(expected),
+    rgbaPixels(actual),
+  ]);
+  return (
+    expectedPixels.info.width === actualPixels.info.width &&
+    expectedPixels.info.height === actualPixels.info.height &&
+    expectedPixels.info.channels === actualPixels.info.channels &&
+    expectedPixels.data.equals(actualPixels.data)
+  );
+}
+
+export async function verifyRuntimeFreshness(outputRoot = '.') {
+  const freshnessFailures = [];
+  for (const entry of characterSheets) {
+    const file = characterOutput(entry.key);
+    try {
+      const expected = await buildCharacterBuffer(entry);
+      if (!(await rawPixelsEqual(expected, path.resolve(outputRoot, file)))) {
+        freshnessFailures.push({ file, reason: 'runtime output is stale for current sources' });
+      }
+    } catch (error) {
+      freshnessFailures.push({
+        file,
+        reason: 'runtime output is stale for current sources',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const shelterFile = shelterAsset.output;
+  try {
+    const expectedShelter = await buildShelterBuffer();
+    if (!(await rawPixelsEqual(expectedShelter, path.resolve(outputRoot, shelterFile)))) {
+      freshnessFailures.push({
+        file: shelterFile,
+        reason: 'runtime output is stale for current sources',
+      });
+    }
+  } catch (error) {
+    freshnessFailures.push({
+      file: shelterFile,
+      reason: 'runtime output is stale for current sources',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const mapFile = mapAsset.output;
+  try {
+    const [expectedMap, actualMap] = await Promise.all([
+      buildMapBuffer(),
+      readFile(path.resolve(outputRoot, mapFile)),
+    ]);
+    if (!expectedMap.equals(actualMap)) {
+      freshnessFailures.push({ file: mapFile, reason: 'runtime output is stale for current sources' });
+    }
+  } catch (error) {
+    freshnessFailures.push({
+      file: mapFile,
+      reason: 'runtime output is stale for current sources',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return freshnessFailures;
+}
+
+export async function main() {
+  await mkdir('.cache/asset-review', { recursive: true });
+  try {
+    await verifyProvenance();
+    failures.push(...(await verifyGeneratedApprovals()));
+    failures.push(...(await verifyRuntimeFreshness()));
+    for (const entry of characterSheets) await verifyCharacter(entry);
+    await Promise.all([verifyShelter(), verifyMap()]);
+  } catch (error) {
+    fail('asset-pipeline', error instanceof Error ? error.message : String(error));
+  }
+  await writeFile(
+    '.cache/asset-review/asset-report.json',
+    `${JSON.stringify({ failures }, null, 2)}\n`,
+  );
+  if (failures.length > 0) {
+    console.error(JSON.stringify({ failures }, null, 2));
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
 }

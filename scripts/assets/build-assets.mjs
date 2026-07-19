@@ -1,4 +1,5 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { characterOutput, characterSheets, mapAsset, shelterAsset } from './manifest.mjs';
@@ -15,26 +16,29 @@ async function resizedRow(source, top) {
     .toBuffer();
 }
 
-export async function buildCharacter(entry) {
-  const output = characterOutput(entry.key);
+export async function buildCharacterBuffer(entry) {
   if (entry.attackEdit === undefined) {
-    await sharp(entry.source)
+    return sharp(entry.source)
       .ensureAlpha()
       .resize(768, 512, { kernel: sharp.kernel.lanczos3 })
       .png(pngOptions)
-      .toFile(output);
-    return;
+      .toBuffer();
   }
 
   const [top, bottom] = await Promise.all([
     resizedRow(entry.source, 0),
     resizedRow(entry.attackEdit, 512),
   ]);
-  await sharp(Buffer.concat([top, bottom]), {
+  return sharp(Buffer.concat([top, bottom]), {
     raw: { width: 768, height: 512, channels: 4 },
   })
     .png(pngOptions)
-    .toFile(output);
+    .toBuffer();
+}
+
+export async function buildCharacter(entry, output = characterOutput(entry.key)) {
+  await mkdir(path.dirname(output), { recursive: true });
+  await writeFile(output, await buildCharacterBuffer(entry));
 }
 
 async function mapMask() {
@@ -72,11 +76,16 @@ export async function buildMaskedMapBuffer() {
     .toBuffer();
 }
 
-export async function buildMap() {
+export async function buildMapBuffer() {
   const lossless = await buildMaskedMapBuffer();
-  await sharp(lossless)
+  return sharp(lossless)
     .webp({ quality: 85, effort: 6, smartSubsample: true })
-    .toFile(mapAsset.output);
+    .toBuffer();
+}
+
+export async function buildMap(output = mapAsset.output) {
+  await mkdir(path.dirname(output), { recursive: true });
+  await writeFile(output, await buildMapBuffer());
 }
 
 async function extractShelterFrames() {
@@ -109,7 +118,7 @@ async function extractShelterFrames() {
   );
 }
 
-export async function buildShelter() {
+export async function buildShelterBuffer() {
   const frames = await extractShelterFrames();
   const maxWidth = Math.max(...frames.map((frame) => frame.info.width));
   const maxHeight = Math.max(...frames.map((frame) => frame.info.height));
@@ -129,20 +138,30 @@ export async function buildShelter() {
       };
     }),
   );
-  await sharp({ create: { width: 1024, height: 256, channels: 4, background: transparent } })
+  return sharp({ create: { width: 1024, height: 256, channels: 4, background: transparent } })
     .composite(composites)
     .png(pngOptions)
-    .toFile(shelterAsset.output);
+    .toBuffer();
+}
+
+export async function buildShelter(output = shelterAsset.output) {
+  await mkdir(path.dirname(output), { recursive: true });
+  await writeFile(output, await buildShelterBuffer());
+}
+
+export async function buildAssets({ outputRoot = '.' } = {}) {
+  const outputPath = (relative) => path.resolve(outputRoot, relative);
+  for (const entry of characterSheets) {
+    await buildCharacter(entry, outputPath(characterOutput(entry.key)));
+  }
+  await Promise.all([
+    buildMap(outputPath(mapAsset.output)),
+    buildShelter(outputPath(shelterAsset.output)),
+  ]);
 }
 
 export async function main() {
-  await Promise.all([
-    mkdir('public/assets/characters', { recursive: true }),
-    mkdir('public/assets/map', { recursive: true }),
-    mkdir('public/assets/shelter', { recursive: true }),
-  ]);
-  for (const entry of characterSheets) await buildCharacter(entry);
-  await Promise.all([buildMap(), buildShelter()]);
+  await buildAssets();
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

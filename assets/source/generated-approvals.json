@@ -1,0 +1,18 @@
+[
+  {
+    "source": "assets/source/generated/enemy-poop-male-throw-edit.png",
+    "sha256": "536f6fdcd364cabda3ac7776b91a3e5c47c98d10f7c47cf4383d9db864bb41b1"
+  },
+  {
+    "source": "assets/source/generated/enemy-poop-female-throw-edit.png",
+    "sha256": "f782493472a372b514842ff797aa6402f5a65ae965581d75e030bf993e789870"
+  },
+  {
+    "source": "assets/source/generated/map-background-edit.png",
+    "sha256": "ef8c2d666686ae8782f6166b5afe874408c1c99d3561c3be2226595185095f8e"
+  },
+  {
+    "source": "assets/source/generated/shelter-states-edit.png",
+    "sha256": "b31de09ce38f20536ef095309559c12e592554e16f6e1f2e9e842e97171e94bd"
+  }
+]
