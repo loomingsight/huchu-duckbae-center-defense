@@ -99,3 +99,36 @@
 - 기능상 미해결 우려는 없다
 - sandbox 내 최초 Playwright 실행은 `Error: listen EPERM: operation not permitted 127.0.0.1:5174`로 Vite bind가 차단됐고, 허용된 로컬 서버 경로로 재실행해 통과했다
 - production JS chunk가 500kB를 넘는 기존 Vite 경고는 계속 출력되지만 build는 성공했다
+
+---
+
+## 최종 독립 review: enemy state·pool reference 불변식
+
+### RED
+
+- 명령: `npm run test:unit -- tests/unit/EnemySystem.test.ts tests/unit/ObjectPool.test.ts`
+- 결과: 2 files failed, 8 failed / 25 passed
+- `setState(0, 'stunned'|'dead'|'unknown')`이 `RangeError`를 던지지 않아 2건 실패
+- duplicate reference factory를 거부하지 않아 1건 실패
+- `null|undefined|number|string|boolean` factory 결과를 거부하지 않아 5건 실패
+- type RED: `setState` parameter가 아직 `EnemyState`라 expected 공격 3-state union과 비교해 `TS2344`, `dead|stunned` 추가 허용이 발견됨
+
+### GREEN
+
+- `setState` 이름은 Task 9 plan 호환을 위해 유지하고 parameter/runtime allowlist를 `moving|windup|holding`으로 제한했다
+- `stunned|dead|unknown` state는 JS cast에서도 active enemy/HP/reward를 바꾸기 전에 `RangeError`로 거부한다
+- valid unknown enemy id는 no-op이지만 state와 `animationElapsedMs`는 enemy lookup 전에 검증하므로 invalid input은 unknown id에서도 `RangeError`다
+- `ObjectPool<T extends object>`로 제한하고 eager factory 결과가 non-null unique reference인지 constructor에서 검증한다
+- duplicate/non-reference factory 실패는 pool `instanceId` counter를 소비하지 않는다
+- TypeScript `object`에 포함되는 함수는 non-null unique reference이므로 허용하고 테스트로 계약을 고정했다
+
+### review-fix 검증
+
+- focused 4 files: 62/62 통과
+- 전체 unit: 22 files / 183 tests 통과
+- `npm run typecheck`: exit 0
+- `npm run build`: exit 0
+- Task 5 input + wave + health/reset/restart desktop/mobile E2E, `--workers=2`: 27 passed / 3 expected skipped / 0 failed
+- 첫 5-worker 실행에서 Vite 초기 응답 `SyntaxError: Unexpected token '.'`, `Unexpected end of JSON input`으로 2건이 실패했지만 두 테스트 각각의 단독 재현은 통과했고 2-worker 전체 재실행도 통과했다. 애플리케이션/테스트 우회 수정은 하지 않았다
+- production debug scan, pure dependency scan, unsafe type scan: match 0
+- `git diff --check`: exit 0

@@ -1,6 +1,7 @@
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
 import { BALANCE } from '../../src/game/data/balance';
 import type { EnemySpawnRequest } from '../../src/game/waves/WaveTypes';
+import { expectTypeOf } from 'vitest';
 
 const spawnRequest = (
   spawnSequence: number,
@@ -219,4 +220,47 @@ it('clear는 enemy id와 scenario spawnSequence를 0으로 재설정한다', () 
     pathId: 'P1',
     placement: { kind: 'attackBoundary' },
   })).toEqual({ enemyId: 0, request: spawnRequest(0) });
+});
+
+it('setState는 Task 9 공격 상태 세 개만 type/runtime에서 허용한다', () => {
+  expectTypeOf<Parameters<EnemySystem['setState']>[1]>().toEqualTypeOf<
+    'moving' | 'windup' | 'holding'
+  >();
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+
+  system.setState(0, 'windup', 125);
+  expect(system.snapshots().at(0)).toMatchObject({ state: 'windup', animationElapsedMs: 125 });
+  system.setState(0, 'holding');
+  expect(system.snapshots().at(0)).toMatchObject({ state: 'holding', animationElapsedMs: 125 });
+  system.setState(0, 'moving');
+  expect(system.snapshots().at(0)).toMatchObject({ state: 'moving', animationElapsedMs: 0 });
+});
+
+it('setState는 stunned·dead·unknown을 active enemy 변경 전에 거부한다', () => {
+  for (const state of ['stunned', 'dead', 'unknown'] as const) {
+    const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+    const before = system.snapshots();
+
+    expect(() => system.setState(0, state as never)).toThrow(RangeError);
+
+    expect(system.snapshots()).toEqual(before);
+    expect(system.activeCount).toBe(1);
+    expect(system.damage(0, 100)).toEqual([
+      { type: 'enemyDied', enemyId: 0 },
+      { type: 'snackEarned', enemyId: 0, amount: 1 },
+    ]);
+  }
+});
+
+it('setState는 state·animation을 unknown id 조회보다 먼저 검증하고 valid unknown id는 no-op한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+  const before = system.snapshots();
+
+  expect(() => system.setState(99, 'windup', 125)).not.toThrow();
+  expect(() => system.setState(99, 'dead' as never)).toThrow(RangeError);
+  for (const elapsedMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => system.setState(99, 'moving', elapsedMs)).toThrow(RangeError);
+  }
+
+  expect(system.snapshots()).toEqual(before);
 });

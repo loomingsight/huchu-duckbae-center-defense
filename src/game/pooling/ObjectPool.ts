@@ -7,10 +7,10 @@ export interface PoolSnapshot {
   readonly available: number;
 }
 
-export class ObjectPool<T> {
+export class ObjectPool<T extends object> {
   private readonly availableItems: T[];
   private readonly activeItems = new Set<T>();
-  private readonly instanceId = nextPoolInstanceId;
+  private readonly instanceId: number;
 
   constructor(
     readonly capacity: number,
@@ -19,8 +19,16 @@ export class ObjectPool<T> {
     if (!Number.isSafeInteger(capacity) || capacity <= 0) {
       throw new RangeError('Pool capacity must be a positive safe integer');
     }
+    const items = Array.from({ length: capacity }, factory);
+    if (!items.every(isNonNullReference)) {
+      throw new RangeError('Pool factory must return non-null references');
+    }
+    if (new Set(items).size !== capacity) {
+      throw new RangeError('Pool factory must return unique references');
+    }
+    this.instanceId = nextPoolInstanceId;
     nextPoolInstanceId += 1;
-    this.availableItems = Array.from({ length: capacity }, factory);
+    this.availableItems = items;
   }
 
   acquire(): T | undefined {
@@ -54,4 +62,8 @@ export class ObjectPool<T> {
       available: this.availableItems.length,
     };
   }
+}
+
+function isNonNullReference(value: unknown): value is object {
+  return value !== null && (typeof value === 'object' || typeof value === 'function');
 }

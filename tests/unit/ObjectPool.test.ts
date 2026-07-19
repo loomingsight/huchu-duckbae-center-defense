@@ -58,4 +58,39 @@ describe('ObjectPool', () => {
       expect(factoryCalls).toBe(0);
     },
   );
+
+  it('factory의 duplicate reference를 거부하고 pool identity counter를 소비하지 않는다', () => {
+    const before = new ObjectPool(1, () => ({})).snapshot();
+    const shared = {};
+    let factoryCalls = 0;
+
+    expect(() => new ObjectPool(2, () => {
+      factoryCalls += 1;
+      return shared;
+    })).toThrow(RangeError);
+
+    expect(factoryCalls).toBe(2);
+    const after = new ObjectPool(2, () => ({})).snapshot();
+    expect(after).toEqual({
+      instanceId: before.instanceId + 1,
+      created: 2,
+      active: 0,
+      available: 2,
+    });
+  });
+
+  it.each([null, undefined, 1, 'item', true])(
+    'factory의 non-reference %s를 eager construction에서 거부한다',
+    (item) => {
+      expect(() => new ObjectPool<object>(1, () => item as never)).toThrow(RangeError);
+    },
+  );
+
+  it('함수도 non-null unique reference로서 pool item으로 허용한다', () => {
+    const item = (): string => 'pooled';
+    const pool = new ObjectPool(1, () => item);
+
+    expect(pool.snapshot()).toMatchObject({ created: 1, active: 0, available: 1 });
+    expect(pool.acquire()).toBe(item);
+  });
 });

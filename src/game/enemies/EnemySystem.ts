@@ -16,6 +16,8 @@ export type EnemyLifecycleEvent =
   | { readonly type: 'enemyDied'; readonly enemyId: number }
   | { readonly type: 'snackEarned'; readonly enemyId: number; readonly amount: number };
 
+export type EnemyAttackState = Extract<EnemyState, 'moving' | 'windup' | 'holding'>;
+
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 type MutableEnemy = Omit<Mutable<EnemySnapshot>, 'position' | 'etaMs'> & {
   readonly speed: number;
@@ -36,6 +38,7 @@ const ENEMY_KINDS = [
 const ENEMY_KIND_SET = new Set<string>(ENEMY_KINDS);
 const ENEMY_VARIANT_SET = new Set<string>(['male', 'female']);
 const ENEMY_STATE_SET = new Set<string>(['moving', 'windup', 'holding', 'stunned', 'dead']);
+const ENEMY_ATTACK_STATE_SET = new Set<string>(['moving', 'windup', 'holding']);
 
 export class EnemySystem {
   private readonly enemies = new Map<number, MutableEnemy>();
@@ -202,16 +205,18 @@ export class EnemySystem {
     ];
   }
 
-  setState(enemyId: number, state: EnemyState, animationElapsedMs = 0): void {
+  setState(enemyId: number, state: EnemyAttackState, animationElapsedMs = 0): void {
     assertEnemyId(enemyId);
-    if (!ENEMY_STATE_SET.has(state)) throw new RangeError(`Unknown enemy state ${String(state)}`);
+    if (!ENEMY_ATTACK_STATE_SET.has(state)) {
+      throw new RangeError(`Unknown enemy attack state ${String(state)}`);
+    }
     assertFiniteNonNegative(animationElapsedMs, 'Enemy animationElapsedMs');
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
 
     const preserveAttackElapsed = enemy.state === 'windup' && state === 'holding';
     enemy.state = state;
-    if (state !== 'stunned') enemy.stunnedMs = 0;
+    enemy.stunnedMs = 0;
     if (!preserveAttackElapsed) enemy.animationElapsedMs = animationElapsedMs;
   }
 
