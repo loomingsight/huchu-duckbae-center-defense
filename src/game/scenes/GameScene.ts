@@ -4,6 +4,7 @@ import {
   TIME_EPSILON_MS,
 } from '../constants';
 import { FixedStepClock } from '../core/FixedStepClock';
+import type { GameMode } from '../core/GameMode';
 import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
 import {
   ProjectileActorPool,
@@ -166,6 +167,11 @@ export class GameScene extends Phaser.Scene {
     return this.projectileActors.impactSnapshots();
   }
 
+  shelterShakeOffsetSnapshot(): number {
+    if (this.shelterView === undefined) throw new Error('Shelter view is not initialized');
+    return this.shelterView.shakeOffsetSnapshot();
+  }
+
   combatEffectsSnapshot(): PoolSnapshot {
     return this.playerView.effectPoolSnapshot();
   }
@@ -185,6 +191,10 @@ export class GameScene extends Phaser.Scene {
   setVisibilityForTest(hidden: boolean): void {
     if (hidden) this.session.requestVisibilityPause();
     else this.session.requestVisibilityResume();
+  }
+
+  forceModeForTest(mode: GameMode): void {
+    this.session.forceModeForTest(mode);
   }
 
   waitForRenderFlush(): Promise<void> {
@@ -299,6 +309,7 @@ export class GameScene extends Phaser.Scene {
   private advanceCombatVisuals(stepMs: number): void {
     this.playerView.stepSimulation(stepMs);
     this.projectileActors?.stepEffects(stepMs);
+    this.shelterView?.stepSimulation(stepMs);
     if (this.barkAnimationElapsedMs === undefined) return;
     const nextElapsedMs = this.barkAnimationElapsedMs + stepMs;
     this.barkAnimationElapsedMs = nextElapsedMs + TIME_EPSILON_MS >= this.session.barkCadenceMs()

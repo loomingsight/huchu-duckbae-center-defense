@@ -160,3 +160,56 @@
 | production debug identifier 및 unsafe type/pure-system dependency scan | 0 matches |
 | 독립 code review | Critical 0 / Important 0 |
 | `git diff --check` | PASS |
+
+## 두 번째 리뷰 후속 수정 (2026-07-20)
+
+### 요청 이슈
+
+- [x] `ShelterView.showDamage()`의 Phaser wall-clock tween을 simulation-time shake로 전환
+- [x] 0~120ms 네 shake leg, repeated hit restart, reset/destroy cleanup을 unit에서 고정
+- [x] playing fixed-step에서만 shake를 진행하고 visibility pause와 skill selection에서 freeze
+- [x] 동일 page batch/split을 desktop/mobile 각각 3회 반복해 full RGBA canvas exact equality 확인
+
+### 후속 RED → GREEN
+
+1. wall-clock 재현 RED
+   - 기존 impact E2E를 `--repeat-each=3`으로 실행해 mobile repeat 2에서 full canvas equality 실패
+   - 결과는 1 failed / 5 passed, exact assertion은 `Expected true, Received false`
+   - `ShelterView.showDamage()`가 simulation tick 밖의 `scene.tweens.add()`로 sprite x를 갱신하는 경로를 원인으로 확인
+2. pure/view lifecycle RED
+   - focused shelter unit 19 tests 중 4 failed / 15 passed
+   - `shelterShakeOffsetAt`과 `stepSimulation`은 undefined, immediate shake x는 기대 266 대신 270
+3. pure/view lifecycle GREEN
+   - `shelterShakeOffsetAt(elapsedMs)`가 30ms 네 leg의 -4~+4 offset을 순수 계산하고 120ms에 0 반환
+   - `showDamage()`는 elapsed 0으로 restart하고 `stepSimulation()`만 sprite x를 변경
+   - repeated hit restart, 119ms active/120ms x270, reset/destroy 후 no-op lifecycle을 고정
+4. Scene pause gate RED → GREEN
+   - 초기 E2E는 bridge scheduler의 non-playing early return만 확인해 실제 Scene gate를 검증하지 못함
+   - direct Scene step hook 부재를 `Missing bridge method stepSceneOnceForTest` RED로 확인
+   - visibility pause와 skill selection에서 `GameScene.advanceSimulationStep()`을 직접 호출해 offset freeze를 고정
+5. canvas 계약 강화
+   - Playwright canvas PNG가 alpha 없는 3-channel로 디코딩되는 점을 확인
+   - 양쪽 screenshot에 `ensureAlpha().raw()`를 적용하고 4-channel full RGBA exact equality를 비교
+   - 같은 page에서 batch 470ms와 split 250+220ms를 각각 3회 실행하면서 y=518 stain/y=562 non-stain도 유지
+
+### 두 번째 후속 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| focused Task 9 unit 3 files | PASS, 49 tests |
+| `npm run test:unit` | PASS, 28 files / 305 tests |
+| `npm run build` | PASS, TypeScript 및 Vite production build |
+| `npm run test:e2e -- tests/e2e/combat.spec.ts` | PASS, desktop/mobile 16 tests |
+| 동일-page 3회 batch/split full RGBA targeted E2E | PASS, desktop/mobile 2 tests |
+| `npm run test:e2e` | PASS, 43 tests / desktop-only 3 skipped |
+| `ShelterView.ts` tween, Date, performance, timer scan | 0 matches, `rg` exit 1 |
+| changed production unsafe type 및 secret scan | 0 matches, `rg` exit 1 |
+| production `dist`의 `__HUCHU_TEST__`, `TestBridge`, `stepSceneOnceForTest`, `poop-attack` scan | 0 matches, `rg` exit 1 |
+| 독립 code review | Critical 0 / Important 0 |
+| `git diff --check` | PASS |
+
+### Task 10 이관
+
+- 기존 `GameScene.showOffLeashAttack()`의 120ms Phaser alpha tween은 shelter shake와 독립된 effect abstraction 및 전용 scenario가 필요한 Task 10 pause 항목으로 이관한다.
+- 이번 수정은 해당 tween을 새로 추가하거나 확장하지 않았고 `ShelterView`의 wall-clock 의존만 제거했다.
+- `forceModeForTest`와 `shelterShakeOffsetSnapshot` 일반 class method 이름은 production bundle에 남지만 test bridge/scenario chunk는 제거되며 외부 `window` API로 노출되지 않는다.

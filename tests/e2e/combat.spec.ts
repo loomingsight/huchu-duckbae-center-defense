@@ -138,31 +138,58 @@ test('똥 공격은 250ms에 투사체를 만들고 도착 때 보호소를 한 
 
 test('똥 impact는 batch·split 모두 최초 교차점 y=518에 남고 발사점에는 남지 않는다', async ({ page }) => {
   await openScenario(page, 'poop-attack');
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    await loadScenario(page, 'poop-attack');
+    await advance(page, 470);
+    const batch = await snapshot(page);
+    const batchCanvas = await page.locator('canvas').screenshot();
+    const batchHit = (await events(page)).find(({ type }) => type === 'projectileHit');
+
+    expect(batchHit).toMatchObject({ position: { x: 270, y: 518 } });
+    expect(batch.projectileImpacts).toEqual([
+      { projectileId: 0, kind: 'poop', x: 270, y: 518, frame: 0 },
+    ]);
+
+    await loadScenario(page, 'poop-attack');
+    await advance(page, 250);
+    await advance(page, 220);
+    const split = await snapshot(page);
+    const splitCanvas = await page.locator('canvas').screenshot();
+    const splitHit = (await events(page)).find(({ type }) => type === 'projectileHit');
+
+    expect(splitHit).toEqual(batchHit);
+    expect(split.projectileImpacts).toEqual(batch.projectileImpacts);
+    expect(await canvasPixelsEqual(splitCanvas, batchCanvas)).toBe(true);
+    const impactPixel = await logicalPixel(splitCanvas, 270, 518);
+    const launchPixel = await logicalPixel(splitCanvas, 270, 562);
+    expect(impactPixel).toEqual(await logicalPixel(batchCanvas, 270, 518));
+    expect(isPoopStainColor(impactPixel)).toBe(true);
+    expect(isPoopStainColor(launchPixel)).toBe(false);
+  }
+});
+
+test('shelter shake는 playing fixed-step으로만 진행하고 visibility pause에서 freeze한다', async ({ page }) => {
+  await openScenario(page, 'poop-attack');
   await advance(page, 470);
-  const batch = await snapshot(page);
-  const batchCanvas = await page.locator('canvas').screenshot();
-  const batchHit = (await events(page)).find(({ type }) => type === 'projectileHit');
 
-  expect(batchHit).toMatchObject({ position: { x: 270, y: 518 } });
-  expect(batch.projectileImpacts).toEqual([
-    { projectileId: 0, kind: 'poop', x: 270, y: 518, frame: 0 },
-  ]);
+  expect((await snapshot(page)).shelterShakeOffset).toBe(-4);
+  await advance(page, 1000 / 60);
+  const activeOffset = (await snapshot(page)).shelterShakeOffset;
+  expect(activeOffset).toBeCloseTo(4 / 9, 8);
 
-  await loadScenario(page, 'poop-attack');
-  await advance(page, 250);
-  await advance(page, 220);
-  const split = await snapshot(page);
-  const splitCanvas = await page.locator('canvas').screenshot();
-  const splitHit = (await events(page)).find(({ type }) => type === 'projectileHit');
+  await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(true));
+  await page.evaluate(() => window.__HUCHU_TEST__!.stepSceneOnceForTest());
+  await advance(page, 1000);
+  expect((await snapshot(page)).shelterShakeOffset).toBeCloseTo(activeOffset, 8);
+  await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(false));
 
-  expect(splitHit).toEqual(batchHit);
-  expect(split.projectileImpacts).toEqual(batch.projectileImpacts);
-  expect(await canvasPixelsEqual(splitCanvas, batchCanvas)).toBe(true);
-  const impactPixel = await logicalPixel(splitCanvas, 270, 518);
-  const launchPixel = await logicalPixel(splitCanvas, 270, 562);
-  expect(impactPixel).toEqual(await logicalPixel(batchCanvas, 270, 518));
-  expect(isPoopStainColor(impactPixel)).toBe(true);
-  expect(isPoopStainColor(launchPixel)).toBe(false);
+  await page.evaluate(() => window.__HUCHU_TEST__!.forceModeForTest('skillSelection'));
+  await page.evaluate(() => window.__HUCHU_TEST__!.stepSceneOnceForTest());
+  expect((await snapshot(page)).shelterShakeOffset).toBeCloseTo(activeOffset, 8);
+  await page.evaluate(() => window.__HUCHU_TEST__!.forceModeForTest('playing'));
+
+  await advance(page, 120);
+  expect((await snapshot(page)).shelterShakeOffset).toBe(0);
 });
 
 test('개장수는 250ms에 speed 240 포획망을 만들고 보호소에 14 피해를 준다', async ({ page }) => {
@@ -198,10 +225,12 @@ async function logicalPixel(
 
 async function canvasPixelsEqual(left: Buffer, right: Buffer): Promise<boolean> {
   const [leftPixels, rightPixels] = await Promise.all([
-    sharp(left).raw().toBuffer({ resolveWithObject: true }),
-    sharp(right).raw().toBuffer({ resolveWithObject: true }),
+    sharp(left).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+    sharp(right).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
   ]);
-  return leftPixels.info.width === rightPixels.info.width
+  return leftPixels.info.channels === 4
+    && rightPixels.info.channels === 4
+    && leftPixels.info.width === rightPixels.info.width
     && leftPixels.info.height === rightPixels.info.height
     && leftPixels.info.channels === rightPixels.info.channels
     && leftPixels.data.equals(rightPixels.data);

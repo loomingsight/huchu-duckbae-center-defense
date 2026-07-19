@@ -1,4 +1,5 @@
 import { FIXED_STEP_MS } from '../constants';
+import type { GameMode } from '../core/GameMode';
 import {
   ENEMY_HP_BAR_HEIGHT,
   ENEMY_HP_BAR_WIDTH,
@@ -34,10 +35,12 @@ interface SessionScenePort {
   enemyActorPoolSnapshot(): PoolSnapshot;
   projectileActorPoolSnapshot(): PoolSnapshot;
   projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[];
+  shelterShakeOffsetSnapshot(): number;
   combatEffectsSnapshot(): PoolSnapshot;
   seedEnemyForScenario(seed: ScenarioEnemySeed): number;
   suppressWaveSpawnsForScenario(): void;
   setVisibilityForTest(hidden: boolean): void;
+  forceModeForTest(mode: GameMode): void;
   waitForRenderFlush(): Promise<void>;
 }
 
@@ -85,6 +88,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       enemyPool: this.scene.enemyActorPoolSnapshot(),
       projectilePool: this.scene.projectileActorPoolSnapshot(),
       projectileImpacts: this.scene.projectileImpactSnapshots(),
+      shelterShakeOffset: this.scene.shelterShakeOffsetSnapshot(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
     };
   }
@@ -101,6 +105,14 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       this.appendEvent({ type: 'modeChanged', mode: currentMode });
     }
     await this.scene.waitForRenderFlush();
+  }
+
+  stepSceneOnceForTest(): void {
+    this.scene.advanceSimulationStep(FIXED_STEP_MS);
+  }
+
+  forceModeForTest(mode: GameMode): void {
+    this.scene.forceModeForTest(mode);
   }
 
   restartScene(): void {

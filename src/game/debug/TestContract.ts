@@ -30,6 +30,7 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly enemyPool: PoolSnapshot;
   readonly projectilePool: PoolSnapshot;
   readonly projectileImpacts: readonly ProjectileImpactSnapshot[];
+  readonly shelterShakeOffset: number;
   readonly barkWavePool: PoolSnapshot;
 }
 
@@ -83,6 +84,8 @@ export interface HuchuTestBridge {
   snapshot(): GameDebugSnapshot;
   eventsSince(sequence: number): readonly GameDebugEvent[];
   simulateVisibility(hidden: boolean): Promise<void>;
+  stepSceneOnceForTest(): void;
+  forceModeForTest(mode: GameMode): void;
   restartScene(): void;
 }
 
