@@ -8,6 +8,7 @@ export interface SessionScenarioRuntime {
   suppressWaveSpawns(): void;
   resetPlayer(x: number, y: number): void;
   seedEnemy(seed: ScenarioEnemySeed): number;
+  advanceWorldTicks(ticks: number): void;
 }
 
 export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId): void {
@@ -23,6 +24,14 @@ export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId
     case 'bark-targeting':
       resetRun(runtime);
       seedBarkTargets(runtime);
+      return;
+    case 'skill-selection':
+      resetRun(runtime);
+      seedSkillSelection(runtime);
+      return;
+    case 'skill-selection-wave-clear':
+      resetRun(runtime);
+      seedSkillSelectionWaveClear(runtime);
       return;
     case 'poop-attack':
       resetRun(runtime);
@@ -123,5 +132,66 @@ function seedBossAttack(runtime: SessionScenarioRuntime): void {
     variant: 'male',
     pathId: 'P3',
     placement: { kind: 'attackBoundary' },
+  });
+}
+
+function seedSkillSelection(runtime: SessionScenarioRuntime): void {
+  runtime.suppressWaveSpawns();
+  runtime.resetPlayer(270, 750);
+  seedSkillRewardTargets(runtime);
+  runtime.advanceWorldTicks(102);
+  seedAttackBoundary(runtime, 'poopGuardian', 'male');
+  runtime.advanceWorldTicks(15);
+  seedAttackBoundary(runtime, 'offLeashGuardian', 'female');
+  seedAttackBoundary(runtime, 'poopGuardian', 'female');
+  runtime.advanceWorldTicks(15);
+  seedBarkDamageTarget(runtime);
+}
+
+function seedSkillSelectionWaveClear(runtime: SessionScenarioRuntime): void {
+  runtime.suppressWaveSpawns();
+  runtime.resetPlayer(270, 750);
+  seedSkillRewardTargets(runtime);
+  runtime.advanceWorldTicks(132);
+}
+
+function seedSkillRewardTargets(runtime: SessionScenarioRuntime): void {
+  for (let index = 0; index < 4; index += 1) {
+    runtime.seedEnemy({
+      kind: 'offLeashGuardian',
+      variant: index % 2 === 0 ? 'male' : 'female',
+      pathId: 'P6',
+      placement: { kind: 'worldPoint', x: 270 + index, y: 725 },
+      currentHp: 10,
+      maxHp: 65,
+      state: 'stunned',
+      stunnedMs: 60_000,
+    });
+  }
+}
+
+function seedAttackBoundary(
+  runtime: SessionScenarioRuntime,
+  kind: 'poopGuardian' | 'offLeashGuardian',
+  variant: 'male' | 'female',
+): void {
+  runtime.seedEnemy({
+    kind,
+    variant,
+    pathId: 'P6',
+    placement: { kind: 'attackBoundary' },
+  });
+}
+
+function seedBarkDamageTarget(runtime: SessionScenarioRuntime): void {
+  runtime.seedEnemy({
+    kind: 'illegalBreeder',
+    variant: 'male',
+    pathId: 'P6',
+    placement: { kind: 'worldPoint', x: 270, y: 725 },
+    currentHp: 1000,
+    maxHp: 1000,
+    state: 'stunned',
+    stunnedMs: 60_000,
   });
 }

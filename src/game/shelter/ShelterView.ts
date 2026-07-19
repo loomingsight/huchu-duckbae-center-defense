@@ -82,6 +82,10 @@ export class ShelterView {
     return this.shakeElapsedMs === undefined ? 0 : shelterShakeOffsetAt(this.shakeElapsedMs);
   }
 
+  shakeElapsedSnapshot(): number | null {
+    return this.shakeElapsedMs ?? null;
+  }
+
   reset(): void {
     if (this.destroyed) return;
     this.shakeElapsedMs = undefined;

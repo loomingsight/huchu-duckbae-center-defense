@@ -33,3 +33,17 @@ it('import 완료 전 shutdown과 설치 후 shutdown 모두 stale disposer를 �
   expect(disposed).toEqual(['late', 'installed']);
   expect(lifecycle.isActive(afterInstall)).toBe(false);
 });
+
+it('같은 generation의 bridge와 modal disposer는 서로 제거하지 않고 shutdown 때 함께 정리한다', () => {
+  const lifecycle = new SceneRuntimeLifecycle();
+  const disposed: string[] = [];
+  const generation = lifecycle.begin();
+
+  expect(lifecycle.attach(generation, () => disposed.push('bridge'))).toBe(true);
+  expect(lifecycle.attach(generation, () => disposed.push('modal'))).toBe(true);
+  expect(disposed).toEqual([]);
+
+  lifecycle.end(generation);
+
+  expect(disposed).toEqual(['bridge', 'modal']);
+});

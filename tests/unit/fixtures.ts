@@ -1,7 +1,29 @@
 import { EnemyAttackSystem } from '../../src/game/combat/EnemyAttackSystem';
 import { BALANCE } from '../../src/game/data/balance';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
+import { ProgressionSystem } from '../../src/game/progression/ProgressionSystem';
+import type { SkillLevels } from '../../src/game/skills/SkillTypes';
 import type { EnemyKind } from '../../src/game/types/GameTypes';
+
+export const skillLevels = (overrides: Partial<SkillLevels> = {}): SkillLevels => ({
+  bark: 1,
+  scold: 0,
+  aquaBeam: 0,
+  deokbaeHowl: 0,
+  safetyReport: 0,
+  ...overrides,
+});
+
+export function pendingTwoSelections(): ProgressionSystem {
+  const progression = new ProgressionSystem([8, 22, 40, 62, 88], 5000);
+  progression.addSnacks(40);
+  progression.takeNextRequest();
+  progression.resolveSelection();
+  progression.step(5000, { mode: 'playing', activeEnemies: 1 });
+  progression.takeNextRequest();
+  progression.resolveSelection();
+  return progression;
+}
 
 export function enemy(overrides: Partial<EnemySnapshot> = {}): EnemySnapshot {
   return {

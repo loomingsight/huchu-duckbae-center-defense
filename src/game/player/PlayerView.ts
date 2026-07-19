@@ -113,6 +113,10 @@ export class PlayerView {
     return this.wavePool.snapshot();
   }
 
+  effectAgesSnapshot(): readonly number[] {
+    return [...this.activeWaves].map((wave) => wave.ageSnapshot());
+  }
+
   destroy(): void {
     this.resetCombatVisuals();
     this.sprite.removeAllListeners();
@@ -173,6 +177,10 @@ class BarkWaveEffect {
 
   get expired(): boolean {
     return this.ageMs >= BARK_WAVE_DURATION_MS;
+  }
+
+  ageSnapshot(): number {
+    return this.ageMs;
   }
 }
 

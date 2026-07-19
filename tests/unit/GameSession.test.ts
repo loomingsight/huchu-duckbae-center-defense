@@ -188,4 +188,142 @@ describe('GameSession', () => {
     expect(run.currentMode()).toBe('playing');
     expect(run.modeStateForControllers().current()).toBe('playing');
   });
+
+  it('마지막 enemy reward까지 처리한 tick 끝에 selection request 하나만 연다', () => {
+    const run = GameSession.create({ seed: 1 });
+    run.suppressWaveSpawnsForScenario();
+    for (let index = 0; index < 7; index += 1) {
+      const enemyId = run.spawnEnemyForScenario({
+        kind: 'poopGuardian',
+        variant: 'male',
+        pathId: 'P6',
+        placement: { kind: 'worldPoint', x: 50 + index, y: 50 },
+        currentHp: 1,
+        maxHp: 1000,
+      });
+      expect(run.damageEnemy(enemyId, 1).filter(({ type }) => type === 'snackEarned'))
+        .toHaveLength(1);
+      expect(run.damageEnemy(enemyId, 1)).toEqual([]);
+    }
+    run.spawnEnemyForScenario({
+      kind: 'poopGuardian',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'worldPoint', x: 270, y: 625 },
+      currentHp: 10,
+      maxHp: 1000,
+      state: 'stunned',
+      stunnedMs: 60_000,
+    });
+
+    const events: GameEvent[] = [];
+    for (let tick = 0; tick < 15; tick += 1) events.push(...run.step(FIXED_STEP_MS, PLAYER));
+
+    expect(run.snapshot()).toMatchObject({ mode: 'skillSelection', snacks: 8 });
+    expect(run.currentCards()).toHaveLength(3);
+    expect(new Set(run.currentCards().map(({ id }) => id)).size).toBe(3);
+    expect(events.filter(({ type }) => type === 'snackEarned')).toHaveLength(1);
+    expect(events.filter(({ type }) => type === 'modeChanged')).toEqual([
+      { type: 'modeChanged', mode: 'skillSelection' },
+    ]);
+  });
+
+  it('stored cards는 snapshot 조회마다 RNG를 다시 소비하지 않고 reset으로 재현된다', () => {
+    const run = GameSession.create({ seed: 1 });
+
+    openSelectionWithEightRewards(run);
+    const first = run.currentCards();
+    const second = run.currentCards();
+    expect(second).toEqual(first);
+    expect(second).not.toBe(first);
+
+    run.reset(1);
+    openSelectionWithEightRewards(run);
+
+    expect(run.currentCards()).toEqual(first);
+  });
+
+  it('bark card 선택은 level과 runtime damage를 함께 갱신하고 3초 뒤 재개한다', () => {
+    const run = GameSession.create({ seed: 1 });
+    openSelectionWithEightRewards(run);
+    const barkCard = run.currentCards().find(({ id }) => id === 'bark:2')!;
+
+    expect(barkCard).toBeDefined();
+    run.selectCard(barkCard.id);
+    expect(run.snapshot()).toMatchObject({
+      mode: 'countdown',
+      skills: { bark: 2, scold: 0, aquaBeam: 0, deokbaeHowl: 0, safetyReport: 0 },
+    });
+    expect(run.currentCards()).toEqual([]);
+    expect(run.skillCooldownProgress()).toMatchObject({ bark: 0 });
+
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'illegalBreeder',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'worldPoint', x: 270, y: 625 },
+      currentHp: 1000,
+      maxHp: 1000,
+      state: 'stunned',
+      stunnedMs: 60_000,
+    });
+    for (let tick = 0; tick < 179; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+    expect(run.currentMode()).toBe('countdown');
+    expect(run.countdownState()).toMatchObject({ kind: 'nextWave' });
+    run.step(FIXED_STEP_MS, PLAYER);
+    expect(run.snapshot()).toMatchObject({ mode: 'playing', wave: 2 });
+    for (let tick = 0; tick < 15; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+
+    expect(run.snapshot().enemies.find(({ id }) => id === enemyId)?.currentHp).toBe(987);
+  });
+
+  it('double select는 첫 선택만 적용하고 reset은 bark1, 나머지0과 progression을 복구한다', () => {
+    const run = GameSession.create({ seed: 1 });
+    openSelectionWithEightRewards(run);
+    const card = run.currentCards().find(({ id }) => id === 'bark:2')!;
+
+    run.selectCard(card.id);
+    const selected = run.snapshot();
+    expect(() => run.selectCard(card.id)).toThrow('Skill card can only be selected during skillSelection');
+    expect(run.snapshot()).toEqual(selected);
+
+    run.reset(2);
+
+    expect(run.snapshot()).toMatchObject({
+      mode: 'playing',
+      snacks: 0,
+      skills: { bark: 1, scold: 0, aquaBeam: 0, deokbaeHowl: 0, safetyReport: 0 },
+    });
+    expect(run.currentCards()).toEqual([]);
+  });
+
+  it('skill due 없는 wave clear는 next wave countdown 하나를 즉시 시작한다', () => {
+    const run = GameSession.create({ seed: 1 });
+    run.suppressWaveSpawnsForScenario();
+
+    run.step(FIXED_STEP_MS, PLAYER);
+
+    expect(run.snapshot()).toMatchObject({ mode: 'countdown', wave: 1, snacks: 0 });
+    expect(run.countdownState()).toEqual({ kind: 'nextWave', remainingMs: 3000 });
+    for (let tick = 0; tick < 180; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+    expect(run.snapshot()).toMatchObject({ mode: 'playing', wave: 2 });
+  });
+
 });
+
+function openSelectionWithEightRewards(run: GameSession): void {
+  run.suppressWaveSpawnsForScenario();
+  for (let index = 0; index < 8; index += 1) {
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'poopGuardian',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'worldPoint', x: 50 + index, y: 50 },
+      currentHp: 1,
+      maxHp: 1000,
+    });
+    run.damageEnemy(enemyId, 1);
+  }
+  run.step(FIXED_STEP_MS, PLAYER);
+  expect(run.currentMode()).toBe('skillSelection');
+}

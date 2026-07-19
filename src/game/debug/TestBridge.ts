@@ -37,6 +37,10 @@ interface SessionScenePort {
   projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[];
   shelterShakeOffsetSnapshot(): number;
   combatEffectsSnapshot(): PoolSnapshot;
+  skillCardsSnapshot(): GameDebugSnapshot['cards'];
+  skillCooldownProgressSnapshot(): GameDebugSnapshot['cooldownProgress'];
+  countdownSnapshot(): GameDebugSnapshot['countdown'];
+  worldClocksSnapshot(): GameDebugSnapshot['worldClocks'];
   seedEnemyForScenario(seed: ScenarioEnemySeed): number;
   suppressWaveSpawnsForScenario(): void;
   setVisibilityForTest(hidden: boolean): void;
@@ -90,6 +94,10 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       projectileImpacts: this.scene.projectileImpactSnapshots(),
       shelterShakeOffset: this.scene.shelterShakeOffsetSnapshot(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
+      cards: this.scene.skillCardsSnapshot(),
+      cooldownProgress: this.scene.skillCooldownProgressSnapshot(),
+      countdown: this.scene.countdownSnapshot(),
+      worldClocks: this.scene.worldClocksSnapshot(),
     };
   }
 
@@ -144,20 +152,42 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     return this.scene.seedEnemyForScenario(seed);
   }
 
+  advanceWorldTicks(ticks: number): void {
+    if (!Number.isSafeInteger(ticks) || ticks < 0 || ticks > 10_000) {
+      throw new RangeError('Scenario ticks must be an integer from 0 to 10000');
+    }
+    for (let index = 0; index < ticks; index += 1) {
+      if (this.scene.sessionSnapshot().mode !== 'playing') {
+        throw new Error('Scenario world ticks require playing mode');
+      }
+      this.stepOneTick();
+    }
+  }
+
   private advanceTicks(ms: number): void {
     if (!Number.isFinite(ms) || ms < 0) {
       throw new RangeError('advance duration must be finite and non-negative');
     }
-    if (this.scene.sessionSnapshot().mode !== 'playing') return;
+    const entryMode = this.scene.sessionSnapshot().mode;
+    if (entryMode !== 'playing' && entryMode !== 'countdown' && entryMode !== 'lost') return;
     for (let ticks = this.scheduler.take(ms); ticks > 0; ticks -= 1) {
-      const before = this.scene.playerSnapshot();
-      const sessionEvents = this.scene.advanceSimulationStep(FIXED_STEP_MS);
-      const after = this.scene.playerSnapshot();
-      if (after.x !== before.x || after.y !== before.y) {
-        this.appendEvent({ type: 'playerMoved' });
+      this.stepOneTick();
+      const mode = this.scene.sessionSnapshot().mode;
+      if (mode === 'skillSelection' || mode === 'visibilityPause' || mode === 'won') {
+        this.scheduler.reset();
+        break;
       }
-      sessionEvents.forEach((event) => this.appendSessionEvent(event));
     }
+  }
+
+  private stepOneTick(): void {
+    const before = this.scene.playerSnapshot();
+    const sessionEvents = this.scene.advanceSimulationStep(FIXED_STEP_MS);
+    const after = this.scene.playerSnapshot();
+    if (after.x !== before.x || after.y !== before.y) {
+      this.appendEvent({ type: 'playerMoved' });
+    }
+    sessionEvents.forEach((event) => this.appendSessionEvent(event));
   }
 
   private appendSessionEvent(event: GameEvent): void {
@@ -225,6 +255,16 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         return;
       case 'waveCountdownChanged':
         this.appendEvent({ type: event.type, remainingMs: event.remainingMs });
+        return;
+      case 'skillSelectionOpened':
+        this.appendEvent({ type: event.type, cards: event.cards });
+        return;
+      case 'skillLearned':
+        this.appendEvent({
+          type: event.type,
+          skillId: event.skillId,
+          level: event.level,
+        });
         return;
       case 'modeChanged':
         this.appendEvent({ type: event.type, mode: event.mode });

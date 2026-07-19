@@ -24,22 +24,32 @@ import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
+import { ProgressionSystem } from '../progression/ProgressionSystem';
+import { pickSkillCards } from '../progression/SkillCardPicker';
 import { ShelterSystem } from '../shelter/ShelterSystem';
-import type { EnemyKind, SkillId, SkillLevel } from '../types/GameTypes';
+import type { SkillCard, SkillLevels } from '../skills/SkillTypes';
+import type { EnemyKind, SkillId } from '../types/GameTypes';
+import { UiTransitionClock } from '../ui/UiTransitionClock';
 import type { Point } from '../world/Geometry';
 import { WaveSystem } from '../waves/WaveSystem';
 import type { RunSnapshot } from './RunSnapshot';
+import { RunOutcomeResolver } from './RunOutcomeResolver';
 
-const INITIAL_SKILLS = {
+const INITIAL_SKILLS: SkillLevels = {
   bark: 1,
   scold: 0,
   aquaBeam: 0,
   deokbaeHowl: 0,
   safetyReport: 0,
-} as const satisfies Readonly<Record<SkillId, SkillLevel>>;
+};
 
 const BARK_RANGE = 150;
-const SCENARIO_WAVE_DEFINITIONS = [{ wave: 1, spawns: [] }] as const;
+const SCENARIO_WAVE_DEFINITIONS = WAVE_DEFINITIONS.map(({ wave }) => ({
+  wave,
+  spawns: [],
+}));
+
+type CountdownTransition = 'resumeCombat' | 'nextWave';
 
 interface ActiveBarkAttack {
   readonly attackId: string;
@@ -60,8 +70,17 @@ export class GameSession {
     BALANCE.shelter.hitRadius,
   );
   private readonly shelter = new ShelterSystem(BALANCE.shelter.maxHp);
+  private readonly progression = new ProgressionSystem(
+    BALANCE.snackThresholds,
+    BALANCE.pendingSkillCombatDelayMs,
+  );
+  private readonly uiClock = new UiTransitionClock(0);
+  private readonly outcomes = new RunOutcomeResolver();
   private simulationTicks = 0;
-  private snacks = 0;
+  private skillLevels: SkillLevels = { ...INITIAL_SKILLS };
+  private cards: readonly SkillCard[] = [];
+  private uiTransition: CountdownTransition | null = null;
+  private pendingNextWave: number | null = null;
   private nextBarkAttackSequence = 1;
   private nextProjectileId = 0;
   private activeBarkAttack: ActiveBarkAttack | null = null;
@@ -81,6 +100,29 @@ export class GameSession {
   step(stepMs: number, player: PlayerSnapshot): readonly GameEvent[] {
     assertFixedStep(stepMs);
     assertPlayer(player);
+    const entryMode = this.stateMachine.current();
+    if (entryMode === 'countdown') {
+      if (
+        this.uiTransition !== null
+        && this.uiClock.step(stepMs, entryMode) === 'completed'
+      ) {
+        if (this.uiTransition === 'nextWave') {
+          const nextWave = this.pendingNextWave;
+          if (nextWave === null) throw new Error('Next-wave countdown has no pending wave');
+          this.waves.start(nextWave);
+          this.pendingNextWave = null;
+        }
+        this.uiTransition = null;
+        this.stateMachine.transition('playing');
+        this.eventBuffer.push({ type: 'modeChanged', mode: 'playing' });
+      } else if (this.uiTransition !== null) {
+        this.eventBuffer.push({
+          type: 'waveCountdownChanged',
+          remainingMs: this.uiClock.remainingMs,
+        });
+      }
+      return this.flushEvents();
+    }
     if (!this.stateMachine.canStepWorld()) return this.flushEvents();
 
     this.simulationTicks += 1;
@@ -93,6 +135,7 @@ export class GameSession {
       );
     }
     this.enemies.step(FIXED_STEP_MS);
+    const combatEnemyCount = this.enemies.activeCount;
     const shelterDamage: number[] = [];
     this.stepEnemyAttacks(FIXED_STEP_MS, shelterDamage);
     this.stepProjectiles(FIXED_STEP_MS, shelterDamage);
@@ -100,6 +143,11 @@ export class GameSession {
     for (const amount of shelterDamage) {
       this.eventBuffer.push(...this.shelter.damage(amount));
     }
+    this.progression.step(FIXED_STEP_MS, {
+      mode: 'playing',
+      activeEnemies: combatEnemyCount,
+    });
+    this.resolvePostStepOutcome();
     return this.flushEvents();
   }
 
@@ -112,10 +160,10 @@ export class GameSession {
       activeEnemyCount: this.enemies.activeCount,
       activeProjectileCount: this.projectiles.activeCount,
       shelterHp: this.shelter.currentHp,
-      snacks: this.snacks,
+      snacks: this.progression.snapshot().snacks,
       enemies: this.enemies.snapshots(),
       projectiles: this.projectiles.snapshots(),
-      skills: { ...INITIAL_SKILLS },
+      skills: { ...this.skillLevels },
     };
   }
 
@@ -131,12 +179,64 @@ export class GameSession {
     return this.bark.cadenceDurationMs();
   }
 
+  currentCards(): readonly SkillCard[] {
+    return this.cards.map((card) => ({ ...card }));
+  }
+
+  skillCooldownProgress(): Readonly<Record<SkillId, number>> {
+    return {
+      bark: 0,
+      scold: 0,
+      aquaBeam: 0,
+      deokbaeHowl: 0,
+      safetyReport: 0,
+    };
+  }
+
+  countdownState(): {
+    readonly kind: CountdownTransition | null;
+    readonly remainingMs: number;
+  } {
+    return {
+      kind: this.uiTransition,
+      remainingMs: this.uiTransition === null ? 0 : this.uiClock.remainingMs,
+    };
+  }
+
+  selectCard(cardId: string): readonly GameEvent[] {
+    if (this.stateMachine.current() !== 'skillSelection') {
+      throw new Error('Skill card can only be selected during skillSelection');
+    }
+    const card = this.cards.find((candidate) => candidate.id === cardId);
+    if (card === undefined) throw new RangeError(`Unknown skill card ${cardId}`);
+
+    this.skillLevels = { ...this.skillLevels, [card.skillId]: card.nextLevel };
+    if (card.skillId === 'bark') {
+      this.bark.setLevel(card.nextLevel);
+      this.bark.reset();
+      this.activeBarkAttack = null;
+    }
+    this.progression.resolveSelection();
+    this.cards = [];
+    this.eventBuffer.push({
+      type: 'skillLearned',
+      skillId: card.skillId,
+      level: card.nextLevel,
+    });
+    this.beginCountdown(this.pendingNextWave === null ? 'resumeCombat' : 'nextWave');
+    return this.flushEvents();
+  }
+
   requestVisibilityPause(): void {
+    const before = this.stateMachine.current();
     this.stateMachine.hide();
+    if (this.stateMachine.current() !== before) this.uiClock.pause();
   }
 
   requestVisibilityResume(): void {
+    if (this.stateMachine.current() !== 'visibilityPause') return;
     this.stateMachine.resume();
+    this.uiClock.resume();
   }
 
   forceModeForTest(mode: GameMode): void {
@@ -211,7 +311,13 @@ export class GameSession {
     this.bark.reset();
     this.eventBuffer.length = 0;
     this.simulationTicks = 0;
-    this.snacks = 0;
+    this.progression.reset();
+    this.uiClock.restart(0);
+    this.outcomes.reset();
+    this.skillLevels = { ...INITIAL_SKILLS };
+    this.cards = [];
+    this.uiTransition = null;
+    this.pendingNextWave = null;
     this.nextBarkAttackSequence = 1;
     this.nextProjectileId = 0;
     this.activeBarkAttack = null;
@@ -329,7 +435,7 @@ export class GameSession {
       if (event.type === 'enemyDied') {
         for (const attack of Object.values(this.attacks)) attack.remove(event.enemyId);
       } else {
-        this.snacks += event.amount;
+        this.progression.addSnacks(event.amount);
       }
     }
   }
@@ -338,6 +444,63 @@ export class GameSession {
     const events = this.eventBuffer.splice(0);
     return events;
   }
+
+  private openSkillSelection(): void {
+    const request = this.progression.takeNextRequest();
+    if (request === undefined) throw new Error('Progression request disappeared');
+    this.cards = pickSkillCards(this.skillLevels, this.rng);
+    this.stateMachine.transition('skillSelection');
+    this.eventBuffer.push(
+      { type: 'modeChanged', mode: 'skillSelection' },
+      { type: 'skillSelectionOpened', request, cards: this.currentCards() },
+    );
+  }
+
+  private beginCountdown(kind: CountdownTransition): void {
+    if (kind === 'nextWave' && this.pendingNextWave === null) {
+      throw new Error('Next-wave countdown has no pending wave');
+    }
+    this.uiTransition = kind;
+    this.uiClock.restart(BALANCE.waveCountdownMs);
+    this.stateMachine.transition('countdown');
+    this.eventBuffer.push(
+      { type: 'modeChanged', mode: 'countdown' },
+      { type: 'waveCountdownChanged', remainingMs: this.uiClock.remainingMs },
+    );
+  }
+
+  private resolvePostStepOutcome(): void {
+    const resolution = this.outcomes.resolve({
+      shelterHp: this.shelter.currentHp,
+      wave: this.waves.current,
+      active: this.enemies.activeCount,
+      pending: this.waves.pendingCount,
+      skillDue: this.progression.canOpen(),
+    });
+    if (resolution.mode === 'lost' || resolution.mode === 'won') {
+      this.stateMachine.transition(resolution.mode);
+      this.eventBuffer.push(
+        { type: 'modeChanged', mode: resolution.mode },
+        { type: 'runEnded', outcome: resolution.mode },
+      );
+      return;
+    }
+    if (resolution.nextWave !== undefined) {
+      if (
+        this.pendingNextWave !== null
+        && this.pendingNextWave !== resolution.nextWave
+      ) {
+        throw new Error(`Wave ${this.pendingNextWave} is already pending`);
+      }
+      this.pendingNextWave = resolution.nextWave;
+    }
+    if (resolution.mode === 'skillSelection') {
+      this.openSkillSelection();
+    } else if (resolution.countdownKind === 'nextWave') {
+      this.beginCountdown('nextWave');
+    }
+  }
+
 }
 
 function createAttackSystems(): Record<EnemyKind, EnemyAttackSystem> {

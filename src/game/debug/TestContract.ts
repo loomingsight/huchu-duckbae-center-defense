@@ -4,6 +4,9 @@ import type { ProjectileKind } from '../combat/ProjectileSystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { RunSnapshot } from '../session/RunSnapshot';
+import type { SkillCard } from '../skills/SkillTypes';
+import type { SkillId, SkillLevel } from '../types/GameTypes';
+import type { CountdownKind } from '../ui/CountdownOverlay';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import type { ShelterVisualState } from '../shelter/ShelterTypes';
 
@@ -12,6 +15,8 @@ export type TestScenarioId =
   | 'wave-schedule'
   | 'health-bar-colors'
   | 'bark-targeting'
+  | 'skill-selection'
+  | 'skill-selection-wave-clear'
   | 'poop-attack'
   | 'boss';
 
@@ -32,6 +37,21 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly projectileImpacts: readonly ProjectileImpactSnapshot[];
   readonly shelterShakeOffset: number;
   readonly barkWavePool: PoolSnapshot;
+  readonly cards: readonly SkillCard[];
+  readonly cooldownProgress: Readonly<Record<SkillId, number>>;
+  readonly countdown: {
+    readonly kind: CountdownKind | null;
+    readonly remainingMs: number;
+  };
+  readonly worldClocks: {
+    readonly worldPaused: boolean;
+    readonly worldAnimationMs: number;
+    readonly barkAnimationElapsedMs: number | null;
+    readonly barkEffectAgesMs: readonly number[];
+    readonly projectileEffectAgesMs: readonly number[];
+    readonly shelterEffectAgeMs: number | null;
+    readonly offLeashEffectAgeMs: number | null;
+  };
 }
 
 type GameDebugEventMetadata = {
@@ -74,6 +94,8 @@ export type GameDebugEvent = GameDebugEventMetadata & (
   | { readonly type: 'enemyDied'; readonly enemyId: number }
   | { readonly type: 'snackEarned'; readonly enemyId: number; readonly amount: number }
   | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number }
+  | { readonly type: 'skillSelectionOpened'; readonly cards: readonly SkillCard[] }
+  | { readonly type: 'skillLearned'; readonly skillId: SkillId; readonly level: SkillLevel }
 );
 
 export interface HuchuTestBridge {

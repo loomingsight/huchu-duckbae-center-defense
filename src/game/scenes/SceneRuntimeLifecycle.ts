@@ -1,14 +1,12 @@
-const NOOP = (): void => {};
-
 export class SceneRuntimeLifecycle {
   private generation = 0;
-  private dispose = NOOP;
+  private readonly disposers = new Set<() => void>();
 
   begin(): number {
-    const disposePrevious = this.dispose;
-    this.dispose = NOOP;
+    const previous = [...this.disposers];
+    this.disposers.clear();
     this.generation += 1;
-    disposePrevious();
+    previous.forEach((dispose) => dispose());
     return this.generation;
   }
 
@@ -21,17 +19,15 @@ export class SceneRuntimeLifecycle {
       dispose();
       return false;
     }
-    const disposePrevious = this.dispose;
-    this.dispose = dispose;
-    disposePrevious();
+    this.disposers.add(dispose);
     return true;
   }
 
   end(generation: number): void {
     if (!this.isActive(generation)) return;
-    const dispose = this.dispose;
-    this.dispose = NOOP;
+    const current = [...this.disposers];
+    this.disposers.clear();
     this.generation += 1;
-    dispose();
+    current.forEach((dispose) => dispose());
   }
 }

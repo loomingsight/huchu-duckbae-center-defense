@@ -178,6 +178,10 @@ class ProjectileImpactActor {
     };
   }
 
+  ageSnapshot(): number {
+    return this.ageMs;
+  }
+
   reset(): void {
     this.projectileId = -1;
     this.kind = 'poop';
@@ -293,6 +297,10 @@ export class ProjectileActorPool {
     return [...this.activeImpacts]
       .map((impact) => impact.snapshot())
       .sort((left, right) => left.projectileId - right.projectileId);
+  }
+
+  impactAgesSnapshot(): readonly number[] {
+    return [...this.activeImpacts].map((impact) => impact.ageSnapshot());
   }
 
   private acquire(projectileId: number): ProjectileActor | undefined {
