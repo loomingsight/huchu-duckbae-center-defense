@@ -100,6 +100,14 @@ describe('BarkSystem', () => {
     expect(levelThree.step(1, candidate())).toEqual([{ type: 'barkStarted', targetId: 7 }]);
   });
 
+  it('cadence 단일값 accessor는 현재 level 변경을 즉시 반영한다', () => {
+    const bark = new BarkSystem(1);
+
+    expect(bark.cadenceDurationMs()).toBe(650);
+    bark.setLevel(3);
+    expect(bark.cadenceDurationMs()).toBe(520);
+  });
+
   it('큰 step은 여러 release/cadence 경계를 순서대로 모두 통과하고 overshoot를 보존한다', () => {
     const bark = new BarkSystem(1);
 

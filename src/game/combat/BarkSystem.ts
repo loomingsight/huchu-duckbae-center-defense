@@ -108,6 +108,10 @@ export class BarkSystem {
     this.level = level;
   }
 
+  cadenceDurationMs(): number {
+    return barkCadenceMs(this.level);
+  }
+
   reset(): void {
     this.phase = 'ready';
     this.cycleElapsedMs = 0;
@@ -141,7 +145,7 @@ export class BarkSystem {
   }
 
   private get cadenceMs(): number {
-    return barkCadenceMs(this.level);
+    return this.cadenceDurationMs();
   }
 }
 

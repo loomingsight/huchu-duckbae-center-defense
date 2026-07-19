@@ -5,7 +5,7 @@ import {
 import { enemy } from './fixtures';
 
 describe('TargetingSystem', () => {
-  it('ETA -> player distance -> boss -> spawnSequence -> id 순으로 대상을 고른다', () => {
+  it('ETA -> player distance -> boss -> spawnSequence 순으로 대상을 고른다', () => {
     const player = { x: 200, y: 200 };
     const candidates = [
       enemy({ id: 8, etaMs: 500, position: { x: 230, y: 200 }, isBoss: false, spawnSequence: 1 }),
@@ -14,8 +14,18 @@ describe('TargetingSystem', () => {
       enemy({ id: 5, etaMs: 400, position: { x: 340, y: 200 }, isBoss: false, spawnSequence: 0 }),
     ];
 
-    expect(rankThreatTargets(player, candidates, 150).map(({ id }) => id)).toEqual([5, 6, 7, 8]);
+    expect(rankThreatTargets(player, candidates, 150).map(({ id }) => id)).toEqual([5, 6, 8, 7]);
     expect(selectThreatTarget(player, candidates, 150)?.id).toBe(5);
+  });
+
+  it('모든 우선순위가 같으면 stable sort로 input order를 보존한다', () => {
+    const candidates = [
+      enemy({ id: 8, etaMs: 500, position: { x: 230, y: 200 }, isBoss: false, spawnSequence: 1 }),
+      enemy({ id: 7, etaMs: 500, position: { x: 230, y: 200 }, isBoss: false, spawnSequence: 1 }),
+    ];
+
+    expect(rankThreatTargets({ x: 200, y: 200 }, candidates, 150).map(({ id }) => id))
+      .toEqual([8, 7]);
   });
 
   it('사거리 경계는 포함하고 밖의 적과 dead 적은 제외한다', () => {

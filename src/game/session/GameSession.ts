@@ -108,6 +108,10 @@ export class GameSession {
     return this.bark.snapshot();
   }
 
+  barkCadenceMs(): number {
+    return this.bark.cadenceDurationMs();
+  }
+
   requestVisibilityPause(): void {
     this.stateMachine.hide();
   }

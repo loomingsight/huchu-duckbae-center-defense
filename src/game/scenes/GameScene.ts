@@ -3,7 +3,6 @@ import {
   FIXED_STEP_MS,
   TIME_EPSILON_MS,
 } from '../constants';
-import { barkCadenceMs } from '../combat/BarkSystem';
 import { FixedStepClock } from '../core/FixedStepClock';
 import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
@@ -215,13 +214,8 @@ export class GameScene extends Phaser.Scene {
   private advanceCombatVisuals(stepMs: number): void {
     this.playerView.stepSimulation(stepMs);
     if (this.barkAnimationElapsedMs === undefined) return;
-    const barkLevel = this.session.snapshot().skills.bark;
-    if (barkLevel === 0) {
-      this.barkAnimationElapsedMs = undefined;
-      return;
-    }
     const nextElapsedMs = this.barkAnimationElapsedMs + stepMs;
-    this.barkAnimationElapsedMs = nextElapsedMs + TIME_EPSILON_MS >= barkCadenceMs(barkLevel)
+    this.barkAnimationElapsedMs = nextElapsedMs + TIME_EPSILON_MS >= this.session.barkCadenceMs()
       ? undefined
       : nextElapsedMs;
   }

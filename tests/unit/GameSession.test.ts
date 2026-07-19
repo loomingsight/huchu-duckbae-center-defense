@@ -5,6 +5,13 @@ import { GameSession } from '../../src/game/session/GameSession';
 const PLAYER = { x: 270, y: 650 } as const;
 
 describe('GameSession', () => {
+  it('bark cadence를 snapshot 없이 readonly number 단일값으로 제공한다', () => {
+    const run = GameSession.create({ seed: 1 });
+
+    expectTypeOf(run.barkCadenceMs()).toEqualTypeOf<number>();
+    expect(run.barkCadenceMs()).toBe(650);
+  });
+
   it('정지 중에는 simulationMs와 wave schedule이 증가하지 않는다', () => {
     const run = GameSession.create({ seed: 424242 });
     run.forceModeForTest('skillSelection');

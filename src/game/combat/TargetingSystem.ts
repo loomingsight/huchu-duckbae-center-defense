@@ -18,8 +18,7 @@ export function compareThreat(left: RankedTarget, right: RankedTarget): number {
   return left.enemy.etaMs - right.enemy.etaMs
     || left.distanceToPlayer - right.distanceToPlayer
     || Number(right.enemy.isBoss) - Number(left.enemy.isBoss)
-    || left.enemy.spawnSequence - right.enemy.spawnSequence
-    || left.enemy.id - right.enemy.id;
+    || left.enemy.spawnSequence - right.enemy.spawnSequence;
 }
 
 export function selectThreatTarget(

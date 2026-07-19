@@ -2,7 +2,7 @@
 
 ## 결과
 
-- `TargetingSystem`은 살아 있는 사거리 내 적을 ETA → 플레이어 거리 → boss → spawnSequence → id 순으로 결정적으로 정렬한다
+- `TargetingSystem`은 살아 있는 사거리 내 적을 ETA → 플레이어 거리 → boss → spawnSequence 순으로 정렬하고, 완전 동률은 input order를 보존한다
 - `rankThreatTargets`의 생략 range와 `+Infinity`는 이후 전장 전체 정렬용 sentinel로 허용하고, NaN·음수·`-Infinity`·비숫자는 거부한다
 - `CombatSystem`은 한 apply batch에서 같은 attack-target pair만 dedupe하며 같은 cast의 multi-target과 다음 batch 재사용은 허용한다
 - `BarkSystem`은 pure `ready → windup → cooldown` 상태 머신으로 250ms release, level 1/2의 650ms cadence, level 3의 520ms cadence를 처리한다
@@ -22,7 +22,7 @@
 
 - 명령: `npm run test:unit -- tests/unit/TargetingSystem.test.ts`
 - 결과: exit 1, `Cannot find module '../../src/game/combat/TargetingSystem'`, 1 failed suite / 0 tests
-- GREEN: comparator 최종 id tie, range boundary/dead exclusion, default `+Infinity`, invalid player/range/enemy input, 원본 불변성 통과
+- GREEN: spawnSequence 뒤 stable input-order tie, range boundary/dead exclusion, default `+Infinity`, invalid player/range/enemy input, 원본 불변성 통과
 
 ### Combat 모듈 부재 RED
 
@@ -97,3 +97,33 @@
 - production build의 기존 Phaser 500kB 초과 chunk 경고와 Playwright의 `NO_COLOR`/`FORCE_COLOR` 경고는 비차단으로 유지된다
 - sandbox 최초 E2E server bind는 `listen EPERM: operation not permitted 127.0.0.1:5174`였고, 승인된 로컬 서버 실행 경로에서 desktop/mobile을 검증했다
 - 전체 38-case 단일 E2E 실행은 도구의 30초 출력 한계로 summary가 잘려, 동일 전체 suite를 desktop 19개와 mobile 19개로 분리해 각각 exit 0을 확인했다
+
+## 후속 리뷰 수정 — stable targeting과 cadence accessor
+
+### Stable tie RED / GREEN
+
+- RED 명령: `npm run test:unit -- tests/unit/TargetingSystem.test.ts -t "stable sort"`
+- RED 결과: expected `[8, 7]`, received `[7, 8]`, 1 failed / 19 skipped
+- 수정: comparator의 비계약 `id` tie-break를 제거해 ETA → distance → boss → spawnSequence가 모두 같으면 JavaScript stable sort의 input order를 유지한다
+- GREEN: 첫 입력 `[id8, id7]`의 결과 `[8, 7]`, 기존 원본 배열·enemy object·position 불변성 테스트 유지
+
+### Fixed-tick snapshot 제거 RED / GREEN
+
+- RED 명령: `npm run test:unit -- tests/unit/BarkSystem.test.ts tests/unit/GameSession.test.ts -t "accessor|readonly number"`
+- RED 결과: `bark.cadenceDurationMs is not a function`, `run.barkCadenceMs is not a function`, 2 failed / 40 skipped
+- 수정: `BarkSystem.cadenceDurationMs()`가 현재 level의 cadence 단일값을 제공하고 `GameSession.barkCadenceMs()`가 이를 위임한다
+- `GameScene.advanceCombatVisuals()`는 fixed tick마다 `session.snapshot()`으로 전체 enemy snapshot 정렬·할당하지 않고 scalar cadence만 읽는다
+- level 1의 650ms와 `setLevel(3)` 이후 520ms를 검증해 이후 skill level 변경도 accessor에 즉시 반영됨을 고정했다
+- GREEN 명령: `npm run test:unit -- tests/unit/TargetingSystem.test.ts tests/unit/BarkSystem.test.ts tests/unit/GameSession.test.ts`
+- GREEN 결과: 3 files / 62 tests 통과
+
+### 후속 최종 검증
+
+- 전체 unit: 25 files / 254 tests 통과
+- `npm run build`: TypeScript `tsc --noEmit` 및 Vite production build exit 0
+- combat E2E: desktop/mobile 8 passed / 0 failed
+- production debug scan: `__HUCHU_TEST__`, 4개 scenario id, debug bridge/port 문자열 match 0
+- pure combat scan: Phaser, Date/performance, RAF/timer, `Math.random` match 0
+- fixed-tick 경로 scan: `advanceCombatVisuals()`는 `session.barkCadenceMs()`만 사용하며 `session.snapshot()` 호출 없음
+- `git diff --check`: 출력 없음
+- 기존 Phaser 500kB 초과 chunk 경고와 Playwright `NO_COLOR`/`FORCE_COLOR` 경고만 비차단으로 유지된다
