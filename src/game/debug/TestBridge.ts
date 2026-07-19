@@ -31,8 +31,10 @@ interface SessionScenePort {
   playerSnapshot(): PlayerSnapshot;
   sessionSnapshot(): RunSnapshot;
   enemyActorPoolSnapshot(): PoolSnapshot;
+  projectileActorPoolSnapshot(): PoolSnapshot;
   combatEffectsSnapshot(): PoolSnapshot;
   seedEnemyForScenario(seed: ScenarioEnemySeed): number;
+  suppressWaveSpawnsForScenario(): void;
   setVisibilityForTest(hidden: boolean): void;
   waitForRenderFlush(): Promise<void>;
 }
@@ -79,6 +81,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       })),
       player: this.scene.playerSnapshot(),
       enemyPool: this.scene.enemyActorPoolSnapshot(),
+      projectilePool: this.scene.projectileActorPoolSnapshot(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
     };
   }
@@ -118,6 +121,10 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     this.scene.resetPlayer(x, y);
   }
 
+  suppressWaveSpawns(): void {
+    this.scene.suppressWaveSpawnsForScenario();
+  }
+
   seedEnemy(seed: ScenarioEnemySeed): number {
     return this.scene.seedEnemyForScenario(seed);
   }
@@ -152,6 +159,37 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
           attackId: event.attackId,
           targetId: event.targetId,
         });
+        return;
+      case 'attackStarted':
+      case 'attackCancelled':
+      case 'attackHolding':
+        this.appendEvent({ type: event.type, enemyId: event.enemyId });
+        return;
+      case 'projectileSpawned':
+      case 'projectileHit':
+        this.appendEvent({
+          type: event.type,
+          projectileId: event.projectileId,
+          kind: event.kind,
+        });
+        return;
+      case 'projectileDropped':
+        this.appendEvent({
+          type: event.type,
+          projectileId: event.projectileId,
+          kind: event.kind,
+          reason: event.reason,
+        });
+        return;
+      case 'shelterDamaged':
+        this.appendEvent({
+          type: event.type,
+          hp: event.hp,
+          visual: event.visual,
+        });
+        return;
+      case 'projectileRequested':
+      case 'shelterDamageRequested':
         return;
       case 'enemyDied':
         this.appendEvent({ type: event.type, enemyId: event.enemyId });

@@ -117,6 +117,44 @@ test('scenario reset은 wave pool을 재사용하고 Scene restart는 새 lifecy
   });
 });
 
+test('똥 공격은 250ms에 투사체를 만들고 도착 때 보호소를 한 번 때린다', async ({ page }) => {
+  await openScenario(page, 'poop-attack');
+  const before = await snapshot(page);
+  const hp = before.shelterHp;
+  expect(before.enemies).toHaveLength(1);
+  expect(before.pendingSpawns).toBe(0);
+  expect(before.projectilePool).toMatchObject({ created: 80, active: 0, available: 80 });
+  expect('currentHp' in before.player).toBe(false);
+
+  await advance(page, 249);
+  expect((await snapshot(page)).projectiles).toHaveLength(0);
+  await advance(page, 1);
+  expect((await snapshot(page)).projectiles).toHaveLength(1);
+  expect((await snapshot(page)).shelterHp).toBe(hp);
+  await advance(page, 500);
+
+  expect((await snapshot(page)).shelterHp).toBe(hp - 3);
+});
+
+test('개장수는 250ms에 speed 240 포획망을 만들고 보호소에 14 피해를 준다', async ({ page }) => {
+  await openScenario(page, 'boss');
+  const before = await snapshot(page);
+  const hp = before.shelterHp;
+  expect(before.enemies).toHaveLength(1);
+  expect(before.enemies.at(0)).toMatchObject({ kind: 'dogTrader' });
+  expect(before.pendingSpawns).toBe(0);
+
+  await advance(page, 250);
+  expect((await snapshot(page)).projectiles.at(0)!).toMatchObject({
+    kind: 'net',
+    speed: 240,
+    lifeMs: 1200,
+  });
+  await advance(page, 500);
+
+  expect((await snapshot(page)).shelterHp).toBe(hp - 14);
+});
+
 async function logicalPixel(
   image: Buffer,
   logicalX: number,

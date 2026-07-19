@@ -1,10 +1,16 @@
+import type { EnemyAttackEvent } from '../combat/EnemyAttackSystem';
+import type { ProjectileEvent } from '../combat/ProjectileSystem';
 import type { GameMode } from '../core/GameMode';
 import type { EnemyLifecycleEvent } from '../enemies/EnemySystem';
+import type { ShelterDamageEvent } from '../shelter/ShelterSystem';
 import type { Point } from '../world/Geometry';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 
 export type GameEvent =
   | EnemyLifecycleEvent
+  | EnemyAttackEvent
+  | ProjectileEvent
+  | ShelterDamageEvent
   | { readonly type: 'modeChanged'; readonly mode: GameMode }
   | { readonly type: 'runEnded'; readonly outcome: 'won' | 'lost' }
   | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }

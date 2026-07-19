@@ -5,6 +5,7 @@ import {
 } from '../constants';
 import { FixedStepClock } from '../core/FixedStepClock';
 import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
+import { ProjectileActorPool } from '../combat/ProjectileActorPool';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
 import type { GameEvent } from '../events/GameEvents';
 import type { MovementIntent } from '../player/InputVector';
@@ -16,6 +17,7 @@ import type { PoolSnapshot } from '../pooling/ObjectPool';
 import { VirtualJoystick } from '../player/VirtualJoystick';
 import { GameSession } from '../session/GameSession';
 import type { RunSnapshot } from '../session/RunSnapshot';
+import { ShelterView } from '../shelter/ShelterView';
 import { DebugPathOverlay } from '../world/DebugPathOverlay';
 import { MapView } from '../world/MapView';
 import { SceneRuntimeLifecycle } from './SceneRuntimeLifecycle';
@@ -34,6 +36,9 @@ export class GameScene extends Phaser.Scene {
   private virtualJoystick!: VirtualJoystick;
   private waveCountdownText!: Phaser.GameObjects.Text;
   private enemyActors: EnemyActorPool | undefined;
+  private projectileActors: ProjectileActorPool | undefined;
+  private shelterView: ShelterView | undefined;
+  private enemyAttackEffect: Phaser.GameObjects.Graphics | undefined;
   private manualClock = false;
   private worldAnimationMs = 0;
   private moving = false;
@@ -58,6 +63,9 @@ export class GameScene extends Phaser.Scene {
     this.enemyActors = new EnemyActorPool(this);
 
     new MapView(this);
+    this.shelterView = new ShelterView(this);
+    this.projectileActors = new ProjectileActorPool(this);
+    this.enemyAttackEffect = this.add.graphics().setDepth(1000);
     if (import.meta.env.DEV) new DebugPathOverlay(this);
     this.waveCountdownText = this.add.text(270, 420, '', {
       fontFamily: 'system-ui, sans-serif',
@@ -72,6 +80,7 @@ export class GameScene extends Phaser.Scene {
     this.virtualJoystick = new VirtualJoystick(this);
     this.renderPlayer();
     this.renderEnemies();
+    this.renderProjectiles();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdownRuntime(generation));
 
@@ -89,6 +98,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.renderPlayer();
     this.renderEnemies();
+    this.renderProjectiles();
   }
 
   advanceSimulationStep(stepMs: number): readonly GameEvent[] {
@@ -111,12 +121,16 @@ export class GameScene extends Phaser.Scene {
 
   resetSession(seed: number): void {
     this.enemyActors?.releaseAll();
+    this.projectileActors?.releaseAll();
+    this.shelterView?.reset();
+    this.resetEnemyAttackEffect();
     this.playerView.resetCombatVisuals();
     this.session.reset(seed);
     this.fixedClock.reset();
     this.barkAnimationElapsedMs = undefined;
     this.updateWaveCountdown(0);
     this.renderEnemies();
+    this.renderProjectiles();
   }
 
   resetPlayer(x: number, y: number): void {
@@ -139,6 +153,11 @@ export class GameScene extends Phaser.Scene {
     return this.enemyActors.snapshot();
   }
 
+  projectileActorPoolSnapshot(): PoolSnapshot {
+    if (this.projectileActors === undefined) throw new Error('Projectile actor pool is not initialized');
+    return this.projectileActors.snapshot();
+  }
+
   combatEffectsSnapshot(): PoolSnapshot {
     return this.playerView.effectPoolSnapshot();
   }
@@ -149,6 +168,10 @@ export class GameScene extends Phaser.Scene {
     if (actor === undefined) throw new Error('Enemy actor pool exhausted');
     this.renderEnemies();
     return enemyId;
+  }
+
+  suppressWaveSpawnsForScenario(): void {
+    this.session.suppressWaveSpawnsForScenario();
   }
 
   setVisibilityForTest(hidden: boolean): void {
@@ -180,6 +203,10 @@ export class GameScene extends Phaser.Scene {
     this.enemyActors?.render(this.session.snapshot().enemies);
   }
 
+  private renderProjectiles(): void {
+    this.projectileActors?.render(this.session.snapshot().projectiles);
+  }
+
   private applySessionEvents(events: readonly GameEvent[]): void {
     events.forEach((event) => {
       if (event.type === 'enemySpawned') {
@@ -188,6 +215,16 @@ export class GameScene extends Phaser.Scene {
       }
       if (event.type === 'barkStarted') this.barkAnimationElapsedMs = 0;
       if (event.type === 'barkReleased') this.playerView.showBarkWave(event.origin, event.target);
+      if (event.type === 'shelterDamageRequested' && 'enemyId' in event) {
+        this.showOffLeashAttack(event.enemyId);
+      }
+      if (event.type === 'projectileHit') {
+        this.projectileActors?.showHit(event.projectileId, event.kind);
+      }
+      if (event.type === 'shelterDamaged') {
+        this.shelterView?.render(event.visual);
+        this.shelterView?.showDamage();
+      }
       if (event.type === 'enemyDied') this.enemyActors?.release(event.enemyId);
       if (event.type === 'waveCountdownChanged') this.updateWaveCountdown(event.remainingMs);
     });
@@ -206,13 +243,54 @@ export class GameScene extends Phaser.Scene {
   private shutdownRuntime(generation: number): void {
     this.runtimeLifecycle.end(generation);
     this.enemyActors = undefined;
+    this.projectileActors?.releaseAll();
+    this.projectileActors = undefined;
+    this.shelterView?.destroy();
+    this.shelterView = undefined;
+    this.enemyAttackEffect?.destroy();
+    this.enemyAttackEffect = undefined;
     this.playerView.destroy();
     this.keyboardInput.destroy();
     this.virtualJoystick.destroy();
   }
 
+  private showOffLeashAttack(enemyId: number): void {
+    const effect = this.enemyAttackEffect;
+    if (effect === undefined) return;
+    const enemy = this.session.snapshot().enemies.find(({ id }) => id === enemyId);
+    if (enemy?.kind !== 'offLeashGuardian') return;
+    this.tweens.killTweensOf(effect);
+    const target = { x: 270, y: 480 };
+    const middle = {
+      x: (enemy.position.x + target.x) / 2,
+      y: (enemy.position.y + target.y) / 2 - 12,
+    };
+    effect
+      .clear()
+      .lineStyle(4, 0xf2ca45, 0.95)
+      .beginPath()
+      .moveTo(enemy.position.x, enemy.position.y - 18)
+      .lineTo(middle.x, middle.y)
+      .lineTo(target.x, target.y)
+      .strokePath()
+      .setAlpha(1);
+    this.tweens.add({
+      targets: effect,
+      alpha: 0,
+      duration: 120,
+      onComplete: () => effect.clear().setAlpha(1),
+    });
+  }
+
+  private resetEnemyAttackEffect(): void {
+    if (this.enemyAttackEffect === undefined) return;
+    this.tweens.killTweensOf(this.enemyAttackEffect);
+    this.enemyAttackEffect.clear().setAlpha(1);
+  }
+
   private advanceCombatVisuals(stepMs: number): void {
     this.playerView.stepSimulation(stepMs);
+    this.projectileActors?.stepEffects(stepMs);
     if (this.barkAnimationElapsedMs === undefined) return;
     const nextElapsedMs = this.barkAnimationElapsedMs + stepMs;
     this.barkAnimationElapsedMs = nextElapsedMs + TIME_EPSILON_MS >= this.session.barkCadenceMs()

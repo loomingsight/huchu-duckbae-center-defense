@@ -1,14 +1,18 @@
 import type { GameMode } from '../core/GameMode';
+import type { ProjectileKind } from '../combat/ProjectileSystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
+import type { ShelterVisualState } from '../shelter/ShelterTypes';
 
 export type TestScenarioId =
   | 'empty-run'
   | 'wave-schedule'
   | 'health-bar-colors'
-  | 'bark-targeting';
+  | 'bark-targeting'
+  | 'poop-attack'
+  | 'boss';
 
 export interface DebugEnemySnapshot extends EnemySnapshot {
   readonly hpBar: {
@@ -23,6 +27,7 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly enemies: readonly DebugEnemySnapshot[];
   readonly player: { readonly x: number; readonly y: number };
   readonly enemyPool: PoolSnapshot;
+  readonly projectilePool: PoolSnapshot;
   readonly barkWavePool: PoolSnapshot;
 }
 
@@ -37,6 +42,26 @@ export type GameDebugEvent = GameDebugEventMetadata & (
   | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }
   | { readonly type: 'barkStarted'; readonly attackId: string; readonly targetId: number }
   | { readonly type: 'barkReleased'; readonly attackId: string; readonly targetId: number }
+  | {
+    readonly type: 'attackStarted' | 'attackCancelled' | 'attackHolding';
+    readonly enemyId: number;
+  }
+  | {
+    readonly type: 'projectileSpawned' | 'projectileHit';
+    readonly projectileId: number;
+    readonly kind: ProjectileKind;
+  }
+  | {
+    readonly type: 'projectileDropped';
+    readonly projectileId: number;
+    readonly kind: ProjectileKind;
+    readonly reason: 'capacity';
+  }
+  | {
+    readonly type: 'shelterDamaged';
+    readonly hp: number;
+    readonly visual: ShelterVisualState;
+  }
   | { readonly type: 'enemyDied'; readonly enemyId: number }
   | { readonly type: 'snackEarned'; readonly enemyId: number; readonly amount: number }
   | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number }

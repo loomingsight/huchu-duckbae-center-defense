@@ -104,6 +104,7 @@ describe('GameSession', () => {
       shelterHp: 100,
       snacks: 0,
       enemies: [],
+      projectiles: [],
       skills: {
         bark: 1,
         scold: 0,

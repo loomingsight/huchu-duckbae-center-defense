@@ -10,6 +10,8 @@ import {
 } from '../combat/BarkSystem';
 import { CombatSystem } from '../combat/CombatSystem';
 import type { DamageCommand } from '../combat/CombatTypes';
+import { EnemyAttackSystem } from '../combat/EnemyAttackSystem';
+import { ProjectileSystem } from '../combat/ProjectileSystem';
 import { selectThreatTarget } from '../combat/TargetingSystem';
 import type { GameMode } from '../core/GameMode';
 import { GameStateMachine } from '../core/GameStateMachine';
@@ -21,7 +23,9 @@ import { EnemySystem, type EnemyLifecycleEvent } from '../enemies/EnemySystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
-import type { SkillId, SkillLevel } from '../types/GameTypes';
+import type { PoolSnapshot } from '../pooling/ObjectPool';
+import { ShelterSystem } from '../shelter/ShelterSystem';
+import type { EnemyKind, SkillId, SkillLevel } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
 import { WaveSystem } from '../waves/WaveSystem';
 import type { RunSnapshot } from './RunSnapshot';
@@ -35,6 +39,7 @@ const INITIAL_SKILLS = {
 } as const satisfies Readonly<Record<SkillId, SkillLevel>>;
 
 const BARK_RANGE = 150;
+const SCENARIO_WAVE_DEFINITIONS = [{ wave: 1, spawns: [] }] as const;
 
 interface ActiveBarkAttack {
   readonly attackId: string;
@@ -49,9 +54,16 @@ export class GameSession {
   private readonly enemies = EnemySystem.createDefault();
   private readonly combat = new CombatSystem(this.enemies);
   private readonly bark = new BarkSystem(INITIAL_SKILLS.bark);
+  private readonly attacks = createAttackSystems();
+  private readonly projectiles = new ProjectileSystem(
+    BALANCE.caps.projectiles,
+    BALANCE.shelter.hitRadius,
+  );
+  private readonly shelter = new ShelterSystem(BALANCE.shelter.maxHp);
   private simulationTicks = 0;
   private snacks = 0;
   private nextBarkAttackSequence = 1;
+  private nextProjectileId = 0;
   private activeBarkAttack: ActiveBarkAttack | null = null;
   private readonly eventBuffer: GameEvent[] = [];
 
@@ -81,7 +93,13 @@ export class GameSession {
       );
     }
     this.enemies.step(FIXED_STEP_MS);
+    const shelterDamage: number[] = [];
+    this.stepEnemyAttacks(FIXED_STEP_MS, shelterDamage);
+    this.stepProjectiles(FIXED_STEP_MS, shelterDamage);
     this.stepBark(player);
+    for (const amount of shelterDamage) {
+      this.eventBuffer.push(...this.shelter.damage(amount));
+    }
     return this.flushEvents();
   }
 
@@ -92,10 +110,11 @@ export class GameSession {
       wave: this.waves.current,
       pendingSpawns: this.waves.pendingCount,
       activeEnemyCount: this.enemies.activeCount,
-      activeProjectileCount: 0,
-      shelterHp: BALANCE.shelter.maxHp,
+      activeProjectileCount: this.projectiles.activeCount,
+      shelterHp: this.shelter.currentHp,
       snacks: this.snacks,
       enemies: this.enemies.snapshots(),
+      projectiles: this.projectiles.snapshots(),
       skills: { ...INITIAL_SKILLS },
     };
   }
@@ -129,7 +148,12 @@ export class GameSession {
   }
 
   spawnEnemyForScenario(seed: ScenarioEnemySeed): number {
-    return this.enemies.spawnForScenario(seed).enemyId;
+    const spawned = this.enemies.spawnForScenario(seed);
+    if (seed.stunnedMs !== undefined && seed.stunnedMs > 0) {
+      const snapshot = this.enemies.snapshots().find(({ id }) => id === spawned.enemyId)!;
+      this.attacks[seed.kind].stun(spawned.enemyId, seed.stunnedMs, snapshot.pathProgress);
+    }
+    return spawned.enemyId;
   }
 
   damageEnemy(enemyId: number, amount: number): readonly GameEvent[] {
@@ -138,8 +162,36 @@ export class GameSession {
     return events;
   }
 
+  stunEnemy(enemyId: number, durationMs: number): void {
+    const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
+    this.enemies.stun(enemyId, durationMs);
+    if (enemy !== undefined && durationMs > 0) {
+      this.attacks[enemy.kind].stun(enemyId, durationMs, enemy.pathProgress);
+    }
+  }
+
+  knockBackEnemy(enemyId: number, distance: number): void {
+    const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
+    this.enemies.knockBack(enemyId, distance);
+    if (enemy !== undefined && distance > 0) this.attacks[enemy.kind].interrupt(enemyId);
+  }
+
   removeEnemyWithoutReward(enemyId: number): void {
     this.enemies.removeWithoutReward(enemyId);
+    for (const attack of Object.values(this.attacks)) attack.remove(enemyId);
+  }
+
+  suppressWaveSpawnsForScenario(): void {
+    this.waves = new WaveSystem(
+      SCENARIO_WAVE_DEFINITIONS,
+      this.rng,
+      BALANCE.caps.enemies,
+    );
+    this.waves.start(1);
+  }
+
+  projectilePoolTelemetry(): PoolSnapshot {
+    return this.projectiles.poolSnapshot();
   }
 
   reset(seed: number): void {
@@ -152,13 +204,53 @@ export class GameSession {
     this.rng = rng;
     this.waves = waves;
     this.enemies.clear();
+    for (const attack of Object.values(this.attacks)) attack.clear();
+    this.projectiles.clear();
+    this.shelter.reset();
     this.bark.setLevel(INITIAL_SKILLS.bark);
     this.bark.reset();
     this.eventBuffer.length = 0;
     this.simulationTicks = 0;
     this.snacks = 0;
     this.nextBarkAttackSequence = 1;
+    this.nextProjectileId = 0;
     this.activeBarkAttack = null;
+  }
+
+  private stepEnemyAttacks(stepMs: number, shelterDamage: number[]): void {
+    for (const enemy of this.enemies.snapshots()) {
+      const startedFromMoving = enemy.state === 'moving';
+      for (const event of this.attacks[enemy.kind].step(stepMs, enemy)) {
+        this.eventBuffer.push(event);
+        if (event.type === 'attackStarted') {
+          this.enemies.setState(event.enemyId, 'windup', startedFromMoving ? stepMs : 0);
+        } else if (event.type === 'attackHolding') {
+          this.enemies.setState(event.enemyId, 'holding');
+        } else if (event.type === 'attackCancelled') {
+          this.enemies.setState(event.enemyId, 'moving');
+        } else if (event.type === 'shelterDamageRequested') {
+          shelterDamage.push(event.damage);
+        } else if (event.type === 'projectileRequested') {
+          this.eventBuffer.push(...this.projectiles.spawn({
+            id: this.nextProjectileId,
+            kind: event.projectileKind,
+            from: event.from,
+            to: event.to,
+            speed: event.speed,
+            damage: event.damage,
+            lifeMs: event.lifeMs,
+          }));
+          this.nextProjectileId += 1;
+        }
+      }
+    }
+  }
+
+  private stepProjectiles(stepMs: number, shelterDamage: number[]): void {
+    for (const event of this.projectiles.step(stepMs)) {
+      this.eventBuffer.push(event);
+      if (event.type === 'shelterDamageRequested') shelterDamage.push(event.damage);
+    }
   }
 
   private stepBark(player: PlayerSnapshot): void {
@@ -226,7 +318,11 @@ export class GameSession {
 
   private accumulateSnacks(events: readonly EnemyLifecycleEvent[]): void {
     for (const event of events) {
-      if (event.type === 'snackEarned') this.snacks += event.amount;
+      if (event.type === 'enemyDied') {
+        for (const attack of Object.values(this.attacks)) attack.remove(event.enemyId);
+      } else {
+        this.snacks += event.amount;
+      }
     }
   }
 
@@ -234,6 +330,19 @@ export class GameSession {
     const events = this.eventBuffer.splice(0);
     return events;
   }
+}
+
+function createAttackSystems(): Record<EnemyKind, EnemyAttackSystem> {
+  const shelter = {
+    center: { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
+    radius: BALANCE.shelter.hitRadius,
+  };
+  return Object.fromEntries(
+    (Object.keys(BALANCE.enemies) as EnemyKind[]).map((kind) => [
+      kind,
+      new EnemyAttackSystem({ kind, balance: BALANCE.enemies[kind], shelter }),
+    ]),
+  ) as Record<EnemyKind, EnemyAttackSystem>;
 }
 
 function assertSeed(seed: number): void {

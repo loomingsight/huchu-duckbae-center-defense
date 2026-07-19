@@ -5,6 +5,7 @@ export interface SessionScenarioRuntime {
   resetManualScheduler(): void;
   resetEventLog(): void;
   resetSession(): void;
+  suppressWaveSpawns(): void;
   resetPlayer(x: number, y: number): void;
   seedEnemy(seed: ScenarioEnemySeed): number;
 }
@@ -22,6 +23,16 @@ export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId
     case 'bark-targeting':
       resetRun(runtime);
       seedBarkTargets(runtime);
+      return;
+    case 'poop-attack':
+      resetRun(runtime);
+      runtime.suppressWaveSpawns();
+      seedPoopAttack(runtime);
+      return;
+    case 'boss':
+      resetRun(runtime);
+      runtime.suppressWaveSpawns();
+      seedBossAttack(runtime);
       return;
     default:
       throw new RangeError(`Unknown test scenario: ${String(id)}`);
@@ -94,5 +105,23 @@ function seedBarkTargets(runtime: SessionScenarioRuntime): void {
     maxHp: 35,
     state: 'stunned',
     stunnedMs: 60_000,
+  });
+}
+
+function seedPoopAttack(runtime: SessionScenarioRuntime): void {
+  runtime.seedEnemy({
+    kind: 'poopGuardian',
+    variant: 'male',
+    pathId: 'P6',
+    placement: { kind: 'attackBoundary' },
+  });
+}
+
+function seedBossAttack(runtime: SessionScenarioRuntime): void {
+  runtime.seedEnemy({
+    kind: 'dogTrader',
+    variant: 'male',
+    pathId: 'P3',
+    placement: { kind: 'attackBoundary' },
   });
 }
