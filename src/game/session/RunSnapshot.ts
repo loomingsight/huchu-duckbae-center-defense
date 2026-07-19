@@ -1,4 +1,5 @@
 import type { GameMode } from '../core/GameMode';
+import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { SkillId, SkillLevel } from '../types/GameTypes';
 
 export interface RunSnapshot {
@@ -10,5 +11,6 @@ export interface RunSnapshot {
   readonly activeProjectileCount: number;
   readonly shelterHp: number;
   readonly snacks: number;
+  readonly enemies: readonly EnemySnapshot[];
   readonly skills: Readonly<Record<SkillId, SkillLevel>>;
 }

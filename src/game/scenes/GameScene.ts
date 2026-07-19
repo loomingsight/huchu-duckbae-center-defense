@@ -4,17 +4,18 @@ import {
   TIME_EPSILON_MS,
 } from '../constants';
 import { FixedStepClock } from '../core/FixedStepClock';
-import { PATH_DEFINITIONS } from '../data/pathDefinitions';
+import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
+import { EnemyActorPool } from '../enemies/EnemyActorPool';
 import type { GameEvent } from '../events/GameEvents';
 import type { MovementIntent } from '../player/InputVector';
 import { KeyboardInput } from '../player/KeyboardInput';
 import { PlayerController } from '../player/PlayerController';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
 import { PlayerView } from '../player/PlayerView';
+import type { PoolSnapshot } from '../pooling/ObjectPool';
 import { VirtualJoystick } from '../player/VirtualJoystick';
 import { GameSession } from '../session/GameSession';
 import type { RunSnapshot } from '../session/RunSnapshot';
-import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import { DebugPathOverlay } from '../world/DebugPathOverlay';
 import { MapView } from '../world/MapView';
 import { SceneRuntimeLifecycle } from './SceneRuntimeLifecycle';
@@ -32,7 +33,7 @@ export class GameScene extends Phaser.Scene {
   private keyboardInput!: KeyboardInput;
   private virtualJoystick!: VirtualJoystick;
   private waveCountdownText!: Phaser.GameObjects.Text;
-  private readonly debugSpawnMarkers: Phaser.GameObjects.Arc[] = [];
+  private enemyActors: EnemyActorPool | undefined;
   private manualClock = false;
   private worldAnimationMs = 0;
   private moving = false;
@@ -52,7 +53,7 @@ export class GameScene extends Phaser.Scene {
     this.manualClock = isE2eManualClock();
     this.worldAnimationMs = 0;
     this.moving = false;
-    this.debugSpawnMarkers.length = 0;
+    this.enemyActors = new EnemyActorPool(this);
 
     new MapView(this);
     if (import.meta.env.DEV) new DebugPathOverlay(this);
@@ -68,6 +69,7 @@ export class GameScene extends Phaser.Scene {
     this.keyboardInput = new KeyboardInput(this);
     this.virtualJoystick = new VirtualJoystick(this);
     this.renderPlayer();
+    this.renderEnemies();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdownRuntime(generation));
 
@@ -84,6 +86,7 @@ export class GameScene extends Phaser.Scene {
       this.fixedClock.consume(delta).forEach((stepMs) => this.advanceSimulationStep(stepMs));
     }
     this.renderPlayer();
+    this.renderEnemies();
   }
 
   advanceSimulationStep(stepMs: number): readonly GameEvent[] {
@@ -103,10 +106,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   resetSession(seed: number): void {
+    this.enemyActors?.releaseAll();
     this.session.reset(seed);
     this.fixedClock.reset();
-    this.debugSpawnMarkers.splice(0).forEach((marker) => marker.destroy());
     this.updateWaveCountdown(0);
+    this.renderEnemies();
   }
 
   resetPlayer(x: number, y: number): void {
@@ -122,6 +126,19 @@ export class GameScene extends Phaser.Scene {
 
   sessionSnapshot(): RunSnapshot {
     return this.session.snapshot();
+  }
+
+  enemyActorPoolSnapshot(): PoolSnapshot {
+    if (this.enemyActors === undefined) throw new Error('Enemy actor pool is not initialized');
+    return this.enemyActors.snapshot();
+  }
+
+  seedEnemyForScenario(seed: ScenarioEnemySeed): number {
+    const enemyId = this.session.spawnEnemyForScenario(seed);
+    const actor = this.enemyActors?.acquire(enemyId);
+    if (actor === undefined) throw new Error('Enemy actor pool exhausted');
+    this.renderEnemies();
+    return enemyId;
   }
 
   setVisibilityForTest(hidden: boolean): void {
@@ -148,21 +165,19 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private applySessionEvents(events: readonly GameEvent[]): void {
-    events.forEach((event) => {
-      if (event.type === 'enemySpawnRequested') this.addDebugSpawnMarker(event.request);
-      if (event.type === 'waveCountdownChanged') this.updateWaveCountdown(event.remainingMs);
-    });
+  private renderEnemies(): void {
+    this.enemyActors?.render(this.session.snapshot().enemies);
   }
 
-  private addDebugSpawnMarker(request: EnemySpawnRequest): void {
-    if (!import.meta.env.DEV) return;
-    const [x, y] = PATH_DEFINITIONS[request.pathId][0]!;
-    const marker = this.add.circle(x, y, 7, 0xf97316, 0.72)
-      .setStrokeStyle(2, 0xffffff, 0.9)
-      .setDepth(100)
-      .setData('enemySpawnRequest', request);
-    this.debugSpawnMarkers.push(marker);
+  private applySessionEvents(events: readonly GameEvent[]): void {
+    events.forEach((event) => {
+      if (event.type === 'enemySpawned') {
+        const actor = this.enemyActors?.acquire(event.enemyId);
+        if (actor === undefined) throw new Error('Enemy actor pool exhausted');
+      }
+      if (event.type === 'enemyDied') this.enemyActors?.release(event.enemyId);
+      if (event.type === 'waveCountdownChanged') this.updateWaveCountdown(event.remainingMs);
+    });
   }
 
   private updateWaveCountdown(remainingMs: number): void {
@@ -177,6 +192,7 @@ export class GameScene extends Phaser.Scene {
 
   private shutdownRuntime(generation: number): void {
     this.runtimeLifecycle.end(generation);
+    this.enemyActors = undefined;
     this.keyboardInput.destroy();
     this.virtualJoystick.destroy();
   }

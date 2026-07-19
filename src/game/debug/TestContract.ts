@@ -1,11 +1,13 @@
 import type { GameMode } from '../core/GameMode';
+import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 
-export type TestScenarioId = 'empty-run' | 'wave-schedule';
+export type TestScenarioId = 'empty-run' | 'wave-schedule' | 'health-bar-colors';
 
 export interface GameDebugSnapshot extends RunSnapshot {
   readonly player: { readonly x: number; readonly y: number };
+  readonly enemyPool: PoolSnapshot;
 }
 
 type GameDebugEventMetadata = {
@@ -28,6 +30,7 @@ export interface HuchuTestBridge {
   snapshot(): GameDebugSnapshot;
   eventsSince(sequence: number): readonly GameDebugEvent[];
   simulateVisibility(hidden: boolean): Promise<void>;
+  restartScene(): void;
 }
 
 declare global {

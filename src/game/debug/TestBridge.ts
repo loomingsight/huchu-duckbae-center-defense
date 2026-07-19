@@ -2,6 +2,8 @@ import { FIXED_STEP_MS } from '../constants';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
+import type { PoolSnapshot } from '../pooling/ObjectPool';
+import type { ScenarioEnemySeed } from './ScenarioSessionPort';
 import { ManualStepScheduler } from './ManualStepScheduler';
 import { loadScenario, type SessionScenarioRuntime } from './ScenarioFactory';
 import type {
@@ -16,11 +18,14 @@ type DebugEventPayload<T extends GameDebugEvent = GameDebugEvent> = T extends Ga
   : never;
 
 interface SessionScenePort {
+  readonly scene: { restart(): void };
   advanceSimulationStep(stepMs: number): readonly GameEvent[];
   resetSession(seed: number): void;
   resetPlayer(x: number, y: number): void;
   playerSnapshot(): PlayerSnapshot;
   sessionSnapshot(): RunSnapshot;
+  enemyActorPoolSnapshot(): PoolSnapshot;
+  seedEnemyForScenario(seed: ScenarioEnemySeed): number;
   setVisibilityForTest(hidden: boolean): void;
   waitForRenderFlush(): Promise<void>;
 }
@@ -56,6 +61,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     return {
       ...this.scene.sessionSnapshot(),
       player: this.scene.playerSnapshot(),
+      enemyPool: this.scene.enemyActorPoolSnapshot(),
     };
   }
 
@@ -73,6 +79,10 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     await this.scene.waitForRenderFlush();
   }
 
+  restartScene(): void {
+    this.scene.scene.restart();
+  }
+
   resetManualScheduler(): void {
     this.scheduler.reset();
   }
@@ -88,6 +98,10 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
 
   resetPlayer(x: number, y: number): void {
     this.scene.resetPlayer(x, y);
+  }
+
+  seedEnemy(seed: ScenarioEnemySeed): number {
+    return this.scene.seedEnemyForScenario(seed);
   }
 
   private advanceTicks(ms: number): void {
@@ -110,6 +124,10 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     switch (event.type) {
       case 'enemySpawnRequested':
         this.appendEvent({ type: event.type, request: event.request });
+        return;
+      case 'enemySpawned':
+      case 'enemyDied':
+      case 'snackEarned':
         return;
       case 'waveCountdownChanged':
         this.appendEvent({ type: event.type, remainingMs: event.remainingMs });

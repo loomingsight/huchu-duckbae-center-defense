@@ -28,7 +28,8 @@ describe('GameSession', () => {
       events.push(...run.step(FIXED_STEP_MS, PLAYER));
     }
 
-    expect(events).toEqual(Array.from({ length: 10 }, (_, index) => ({
+    expect(events.filter(({ type }) => type === 'enemySpawnRequested')).toEqual(
+      Array.from({ length: 10 }, (_, index) => ({
       type: 'enemySpawnRequested',
       request: {
         atMs: index * 1000,
@@ -37,13 +38,52 @@ describe('GameSession', () => {
         variant: index % 2 === 0 ? 'male' : 'female',
         spawnSequence: index,
       },
-    })));
+      })),
+    );
     expect(run.snapshot()).toMatchObject({
       simulationMs: 10_000,
       wave: 1,
       pendingSpawns: 0,
       activeEnemyCount: 10,
     });
+  });
+
+  it('WaveSystem spawn을 EnemySystem에 추가한 뒤 같은 tick에 step하고 event를 flush한다', () => {
+    const run = GameSession.create({ seed: 424242 });
+
+    const events = run.step(FIXED_STEP_MS, PLAYER);
+
+    expect(events).toEqual([
+      {
+        type: 'enemySpawnRequested',
+        request: {
+          atMs: 0,
+          pathId: 'P1',
+          kind: 'poopGuardian',
+          variant: 'male',
+          spawnSequence: 0,
+        },
+      },
+      {
+        type: 'enemySpawned',
+        enemyId: 0,
+        request: {
+          atMs: 0,
+          pathId: 'P1',
+          kind: 'poopGuardian',
+          variant: 'male',
+          spawnSequence: 0,
+        },
+      },
+    ]);
+    const enemy = run.snapshot().enemies.at(0)!;
+    expect(enemy).toMatchObject({
+      id: 0,
+      spawnSequence: 0,
+      state: 'moving',
+    });
+    expect(enemy.pathProgress).toBeCloseTo(44 / 60, 12);
+    expect(run.snapshot().activeEnemyCount).toBe(1);
   });
 
   it('snapshot은 Task 6의 전체 run 계약을 제공한다', () => {
@@ -56,6 +96,7 @@ describe('GameSession', () => {
       activeProjectileCount: 0,
       shelterHp: 100,
       snacks: 0,
+      enemies: [],
       skills: {
         bark: 1,
         scold: 0,
@@ -110,6 +151,7 @@ describe('GameSession', () => {
       wave: 1,
       pendingSpawns: 10,
       activeEnemyCount: 0,
+      enemies: [],
     });
   });
 
