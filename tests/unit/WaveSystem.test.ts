@@ -224,6 +224,32 @@ describe('WaveSystem', () => {
     ]);
   });
 
+  it('다음 wave는 번호만 한 번 예약하고 startPendingNext에서 정확히 한 번 시작한다', () => {
+    const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(1));
+    system.start(1);
+
+    system.setPendingNext(2);
+    system.setPendingNext(2);
+
+    expect(system.pendingNext).toBe(2);
+    expect(system.current).toBe(1);
+    expect(system.startPendingNext()).toBe(2);
+    expect(system.current).toBe(2);
+    expect(system.pendingNext).toBeNull();
+    expect(() => system.startPendingNext()).toThrow('No next wave is pending');
+  });
+
+  it('현재 wave의 바로 다음 번호가 아닌 pending 예약은 상태 변경 전에 거부한다', () => {
+    const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(1));
+    system.start(2);
+
+    for (const nextWave of [2, 4, 6, 2.5, Number.NaN]) {
+      expect(() => system.setPendingNext(nextWave)).toThrow(RangeError);
+      expect(system.pendingNext).toBeNull();
+      expect(system.current).toBe(2);
+    }
+  });
+
   it('boss가 없는 wave preview를 fail-fast한다', () => {
     const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(1));
 

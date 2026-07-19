@@ -1,5 +1,8 @@
 import type { TestScenarioId } from './TestContract';
-import type { ScenarioEnemySeed } from './ScenarioSessionPort';
+import type {
+  ScenarioEnemySeed,
+  ScenarioWaveSchedule,
+} from './ScenarioSessionPort';
 
 export interface SessionScenarioRuntime {
   resetManualScheduler(): void;
@@ -8,14 +11,20 @@ export interface SessionScenarioRuntime {
   suppressWaveSpawns(): void;
   resetPlayer(x: number, y: number): void;
   seedEnemy(seed: ScenarioEnemySeed): number;
+  useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void;
+  damageShelter(damage: number): void;
+  enableWaveAutoClear(): void;
   advanceWorldTicks(ticks: number): void;
 }
 
 export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId): void {
   switch (id) {
     case 'empty-run':
+      resetRun(runtime);
+      return;
     case 'wave-schedule':
       resetRun(runtime);
+      runtime.enableWaveAutoClear();
       return;
     case 'health-bar-colors':
       resetRun(runtime);
@@ -44,8 +53,18 @@ export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId
       return;
     case 'boss':
       resetRun(runtime);
-      runtime.suppressWaveSpawns();
+      runtime.useWaveSchedule(3, 'exhausted');
       seedBossAttack(runtime);
+      return;
+    case 'shelter-defeat':
+      resetRun(runtime);
+      runtime.useWaveSchedule(1, 'held');
+      runtime.damageShelter(100);
+      return;
+    case 'final-enemy':
+      resetRun(runtime);
+      runtime.useWaveSchedule(5, 'exhausted');
+      seedFinalEnemy(runtime);
       return;
     default:
       throw new RangeError(`Unknown test scenario: ${String(id)}`);
@@ -58,6 +77,7 @@ export function loadEmptyRun(runtime: SessionScenarioRuntime): void {
 
 export function loadWaveSchedule(runtime: SessionScenarioRuntime): void {
   resetRun(runtime);
+  runtime.enableWaveAutoClear();
 }
 
 export function loadHealthBarColors(runtime: SessionScenarioRuntime): void {
@@ -139,6 +159,19 @@ function seedBossAttack(runtime: SessionScenarioRuntime): void {
   });
 }
 
+function seedFinalEnemy(runtime: SessionScenarioRuntime): void {
+  runtime.seedEnemy({
+    kind: 'illegalBreeder',
+    variant: 'male',
+    pathId: 'P6',
+    placement: { kind: 'worldPoint', x: 270, y: 625 },
+    currentHp: 10,
+    maxHp: 1000,
+    state: 'stunned',
+    stunnedMs: 60_000,
+  });
+}
+
 function seedSkillSelection(runtime: SessionScenarioRuntime): void {
   runtime.suppressWaveSpawns();
   runtime.resetPlayer(270, 750);
@@ -177,8 +210,8 @@ function seedAllSkills(runtime: SessionScenarioRuntime): void {
     });
   }
   // Safety Report has global threat targeting. This target is outside every
-  // local auto-skill range and dies to its exact 90 damage, so its 120s test
-  // stun cannot be shortened while the five visual targets remain frozen.
+  // local auto-skill range and dies to its exact 90 damage, which keeps the
+  // lethal damage-before-status path covered while the visual targets remain.
   runtime.seedEnemy({
     kind: 'poopGuardian',
     variant: 'male',

@@ -193,7 +193,7 @@ describe('GameSession bark combat integration', () => {
 });
 
 function seedBarkTarget(run: GameSession, currentHp: number): number {
-  return run.spawnEnemyForScenario({
+  return run.scenarioPortForE2e().spawnEnemy({
     kind: 'poopGuardian',
     variant: 'male',
     pathId: 'P6',

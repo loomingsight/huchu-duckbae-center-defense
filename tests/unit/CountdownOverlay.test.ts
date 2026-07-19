@@ -9,6 +9,7 @@ describe('CountdownOverlay', () => {
     expect(countdownLabel(2000, 'resumeCombat')).toBe('2');
     expect(countdownLabel(1, 'resumeCombat')).toBe('1');
     expect(countdownLabel(3000, 'nextWave')).toBe('다음 웨이브 3');
+    expect(countdownLabel(1200, 'lostResult')).toBe('');
     expect(countdownLabel(0, 'nextWave')).toBe('');
   });
 

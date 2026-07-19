@@ -167,8 +167,8 @@ it('invalid step과 spawn number는 상태 변경 전에 거부한다', () => {
 
 it('GameSession은 projectile hit command만 보호소 피해로 한 번 소비하고 reset에서 pool을 재사용한다', () => {
   const run = GameSession.create({ seed: 1 });
-  run.suppressWaveSpawnsForScenario();
-  run.spawnEnemyForScenario({
+  run.scenarioPortForE2e().suppressWaveSpawns();
+  run.scenarioPortForE2e().spawnEnemy({
     kind: 'poopGuardian',
     variant: 'male',
     pathId: 'P6',
@@ -185,7 +185,7 @@ it('GameSession은 projectile hit command만 보호소 피해로 한 번 소비�
     activeProjectileCount: 1,
     projectiles: [{ id: 0, kind: 'poop', speed: 220, lifeMs: 1200 }],
   });
-  expect(run.projectilePoolTelemetry()).toMatchObject({ created: 80, active: 1 });
+  expect(run.scenarioPortForE2e().projectilePoolTelemetry()).toMatchObject({ created: 80, active: 1 });
 
   const hitEvents = Array.from(
     { length: 30 },
@@ -199,9 +199,9 @@ it('GameSession은 projectile hit command만 보호소 피해로 한 번 소비�
     projectiles: [],
   });
 
-  const pool = run.projectilePoolTelemetry();
+  const pool = run.scenarioPortForE2e().projectilePoolTelemetry();
   run.reset(2);
-  expect(run.projectilePoolTelemetry()).toEqual({ ...pool, active: 0, available: 80 });
+  expect(run.scenarioPortForE2e().projectilePoolTelemetry()).toEqual({ ...pool, active: 0, available: 80 });
   expect(run.snapshot()).toMatchObject({ shelterHp: 100, projectiles: [] });
 });
 

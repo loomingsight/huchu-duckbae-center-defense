@@ -64,6 +64,7 @@ describe('GameSession', () => {
     const events = run.step(FIXED_STEP_MS, PLAYER);
 
     expect(events).toEqual([
+      { type: 'waveStarted', wave: 1 },
       {
         type: 'enemySpawnRequested',
         request: {
@@ -115,6 +116,14 @@ describe('GameSession', () => {
         deokbaeHowl: 0,
         safetyReport: 0,
       },
+      skillStates: {
+        bark: { level: 1, cooldownRemainingMs: 0, ready: true, progress: 1 },
+        scold: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
+        aquaBeam: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
+        deokbaeHowl: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
+        safetyReport: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
+      },
+      barkState: { ready: true, phase: 'ready', elapsedMs: 0, lockedTargetId: null },
     });
   });
 
@@ -194,9 +203,9 @@ describe('GameSession', () => {
 
   it('마지막 enemy reward까지 처리한 tick 끝에 selection request 하나만 연다', () => {
     const run = GameSession.create({ seed: 1 });
-    run.suppressWaveSpawnsForScenario();
+    run.scenarioPortForE2e().suppressWaveSpawns();
     for (let index = 0; index < 7; index += 1) {
-      const enemyId = run.spawnEnemyForScenario({
+      const enemyId = run.scenarioPortForE2e().spawnEnemy({
         kind: 'poopGuardian',
         variant: 'male',
         pathId: 'P6',
@@ -204,11 +213,11 @@ describe('GameSession', () => {
         currentHp: 1,
         maxHp: 1000,
       });
-      expect(run.damageEnemy(enemyId, 1).filter(({ type }) => type === 'snackEarned'))
+      expect(run.scenarioPortForE2e().damageEnemy(enemyId, 1).filter(({ type }) => type === 'snackEarned'))
         .toHaveLength(1);
-      expect(run.damageEnemy(enemyId, 1)).toEqual([]);
+      expect(run.scenarioPortForE2e().damageEnemy(enemyId, 1)).toEqual([]);
     }
-    run.spawnEnemyForScenario({
+    run.scenarioPortForE2e().spawnEnemy({
       kind: 'poopGuardian',
       variant: 'male',
       pathId: 'P6',
@@ -260,7 +269,7 @@ describe('GameSession', () => {
     expect(run.currentCards()).toEqual([]);
     expect(run.skillCooldownProgress()).toMatchObject({ bark: 0 });
 
-    const enemyId = run.spawnEnemyForScenario({
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'illegalBreeder',
       variant: 'male',
       pathId: 'P6',
@@ -335,7 +344,7 @@ describe('GameSession', () => {
     finishSelectionCountdown(run);
     seedCooldownAnchor(run);
     for (let tick = 0; tick < 465; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
-    const enemyId = run.spawnEnemyForScenario({
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'offLeashGuardian',
       variant: 'male',
       pathId: 'P6',
@@ -376,7 +385,7 @@ describe('GameSession', () => {
     finishSelectionCountdown(run);
     seedCooldownAnchor(run);
     for (let tick = 0; tick < 465; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
-    const enemyId = run.spawnEnemyForScenario({
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'offLeashGuardian',
       variant: 'female',
       pathId: 'P6',
@@ -419,7 +428,7 @@ describe('GameSession', () => {
     finishSelectionCountdown(run);
     seedCooldownAnchor(run);
     for (let tick = 0; tick < 1185; tick += 1) run.step(FIXED_STEP_MS, SAFETY_PLAYER);
-    const enemyId = run.spawnEnemyForScenario({
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'offLeashGuardian',
       variant: 'male',
       pathId: 'P6',
@@ -452,7 +461,7 @@ describe('GameSession', () => {
     finishSelectionCountdown(run);
     seedCooldownAnchor(run);
     for (let tick = 0; tick < 1185; tick += 1) run.step(FIXED_STEP_MS, SAFETY_PLAYER);
-    const enemyId = run.spawnEnemyForScenario({
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'offLeashGuardian',
       variant: 'male',
       pathId: 'P6',
@@ -511,7 +520,7 @@ describe('GameSession', () => {
 
   it('skill due 없는 wave clear는 next wave countdown 하나를 즉시 시작한다', () => {
     const run = GameSession.create({ seed: 1 });
-    run.suppressWaveSpawnsForScenario();
+    run.scenarioPortForE2e().suppressWaveSpawns();
 
     run.step(FIXED_STEP_MS, PLAYER);
 
@@ -524,9 +533,9 @@ describe('GameSession', () => {
 });
 
 function openSelectionWithEightRewards(run: GameSession): void {
-  run.suppressWaveSpawnsForScenario();
+  run.scenarioPortForE2e().suppressWaveSpawns();
   for (let index = 0; index < 8; index += 1) {
-    const enemyId = run.spawnEnemyForScenario({
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'poopGuardian',
       variant: 'male',
       pathId: 'P6',
@@ -534,7 +543,7 @@ function openSelectionWithEightRewards(run: GameSession): void {
       currentHp: 1,
       maxHp: 1000,
     });
-    run.damageEnemy(enemyId, 1);
+    run.scenarioPortForE2e().damageEnemy(enemyId, 1);
   }
   run.step(FIXED_STEP_MS, PLAYER);
   expect(run.currentMode()).toBe('skillSelection');
@@ -561,7 +570,7 @@ function finishSelectionCountdown(run: GameSession): void {
 }
 
 function seedCooldownAnchor(run: GameSession): void {
-  run.spawnEnemyForScenario({
+  run.scenarioPortForE2e().spawnEnemy({
     kind: 'offLeashGuardian',
     variant: 'male',
     pathId: 'P1',

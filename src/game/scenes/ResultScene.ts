@@ -1,9 +1,15 @@
 import Phaser from 'phaser';
+import type { GameScene } from './GameScene';
+import {
+  resultButtonLabel,
+  resultMessage,
+  type RunResult,
+} from './ResultCopy';
 
-type ResultData = { outcome?: 'won' | 'lost' };
+type ResultData = { outcome?: RunResult };
 
 export class ResultScene extends Phaser.Scene {
-  private outcome: 'won' | 'lost' = 'lost';
+  private outcome: RunResult = 'lost';
 
   constructor() {
     super('Result');
@@ -15,9 +21,20 @@ export class ResultScene extends Phaser.Scene {
 
   create(): void {
     document.querySelector('#game-root')?.setAttribute('data-scene', 'Result');
-    const restart = this.add.dom(270, 570).createFromHTML(
-      `<button type="button" class="primary-game-button">${this.outcome === 'won' ? '다시 지키기' : '다시 시도'}</button>`,
-    );
-    restart.addListener('click').on('click', () => this.scene.start('Title'));
+    let accepted = false;
+    const result = this.add.dom(270, 500).createFromHTML(
+      `<section style="display:flex;flex-direction:column;align-items:center;gap:28px;color:#fff;font-family:system-ui,sans-serif;text-align:center;text-shadow:0 2px 3px #34291f"><div role="heading" aria-level="1" style="font-size:34px;font-weight:800;white-space:nowrap">${resultMessage(this.outcome)}</div><button type="button" class="primary-game-button">${resultButtonLabel()}</button></section>`,
+    ).setDepth(2200);
+    result.addListener('click');
+    result.on('click', () => {
+      if (accepted) return;
+      accepted = true;
+      (this.scene.get('Game') as GameScene).restartRunFromResult();
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      result.removeListener('click');
+      result.removeAllListeners();
+      result.destroy();
+    });
   }
 }

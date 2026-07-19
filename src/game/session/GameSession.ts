@@ -18,12 +18,15 @@ import { GameStateMachine } from '../core/GameStateMachine';
 import { SeededRng } from '../core/SeededRng';
 import { BALANCE } from '../data/balance';
 import { WAVE_DEFINITIONS } from '../data/waveDefinitions';
-import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
+import type {
+  ScenarioEnemySeed,
+  ScenarioSessionPort,
+  ScenarioWaveSchedule,
+} from '../debug/ScenarioSessionPort';
 import { EnemySystem, type EnemyLifecycleEvent } from '../enemies/EnemySystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
-import type { PoolSnapshot } from '../pooling/ObjectPool';
 import { ProgressionSystem } from '../progression/ProgressionSystem';
 import { pickSkillCards } from '../progression/SkillCardPicker';
 import { ShelterSystem } from '../shelter/ShelterSystem';
@@ -54,7 +57,7 @@ const SCENARIO_WAVE_DEFINITIONS = WAVE_DEFINITIONS.map(({ wave }) => ({
   spawns: [],
 }));
 
-type CountdownTransition = 'resumeCombat' | 'nextWave';
+type CountdownTransition = 'resumeCombat' | 'nextWave' | 'lostResult';
 
 interface ActiveBarkAttack {
   readonly attackId: string;
@@ -85,10 +88,10 @@ export class GameSession {
   private simulationTicks = 0;
   private cards: readonly SkillCard[] = [];
   private uiTransition: CountdownTransition | null = null;
-  private pendingNextWave: number | null = null;
   private nextBarkAttackSequence = 1;
   private nextProjectileId = 0;
   private activeBarkAttack: ActiveBarkAttack | null = null;
+  private waveStartEventPending = true;
   private readonly eventBuffer: GameEvent[] = [];
 
   private constructor(seed: number) {
@@ -106,21 +109,26 @@ export class GameSession {
     assertFixedStep(stepMs);
     assertPlayer(player);
     const entryMode = this.stateMachine.current();
-    if (entryMode === 'countdown') {
+    if (entryMode === 'countdown' || entryMode === 'lost') {
       if (
         this.uiTransition !== null
         && this.uiClock.step(stepMs, entryMode) === 'completed'
       ) {
-        if (this.uiTransition === 'nextWave') {
-          const nextWave = this.pendingNextWave;
-          if (nextWave === null) throw new Error('Next-wave countdown has no pending wave');
-          this.waves.start(nextWave);
-          this.pendingNextWave = null;
-        }
+        const completed = this.uiTransition;
         this.uiTransition = null;
+        if (completed === 'lostResult') {
+          this.eventBuffer.push({ type: 'resultReady', outcome: 'lost' });
+          return this.flushEvents();
+        }
+        if (completed === 'nextWave') {
+          this.eventBuffer.push({
+            type: 'waveStarted',
+            wave: this.waves.startPendingNext(),
+          });
+        }
         this.stateMachine.transition('playing');
         this.eventBuffer.push({ type: 'modeChanged', mode: 'playing' });
-      } else if (this.uiTransition !== null) {
+      } else if (entryMode === 'countdown' && this.uiTransition !== null) {
         this.eventBuffer.push({
           type: 'waveCountdownChanged',
           remainingMs: this.uiClock.remainingMs,
@@ -130,6 +138,10 @@ export class GameSession {
     }
     if (!this.stateMachine.canStepWorld()) return this.flushEvents();
 
+    if (this.waveStartEventPending) {
+      this.waveStartEventPending = false;
+      this.eventBuffer.push({ type: 'waveStarted', wave: this.waves.current });
+    }
     this.simulationTicks += 1;
     const requests = this.waves.step(FIXED_STEP_MS, this.enemies.activeCount);
     for (const request of requests) {
@@ -158,6 +170,7 @@ export class GameSession {
   }
 
   snapshot(): RunSnapshot {
+    const skillState = this.skillStateSnapshot();
     return {
       mode: this.stateMachine.current(),
       simulationMs: simulationMsFromTicks(this.simulationTicks),
@@ -169,7 +182,9 @@ export class GameSession {
       snacks: this.progression.snapshot().snacks,
       enemies: this.enemies.snapshots(),
       projectiles: this.projectiles.snapshots(),
-      skills: this.skills.levelsSnapshot(),
+      skills: skillState.levels,
+      skillStates: skillState.cooldowns,
+      barkState: this.bark.snapshot(),
     };
   }
 
@@ -244,7 +259,7 @@ export class GameSession {
       skillId: card.skillId,
       level: card.nextLevel,
     });
-    this.beginCountdown(this.pendingNextWave === null ? 'resumeCombat' : 'nextWave');
+    this.beginCountdown(this.waves.pendingNext === null ? 'resumeCombat' : 'nextWave');
     return this.flushEvents();
   }
 
@@ -268,51 +283,65 @@ export class GameSession {
     return this.stateMachine;
   }
 
-  spawnEnemyForScenario(seed: ScenarioEnemySeed): number {
-    const spawned = this.enemies.spawnForScenario(seed);
-    if (seed.stunnedMs !== undefined && seed.stunnedMs > 0) {
-      const snapshot = this.enemies.snapshots().find(({ id }) => id === spawned.enemyId)!;
-      this.attacks[seed.kind].stun(spawned.enemyId, seed.stunnedMs, snapshot.pathProgress);
-    }
-    return spawned.enemyId;
-  }
-
-  damageEnemy(enemyId: number, amount: number): readonly GameEvent[] {
-    const events = this.enemies.damage(enemyId, amount);
-    this.accumulateSnacks(events);
-    return events;
-  }
-
-  stunEnemy(enemyId: number, durationMs: number): void {
-    const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
-    this.enemies.stun(enemyId, durationMs);
-    if (enemy !== undefined && durationMs > 0) {
-      this.attacks[enemy.kind].stun(enemyId, durationMs, enemy.pathProgress);
-    }
-  }
-
-  knockBackEnemy(enemyId: number, distance: number): void {
-    const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
-    this.enemies.knockBack(enemyId, distance);
-    if (enemy !== undefined && distance > 0) this.attacks[enemy.kind].interrupt(enemyId);
-  }
-
-  removeEnemyWithoutReward(enemyId: number): void {
-    this.enemies.removeWithoutReward(enemyId);
-    for (const attack of Object.values(this.attacks)) attack.remove(enemyId);
-  }
-
-  suppressWaveSpawnsForScenario(): void {
-    this.waves = new WaveSystem(
-      SCENARIO_WAVE_DEFINITIONS,
-      this.rng,
-      BALANCE.caps.enemies,
-    );
-    this.waves.start(1);
-  }
-
-  projectilePoolTelemetry(): PoolSnapshot {
-    return this.projectiles.poolSnapshot();
+  scenarioPortForE2e(): ScenarioSessionPort {
+    if (import.meta.env.PROD) throw new Error('Scenario session port is unavailable');
+    const useWaveSchedule = (wave: number, schedule: ScenarioWaveSchedule): void => {
+      const definitions = schedule === 'real'
+        ? WAVE_DEFINITIONS
+        : schedule === 'exhausted'
+          ? SCENARIO_WAVE_DEFINITIONS
+          : WAVE_DEFINITIONS.map(({ wave: waveNumber }) => ({
+            wave: waveNumber,
+            spawns: [{
+              atMs: 86_400_000,
+              pathId: 'P6' as const,
+              kind: 'poopGuardian' as const,
+              variant: 'male' as const,
+            }],
+          }));
+      this.waves = new WaveSystem(definitions, this.rng, BALANCE.caps.enemies);
+      this.waves.start(wave);
+      this.waveStartEventPending = true;
+    };
+    return {
+      spawnEnemy: (seed: ScenarioEnemySeed) => {
+        const spawned = this.enemies.spawnForScenario(seed);
+        if (seed.stunnedMs !== undefined && seed.stunnedMs > 0) {
+          const snapshot = this.enemies.snapshots().find(({ id }) => id === spawned.enemyId)!;
+          this.attacks[seed.kind].stun(spawned.enemyId, seed.stunnedMs, snapshot.pathProgress);
+        }
+        return spawned.enemyId;
+      },
+      damageEnemy: (enemyId, amount) => {
+        const events = this.enemies.damage(enemyId, amount);
+        this.accumulateSnacks(events);
+        return events;
+      },
+      stunEnemy: (enemyId, durationMs) => {
+        const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
+        this.enemies.stun(enemyId, durationMs);
+        if (enemy !== undefined && durationMs > 0) {
+          this.attacks[enemy.kind].stun(enemyId, durationMs, enemy.pathProgress);
+        }
+      },
+      knockBackEnemy: (enemyId, distance) => {
+        const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
+        this.enemies.knockBack(enemyId, distance);
+        if (enemy !== undefined && distance > 0) this.attacks[enemy.kind].interrupt(enemyId);
+      },
+      removeEnemyWithoutReward: (enemyId) => {
+        this.enemies.removeWithoutReward(enemyId);
+        for (const attack of Object.values(this.attacks)) attack.remove(enemyId);
+      },
+      suppressWaveSpawns: () => useWaveSchedule(1, 'exhausted'),
+      useWaveSchedule,
+      damageShelter: (damage) => {
+        this.eventBuffer.push(...this.shelter.damage(damage));
+        this.resolvePostStepOutcome();
+        return this.flushEvents();
+      },
+      projectilePoolTelemetry: () => this.projectiles.poolSnapshot(),
+    };
   }
 
   reset(seed: number): void {
@@ -338,10 +367,10 @@ export class GameSession {
     this.skills.reset();
     this.cards = [];
     this.uiTransition = null;
-    this.pendingNextWave = null;
     this.nextBarkAttackSequence = 1;
     this.nextProjectileId = 0;
     this.activeBarkAttack = null;
+    this.waveStartEventPending = true;
   }
 
   private stepEnemyAttacks(stepMs: number, shelterDamage: number[]): void {
@@ -516,17 +545,26 @@ export class GameSession {
     );
   }
 
-  private beginCountdown(kind: CountdownTransition): void {
-    if (kind === 'nextWave' && this.pendingNextWave === null) {
+  private beginCountdown(kind: Exclude<CountdownTransition, 'lostResult'>): void {
+    if (kind === 'nextWave' && this.waves.pendingNext === null) {
       throw new Error('Next-wave countdown has no pending wave');
     }
     this.uiTransition = kind;
     this.uiClock.restart(BALANCE.waveCountdownMs);
     this.stateMachine.transition('countdown');
-    this.eventBuffer.push(
-      { type: 'modeChanged', mode: 'countdown' },
-      { type: 'waveCountdownChanged', remainingMs: this.uiClock.remainingMs },
-    );
+    this.eventBuffer.push({ type: 'modeChanged', mode: 'countdown' });
+    if (kind === 'nextWave') {
+      this.eventBuffer.push({
+        type: 'waveTransition',
+        fromWave: this.waves.current,
+        toWave: this.waves.pendingNext!,
+        countdownMs: 3000,
+      });
+    }
+    this.eventBuffer.push({
+      type: 'waveCountdownChanged',
+      remainingMs: this.uiClock.remainingMs,
+    });
   }
 
   private resolvePostStepOutcome(): void {
@@ -538,26 +576,31 @@ export class GameSession {
       skillDue: this.progression.canOpen(),
     });
     if (resolution.mode === 'lost' || resolution.mode === 'won') {
-      this.stateMachine.transition(resolution.mode);
-      this.eventBuffer.push(
-        { type: 'modeChanged', mode: resolution.mode },
-        { type: 'runEnded', outcome: resolution.mode },
-      );
+      this.finish(resolution.mode);
       return;
     }
     if (resolution.nextWave !== undefined) {
-      if (
-        this.pendingNextWave !== null
-        && this.pendingNextWave !== resolution.nextWave
-      ) {
-        throw new Error(`Wave ${this.pendingNextWave} is already pending`);
-      }
-      this.pendingNextWave = resolution.nextWave;
+      this.waves.setPendingNext(resolution.nextWave);
     }
     if (resolution.mode === 'skillSelection') {
       this.openSkillSelection();
     } else if (resolution.countdownKind === 'nextWave') {
       this.beginCountdown('nextWave');
+    }
+  }
+
+  private finish(outcome: 'won' | 'lost'): void {
+    if (this.stateMachine.current() === 'won' || this.stateMachine.current() === 'lost') return;
+    this.stateMachine.transition(outcome);
+    this.eventBuffer.push(
+      { type: 'modeChanged', mode: outcome },
+      { type: 'runEnded', outcome },
+    );
+    if (outcome === 'lost') {
+      this.uiTransition = 'lostResult';
+      this.uiClock.restart(1200);
+    } else {
+      this.eventBuffer.push({ type: 'resultReady', outcome: 'won' });
     }
   }
 

@@ -6,7 +6,9 @@ import {
 } from '../constants';
 import { FixedStepClock } from '../core/FixedStepClock';
 import type { GameMode } from '../core/GameMode';
-import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
+import type {
+  ScenarioScenePort,
+} from '../debug/ScenarioSessionPort';
 import {
   ProjectileActorPool,
   type ProjectileImpactSnapshot,
@@ -65,6 +67,7 @@ export class GameScene extends Phaser.Scene {
   private offLeashEffectAgeMs: number | undefined;
   private worldPaused = false;
   private runtimeGeneration = 0;
+  private readonly sessionResetListeners = new Set<() => void>();
 
   constructor() {
     super('Game');
@@ -141,8 +144,10 @@ export class GameScene extends Phaser.Scene {
     if (!Number.isFinite(stepMs) || Math.abs(stepMs - FIXED_STEP_MS) > TIME_EPSILON_MS) {
       throw new RangeError('GameScene requires one fixed step');
     }
+    const entryMode = this.session.currentMode();
     if (!this.session.modeStateForControllers().canStepWorld()) {
       const events = this.session.step(stepMs, this.playerController.snapshot());
+      if (entryMode === 'lost') this.shelterView?.stepFailedHold(stepMs);
       this.applySessionEvents(events);
       this.renderHud();
       return events;
@@ -160,6 +165,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   resetSession(seed: number): void {
+    for (const listener of [...this.sessionResetListeners]) listener();
     this.destroySkillSelection();
     this.enemyActors?.releaseAll();
     this.projectileActors?.releaseAll();
@@ -175,10 +181,19 @@ export class GameScene extends Phaser.Scene {
     this.barkAnimationElapsedMs = undefined;
     this.offLeashEffectAgeMs = undefined;
     this.countdownOverlay.reset();
+    this.hud.reset();
     this.renderHud();
     this.renderPlayer();
     this.renderEnemies();
     this.renderProjectiles();
+  }
+
+  restartRunFromResult(): void {
+    this.resetSession(DEFAULT_RUN_SEED);
+    this.resetPlayer(INITIAL_PLAYER_POSITION.x, INITIAL_PLAYER_POSITION.y);
+    document.querySelector('#game-root')?.setAttribute('data-scene', 'Game');
+    this.scene.stop('Result');
+    this.scene.resume();
   }
 
   resetPlayer(x: number, y: number): void {
@@ -270,16 +285,43 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  seedEnemyForScenario(seed: ScenarioEnemySeed): number {
-    const enemyId = this.session.spawnEnemyForScenario(seed);
-    const actor = this.enemyActors?.acquire(enemyId);
-    if (actor === undefined) throw new Error('Enemy actor pool exhausted');
-    this.renderEnemies();
-    return enemyId;
+  scenarioPortForE2e(): ScenarioScenePort {
+    if (import.meta.env.PROD) throw new Error('Scenario scene port is unavailable');
+    const session = this.session.scenarioPortForE2e();
+    return {
+      seedEnemy: (seed) => {
+        const enemyId = session.spawnEnemy(seed);
+        const actor = this.enemyActors?.acquire(enemyId);
+        if (actor === undefined) throw new Error('Enemy actor pool exhausted');
+        this.renderEnemies();
+        this.renderHud();
+        return enemyId;
+      },
+      suppressWaveSpawns: () => session.suppressWaveSpawns(),
+      useWaveSchedule: (wave, schedule) => {
+        session.useWaveSchedule(wave, schedule);
+        this.renderHud();
+        this.renderEnemies();
+      },
+      damageShelter: (damage) => {
+        const events = session.damageShelter(damage);
+        this.applySessionEvents(events);
+        this.renderHud();
+        return events;
+      },
+      removeEnemyWithoutReward: (enemyId) => {
+        session.removeEnemyWithoutReward(enemyId);
+        this.enemyActors?.release(enemyId);
+        this.renderEnemies();
+        this.renderHud();
+      },
+      sessionIdentity: () => this.session,
+    };
   }
 
-  suppressWaveSpawnsForScenario(): void {
-    this.session.suppressWaveSpawnsForScenario();
+  onSessionReset(listener: () => void): () => void {
+    this.sessionResetListeners.add(listener);
+    return () => this.sessionResetListeners.delete(listener);
   }
 
   setVisibilityForTest(hidden: boolean): void {
@@ -330,6 +372,9 @@ export class GameScene extends Phaser.Scene {
         } else if (event.mode === 'countdown') {
           this.destroySkillSelection();
           this.renderCountdown();
+        } else if (event.mode === 'lost') {
+          this.destroySkillSelection();
+          this.shelterView?.showFailedHold();
         }
       }
       if (event.type === 'skillSelectionOpened') {
@@ -355,7 +400,14 @@ export class GameScene extends Phaser.Scene {
       }
       if (event.type === 'enemyDied') this.enemyActors?.release(event.enemyId);
       if (event.type === 'waveCountdownChanged') this.renderCountdown();
+      if (event.type === 'resultReady') this.showResult(event.outcome);
     });
+  }
+
+  private showResult(outcome: 'won' | 'lost'): void {
+    if (this.scene.isActive('Result')) return;
+    this.scene.launch('Result', { outcome });
+    this.scene.pause();
   }
 
   private renderCountdown(): void {
@@ -368,6 +420,7 @@ export class GameScene extends Phaser.Scene {
 
   private shutdownRuntime(generation: number): void {
     this.runtimeLifecycle.end(generation);
+    this.sessionResetListeners.clear();
     this.skillSelectionModal = undefined;
     this.countdownOverlay.destroy();
     this.hud.destroy();
@@ -414,6 +467,7 @@ export class GameScene extends Phaser.Scene {
 
   private advanceCombatVisuals(stepMs: number): void {
     this.combatEffects.step(stepMs);
+    this.hud.step(stepMs);
     this.shelterView?.stepSimulation(stepMs);
     this.stepOffLeashEffect(stepMs);
     if (this.barkAnimationElapsedMs === undefined) return;

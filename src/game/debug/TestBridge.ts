@@ -12,7 +12,13 @@ import type { RunSnapshot } from '../session/RunSnapshot';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { ProjectileImpactSnapshot } from '../combat/ProjectileActorPool';
 import type { HudSnapshot } from '../ui/HudSystem';
-import type { ScenarioEnemySeed } from './ScenarioSessionPort';
+import { shelterFrameFor } from '../shelter/ShelterView';
+import { shelterVisualState } from '../shelter/ShelterSystem';
+import type {
+  ScenarioEnemySeed,
+  ScenarioScenePort,
+  ScenarioWaveSchedule,
+} from './ScenarioSessionPort';
 import { ManualStepScheduler } from './ManualStepScheduler';
 import { loadScenario, type SessionScenarioRuntime } from './ScenarioFactory';
 import type {
@@ -44,8 +50,8 @@ interface SessionScenePort {
   skillCooldownProgressSnapshot(): GameDebugSnapshot['cooldownProgress'];
   countdownSnapshot(): GameDebugSnapshot['countdown'];
   worldClocksSnapshot(): GameDebugSnapshot['worldClocks'];
-  seedEnemyForScenario(seed: ScenarioEnemySeed): number;
-  suppressWaveSpawnsForScenario(): void;
+  scenarioPortForE2e(): ScenarioScenePort;
+  onSessionReset(listener: () => void): () => void;
   setVisibilityForTest(hidden: boolean): void;
   forceModeForTest(mode: GameMode): void;
   waitForRenderFlush(): Promise<void>;
@@ -56,12 +62,23 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   private readonly scheduler = new ManualStepScheduler();
   private readonly eventLog: GameDebugEvent[] = [];
   private nextSequence = 1;
+  private waveAutoClear = false;
+  private readonly removeSessionResetListener: () => void;
+  private readonly scenario: ScenarioScenePort;
 
   constructor(
     private readonly scene: SessionScenePort,
     readonly seed: number,
   ) {
+    this.scenario = scene.scenarioPortForE2e();
+    this.removeSessionResetListener = scene.onSessionReset(() => {
+      this.waveAutoClear = false;
+    });
     this.ready = scene.waitForRenderFlush();
+  }
+
+  dispose(): void {
+    this.removeSessionResetListener();
   }
 
   async loadScenario(id: TestScenarioId): Promise<void> {
@@ -80,6 +97,9 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
 
   snapshot(): GameDebugSnapshot {
     const run = this.scene.sessionSnapshot();
+    const enemyPool = this.scene.enemyActorPoolSnapshot();
+    const projectilePool = this.scene.projectileActorPoolSnapshot();
+    const effectPool = this.scene.combatEffectPoolSnapshot();
     return {
       ...run,
       enemies: run.enemies.map((enemy) => ({
@@ -92,12 +112,19 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         },
       })),
       player: this.scene.playerSnapshot(),
-      enemyPool: this.scene.enemyActorPoolSnapshot(),
-      projectilePool: this.scene.projectileActorPoolSnapshot(),
+      enemyPool,
+      projectilePool,
       projectileImpacts: this.scene.projectileImpactSnapshots(),
       shelterShakeOffset: this.scene.shelterShakeOffsetSnapshot(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
-      combatEffectPool: this.scene.combatEffectPoolSnapshot(),
+      combatEffectPool: effectPool,
+      pools: {
+        enemies: enemyPool,
+        projectiles: projectilePool,
+        effects: effectPool,
+      },
+      runtime: { sessionInstanceId: objectIdentity(this.scenario.sessionIdentity()) },
+      shelterFrame: shelterFrameFor(shelterVisualState(run.shelterHp, 100)),
       hud: this.scene.hudSnapshot(),
       cards: this.scene.skillCardsSnapshot(),
       cooldownProgress: this.scene.skillCooldownProgressSnapshot(),
@@ -150,11 +177,23 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   }
 
   suppressWaveSpawns(): void {
-    this.scene.suppressWaveSpawnsForScenario();
+    this.scenario.suppressWaveSpawns();
+  }
+
+  useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void {
+    this.scenario.useWaveSchedule(wave, schedule);
+  }
+
+  damageShelter(damage: number): void {
+    this.scenario.damageShelter(damage).forEach((event) => this.appendSessionEvent(event));
+  }
+
+  enableWaveAutoClear(): void {
+    this.waveAutoClear = true;
   }
 
   seedEnemy(seed: ScenarioEnemySeed): number {
-    return this.scene.seedEnemyForScenario(seed);
+    return this.scenario.seedEnemy(seed);
   }
 
   advanceWorldTicks(ticks: number): void {
@@ -193,6 +232,13 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       this.appendEvent({ type: 'playerMoved' });
     }
     sessionEvents.forEach((event) => this.appendSessionEvent(event));
+    if (this.waveAutoClear) {
+      for (const event of sessionEvents) {
+        if (event.type === 'enemySpawned') {
+          this.scenario.removeEnemyWithoutReward(event.enemyId);
+        }
+      }
+    }
   }
 
   private appendSessionEvent(event: GameEvent): void {
@@ -201,6 +247,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         this.appendEvent({ type: event.type, request: event.request });
         return;
       case 'enemySpawned':
+        this.appendEvent({ type: event.type, enemyId: event.enemyId });
         return;
       case 'barkStarted':
       case 'barkReleased':
@@ -261,6 +308,17 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       case 'waveCountdownChanged':
         this.appendEvent({ type: event.type, remainingMs: event.remainingMs });
         return;
+      case 'waveStarted':
+        this.appendEvent({ type: event.type, wave: event.wave });
+        return;
+      case 'waveTransition':
+        this.appendEvent({
+          type: event.type,
+          fromWave: event.fromWave,
+          toWave: event.toWave,
+          countdownMs: event.countdownMs,
+        });
+        return;
       case 'skillSelectionOpened':
         this.appendEvent({ type: event.type, cards: event.cards });
         return;
@@ -282,6 +340,8 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         this.appendEvent({ type: event.type, mode: event.mode });
         return;
       case 'runEnded':
+      case 'resultReady':
+        this.appendEvent({ type: event.type, outcome: event.outcome });
         return;
     }
   }
@@ -302,7 +362,12 @@ export function installTestBridge(scene: SessionScenePort): () => void {
   const params = new URLSearchParams(window.location.search);
   if (params.get('e2e') !== '1' || params.get('clock') !== 'manual') return NOOP;
   const seed = parseSeed(params.get('seed'));
-  return installOwnedTestBridge(window, new SessionTestBridge(scene, seed));
+  const bridge = new SessionTestBridge(scene, seed);
+  const removeOwnedBridge = installOwnedTestBridge(window, bridge);
+  return () => {
+    bridge.dispose();
+    removeOwnedBridge();
+  };
 }
 
 export function installOwnedTestBridge(
@@ -319,6 +384,18 @@ export function installOwnedTestBridge(
 }
 
 const NOOP = (): void => {};
+
+const OBJECT_IDS = new WeakMap<object, number>();
+let nextObjectId = 1;
+
+function objectIdentity(value: object): number {
+  const existing = OBJECT_IDS.get(value);
+  if (existing !== undefined) return existing;
+  const id = nextObjectId;
+  nextObjectId += 1;
+  OBJECT_IDS.set(value, id);
+  return id;
+}
 
 function parseSeed(value: string | null): number {
   if (value === null) return 424242;

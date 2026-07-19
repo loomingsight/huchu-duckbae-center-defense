@@ -29,14 +29,16 @@ test('기본 짖기가 가장 위협적인 적을 250ms에 공격하고 HP bar�
   expect(await logicalPixel(canvas, 257, 537)).toEqual(expectColor(0xf2ca45));
   expect(after.barkWavePool).toMatchObject({ created: 120, active: 1, available: 119 });
   const eventLog = await events(page);
-  expect(eventLog.slice(0, 3).map(({ sequence, type }) => ({ sequence, type }))).toEqual([
-    { sequence: 1, type: 'enemySpawnRequested' },
-    { sequence: 2, type: 'barkStarted' },
-    { sequence: 3, type: 'barkReleased' },
+  expect(eventLog.slice(0, 5).map(({ sequence, type }) => ({ sequence, type }))).toEqual([
+    { sequence: 1, type: 'waveStarted' },
+    { sequence: 2, type: 'enemySpawnRequested' },
+    { sequence: 3, type: 'enemySpawned' },
+    { sequence: 4, type: 'barkStarted' },
+    { sequence: 5, type: 'barkReleased' },
   ]);
   expect(eventLog.filter(({ type }) => type.startsWith('bark'))).toEqual([
-    expect.objectContaining({ sequence: 2, atMs: 1000 / 60, type: 'barkStarted', attackId: 'bark:1', targetId: target!.id }),
-    expect.objectContaining({ sequence: 3, atMs: 250, type: 'barkReleased', attackId: 'bark:1', targetId: target!.id }),
+    expect.objectContaining({ sequence: 4, atMs: 1000 / 60, type: 'barkStarted', attackId: 'bark:1', targetId: target!.id }),
+    expect.objectContaining({ sequence: 5, atMs: 250, type: 'barkReleased', attackId: 'bark:1', targetId: target!.id }),
   ]);
 });
 

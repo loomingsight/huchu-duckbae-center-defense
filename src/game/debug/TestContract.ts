@@ -20,7 +20,16 @@ export type TestScenarioId =
   | 'skill-selection-wave-clear'
   | 'all-skills'
   | 'poop-attack'
-  | 'boss';
+  | 'boss'
+  | 'shelter-defeat'
+  | 'final-enemy';
+
+export interface PoolCount {
+  readonly instanceId: number;
+  readonly created: number;
+  readonly active: number;
+  readonly available: number;
+}
 
 export interface DebugEnemySnapshot extends EnemySnapshot {
   readonly hpBar: {
@@ -40,6 +49,13 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly shelterShakeOffset: number;
   readonly barkWavePool: PoolSnapshot;
   readonly combatEffectPool: PoolSnapshot;
+  readonly pools: {
+    readonly enemies: PoolCount;
+    readonly projectiles: PoolCount;
+    readonly effects: PoolCount;
+  };
+  readonly runtime: { readonly sessionInstanceId: number };
+  readonly shelterFrame: number;
   readonly hud: HudSnapshot;
   readonly cards: readonly SkillCard[];
   readonly cooldownProgress: Readonly<Record<SkillId, number>>;
@@ -68,6 +84,15 @@ export type GameDebugEvent = GameDebugEventMetadata & (
   | { readonly type: 'modeChanged'; readonly mode: GameMode }
   | { readonly type: 'playerMoved' }
   | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }
+  | { readonly type: 'enemySpawned'; readonly enemyId: number }
+  | { readonly type: 'waveStarted'; readonly wave: number }
+  | {
+    readonly type: 'waveTransition';
+    readonly fromWave: number;
+    readonly toWave: number;
+    readonly countdownMs: 3000;
+  }
+  | { readonly type: 'runEnded' | 'resultReady'; readonly outcome: 'won' | 'lost' }
   | { readonly type: 'barkStarted'; readonly attackId: string; readonly targetId: number }
   | { readonly type: 'barkReleased'; readonly attackId: string; readonly targetId: number }
   | {

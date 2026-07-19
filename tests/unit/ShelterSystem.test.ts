@@ -113,6 +113,22 @@ it('simulation shake는 repeated hit에서 restart하고 120ms 경계에 정확�
   expect(fake.lastX()).toBe(270);
 });
 
+it('failed hold shake는 world와 분리된 UI time 1200ms 경계까지 유지한다', () => {
+  const fake = createFakeShelterScene();
+  const view = new ShelterView(fake.scene as never);
+
+  view.showFailedHold();
+  view.stepFailedHold(1199);
+
+  expect(view.shakeElapsedSnapshot()).toBe(1199);
+  expect(fake.lastX()).not.toBe(270);
+
+  view.stepFailedHold(1);
+
+  expect(view.shakeElapsedSnapshot()).toBeNull();
+  expect(fake.lastX()).toBe(270);
+});
+
 it('reset과 destroy는 진행 중 shake를 x270으로 정리하고 이후 step을 no-op 처리한다', () => {
   const fake = createFakeShelterScene();
   const view = new ShelterView(fake.scene as never);

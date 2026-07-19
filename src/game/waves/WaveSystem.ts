@@ -16,6 +16,7 @@ export class WaveSystem {
   private currentWaveIndex = 0;
   private sequence = 0;
   private started = false;
+  private pendingNextWave: number | null = null;
   private finalBossVariant: 'male' | 'female' = 'male';
   private readonly seededBossVariants = new Map<number, 'male' | 'female'>();
 
@@ -110,6 +111,32 @@ export class WaveSystem {
 
   get elapsed(): number {
     return this.elapsedMs;
+  }
+
+  setPendingNext(waveNumber: number): void {
+    if (
+      !Number.isSafeInteger(waveNumber)
+      || waveNumber !== this.current + 1
+      || waveNumber > this.definitions.length
+    ) {
+      throw new RangeError(`Invalid next wave ${String(waveNumber)} after ${this.current}`);
+    }
+    if (this.pendingNextWave !== null && this.pendingNextWave !== waveNumber) {
+      throw new Error(`Wave ${this.pendingNextWave} is already pending`);
+    }
+    this.pendingNextWave = waveNumber;
+  }
+
+  get pendingNext(): number | null {
+    return this.pendingNextWave;
+  }
+
+  startPendingNext(): number {
+    if (this.pendingNextWave === null) throw new Error('No next wave is pending');
+    const waveNumber = this.pendingNextWave;
+    this.pendingNextWave = null;
+    this.start(waveNumber);
+    return waveNumber;
   }
 
   private currentDefinition(): WaveDefinition {

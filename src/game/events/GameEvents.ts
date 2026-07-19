@@ -24,6 +24,7 @@ export type GameEvent =
   }
   | { readonly type: 'skillLearned'; readonly skillId: SkillId; readonly level: SkillLevel }
   | { readonly type: 'runEnded'; readonly outcome: 'won' | 'lost' }
+  | { readonly type: 'resultReady'; readonly outcome: 'won' | 'lost' }
   | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }
   | {
     readonly type: 'enemySpawned';
@@ -41,5 +42,12 @@ export type GameEvent =
     readonly targetId: number;
     readonly origin: Point;
     readonly target: Point;
+  }
+  | { readonly type: 'waveStarted'; readonly wave: number }
+  | {
+    readonly type: 'waveTransition';
+    readonly fromWave: number;
+    readonly toWave: number;
+    readonly countdownMs: 3000;
   }
   | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number };

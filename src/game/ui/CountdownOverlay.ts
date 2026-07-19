@@ -1,12 +1,12 @@
 import type Phaser from 'phaser';
 
-export type CountdownKind = 'resumeCombat' | 'nextWave';
+export type CountdownKind = 'resumeCombat' | 'nextWave' | 'lostResult';
 
 export function countdownLabel(remainingMs: number, kind: CountdownKind): string {
   if (!Number.isFinite(remainingMs) || remainingMs < 0) {
     throw new RangeError('Countdown remaining time must be finite and non-negative');
   }
-  if (remainingMs === 0) return '';
+  if (remainingMs === 0 || kind === 'lostResult') return '';
   const count = Math.ceil(remainingMs / 1000);
   return kind === 'nextWave' ? `다음 웨이브 ${count}` : String(count);
 }

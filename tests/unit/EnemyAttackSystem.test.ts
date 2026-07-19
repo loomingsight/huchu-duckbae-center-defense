@@ -146,8 +146,8 @@ it('fractional 기절을 포함한 큰 step도 분할 step과 같은 event와 el
 
 it('GameSession은 off-leash release command를 보호소 피해로 정확히 한 번 소비한다', () => {
   const run = GameSession.create({ seed: 1 });
-  run.suppressWaveSpawnsForScenario();
-  run.spawnEnemyForScenario({
+  run.scenarioPortForE2e().suppressWaveSpawns();
+  run.scenarioPortForE2e().spawnEnemy({
     kind: 'offLeashGuardian',
     variant: 'male',
     pathId: 'P6',
@@ -172,8 +172,8 @@ it('GameSession은 off-leash release command를 보호소 피해로 정확히 �
 
 it('holding cadence에서 다시 열린 windup animation은 경계 뒤 0ms부터 시작한다', () => {
   const run = GameSession.create({ seed: 1 });
-  run.suppressWaveSpawnsForScenario();
-  run.spawnEnemyForScenario({
+  run.scenarioPortForE2e().suppressWaveSpawns();
+  run.scenarioPortForE2e().spawnEnemy({
     kind: 'offLeashGuardian',
     variant: 'male',
     pathId: 'P6',
@@ -202,8 +202,8 @@ it('invalid attack step과 stun duration은 track 변경 전에 거부한다', (
 
 it('GameSession stun은 이동·cooldown·animation을 함께 freeze하고 interval을 reset한다', () => {
   const run = GameSession.create({ seed: 1 });
-  run.suppressWaveSpawnsForScenario();
-  const enemyId = run.spawnEnemyForScenario({
+  run.scenarioPortForE2e().suppressWaveSpawns();
+  const enemyId = run.scenarioPortForE2e().spawnEnemy({
     kind: 'offLeashGuardian',
     variant: 'male',
     pathId: 'P6',
@@ -212,7 +212,7 @@ it('GameSession stun은 이동·cooldown·animation을 함께 freeze하고 inter
   for (let tick = 0; tick < 12; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
   const before = run.snapshot().enemies.at(0)!;
 
-  run.stunEnemy(enemyId, 3000);
+  run.scenarioPortForE2e().stunEnemy(enemyId, 3000);
   for (let tick = 0; tick < 180; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
 
   expect(run.snapshot().enemies.at(0)).toMatchObject({
@@ -229,8 +229,8 @@ it.each([1, 17])(
   'GameSession fractional stun %sms 뒤 첫 frame 6과 release/damage는 같은 tick이다',
   (stunMs) => {
     const run = GameSession.create({ seed: 1 });
-    run.suppressWaveSpawnsForScenario();
-    const enemyId = run.spawnEnemyForScenario({
+    run.scenarioPortForE2e().suppressWaveSpawns();
+    const enemyId = run.scenarioPortForE2e().spawnEnemy({
       kind: 'offLeashGuardian',
       variant: 'male',
       pathId: 'P6',
@@ -239,7 +239,7 @@ it.each([1, 17])(
     for (let tick = 0; tick < 12; tick += 1) {
       run.step(FIXED_STEP_MS, { x: 0, y: 0 });
     }
-    run.stunEnemy(enemyId, stunMs);
+    run.scenarioPortForE2e().stunEnemy(enemyId, stunMs);
 
     let firstFrame6Tick: number | undefined;
     let damageRequestedTick: number | undefined;
@@ -268,8 +268,8 @@ it.each([1, 17])(
 
 it('GameSession knockback은 holding과 attack track을 함께 취소한다', () => {
   const run = GameSession.create({ seed: 1 });
-  run.suppressWaveSpawnsForScenario();
-  const enemyId = run.spawnEnemyForScenario({
+  run.scenarioPortForE2e().suppressWaveSpawns();
+  const enemyId = run.scenarioPortForE2e().spawnEnemy({
     kind: 'offLeashGuardian',
     variant: 'male',
     pathId: 'P6',
@@ -278,7 +278,7 @@ it('GameSession knockback은 holding과 attack track을 함께 취소한다', ()
   for (let tick = 0; tick < 15; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
   const atBoundary = run.snapshot().enemies.at(0)!;
 
-  run.knockBackEnemy(enemyId, 20);
+  run.scenarioPortForE2e().knockBackEnemy(enemyId, 20);
 
   expect(run.snapshot().enemies.at(0)).toMatchObject({
     state: 'moving',

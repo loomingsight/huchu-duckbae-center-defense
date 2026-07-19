@@ -10,6 +10,9 @@ const SHELTER_ORIGIN_Y = 224 / SHELTER_FRAME_SIZE;
 const SHAKE_HALF_DISTANCE = 4;
 const SHAKE_LEG_MS = 30;
 const SHAKE_DURATION_MS = SHAKE_LEG_MS * 4;
+const FAILED_HOLD_MS = 1200;
+
+type ShakeKind = 'damage' | 'failedHold';
 
 export const SHELTER_DISPLAY_HEIGHT = 77;
 
@@ -43,6 +46,7 @@ export function shelterShakeOffsetAt(elapsedMs: number): number {
 export class ShelterView {
   private readonly sprite: Phaser.GameObjects.Sprite;
   private shakeElapsedMs: number | undefined;
+  private shakeKind: ShakeKind | undefined;
   private destroyed = false;
 
   constructor(scene: Phaser.Scene) {
@@ -59,27 +63,46 @@ export class ShelterView {
 
   showDamage(): void {
     if (this.destroyed) return;
+    this.shakeKind = 'damage';
+    this.shakeElapsedMs = 0;
+    this.sprite.setX(SHELTER_X + shelterShakeOffsetAt(0));
+  }
+
+  showFailedHold(): void {
+    if (this.destroyed) return;
+    this.shakeKind = 'failedHold';
     this.shakeElapsedMs = 0;
     this.sprite.setX(SHELTER_X + shelterShakeOffsetAt(0));
   }
 
   stepSimulation(stepMs: number): void {
+    this.stepShake(stepMs, 'damage', SHAKE_DURATION_MS);
+  }
+
+  stepFailedHold(stepMs: number): void {
+    this.stepShake(stepMs, 'failedHold', FAILED_HOLD_MS);
+  }
+
+  private stepShake(stepMs: number, kind: ShakeKind, durationMs: number): void {
     if (!Number.isFinite(stepMs) || stepMs < 0) {
       throw new RangeError('Shelter shake step must be finite and non-negative');
     }
-    if (this.destroyed || this.shakeElapsedMs === undefined) return;
+    if (this.destroyed || this.shakeElapsedMs === undefined || this.shakeKind !== kind) return;
     const nextElapsedMs = this.shakeElapsedMs + stepMs;
-    if (reachedDuration(nextElapsedMs, SHAKE_DURATION_MS)) {
+    if (reachedDuration(nextElapsedMs, durationMs)) {
       this.shakeElapsedMs = undefined;
+      this.shakeKind = undefined;
       this.sprite.setX(SHELTER_X);
       return;
     }
     this.shakeElapsedMs = nextElapsedMs;
-    this.sprite.setX(SHELTER_X + shelterShakeOffsetAt(nextElapsedMs));
+    this.sprite.setX(SHELTER_X + shelterShakeOffsetAt(nextElapsedMs % SHAKE_DURATION_MS));
   }
 
   shakeOffsetSnapshot(): number {
-    return this.shakeElapsedMs === undefined ? 0 : shelterShakeOffsetAt(this.shakeElapsedMs);
+    return this.shakeElapsedMs === undefined
+      ? 0
+      : shelterShakeOffsetAt(this.shakeElapsedMs % SHAKE_DURATION_MS);
   }
 
   shakeElapsedSnapshot(): number | null {
@@ -89,6 +112,7 @@ export class ShelterView {
   reset(): void {
     if (this.destroyed) return;
     this.shakeElapsedMs = undefined;
+    this.shakeKind = undefined;
     this.sprite.setX(SHELTER_X);
     this.render('healthy');
   }
@@ -96,6 +120,7 @@ export class ShelterView {
   destroy(): void {
     if (this.destroyed) return;
     this.shakeElapsedMs = undefined;
+    this.shakeKind = undefined;
     this.sprite.setX(SHELTER_X);
     this.sprite.destroy();
     this.destroyed = true;
