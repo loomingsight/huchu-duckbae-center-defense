@@ -1,0 +1,43 @@
+export const BALANCE = {
+  shelter: { maxHp: 100, x: 270, y: 480, hitRadius: 38 },
+  player: { speed: 150, height: 72 },
+  snackThresholds: [8, 22, 40, 62, 88],
+  pendingSkillCombatDelayMs: 5000,
+  waveCountdownMs: 3000,
+  attackReleaseMs: 250,
+  enemies: {
+    poopGuardian: {
+      hp: 35,
+      speed: 44,
+      damage: 3,
+      attackIntervalMs: 1800,
+      range: 48,
+      snack: 1,
+    },
+    offLeashGuardian: {
+      hp: 65,
+      speed: 38,
+      damage: 6,
+      attackIntervalMs: 1600,
+      range: 32,
+      snack: 2,
+    },
+    dogTrader: {
+      hp: 600,
+      speed: 25,
+      damage: 14,
+      attackIntervalMs: 2200,
+      range: 64,
+      snack: 12,
+    },
+    illegalBreeder: {
+      hp: 1000,
+      speed: 23,
+      damage: 18,
+      attackIntervalMs: 2000,
+      range: 88,
+      snack: 20,
+    },
+  },
+  caps: { enemies: 60, projectiles: 80, particles: 120 },
+} as const;
