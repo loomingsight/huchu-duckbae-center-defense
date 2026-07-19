@@ -173,6 +173,7 @@ export class EnemyAttackSystem {
     readonly state: AttackTrack['phase'];
     readonly cooldownMs: number;
     readonly pathProgress: number;
+    readonly animationElapsedMs: number;
   } {
     const track = this.tracks.get(enemyId);
     if (track === undefined) throw new RangeError(`Unknown attack enemy ${enemyId}`);
@@ -182,6 +183,11 @@ export class EnemyAttackSystem {
         ? this.config.balance.attackIntervalMs
         : Math.max(0, this.config.balance.attackIntervalMs - track.cycleMs),
       pathProgress: track.pathProgress,
+      animationElapsedMs: track.phase === 'windup'
+        ? track.windupMs
+        : track.phase === 'holding'
+          ? track.cycleMs
+          : 0,
     };
   }
 

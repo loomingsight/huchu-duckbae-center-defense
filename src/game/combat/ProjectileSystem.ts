@@ -40,6 +40,7 @@ export type ProjectileEvent =
     readonly type: 'projectileHit';
     readonly projectileId: number;
     readonly kind: ProjectileKind;
+    readonly position: Point;
   }
   | {
     readonly type: 'shelterDamageRequested';
@@ -59,26 +60,56 @@ interface MutableProjectile {
   lifeMs: number;
 }
 
-function pointToSegmentDistance(point: Point, from: Point, to: Point): number {
+function firstSegmentCircleIntersection(
+  from: Point,
+  to: Point,
+  center: Point,
+  radius: number,
+): Point | undefined {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
-  const lengthSquared = dx * dx + dy * dy;
-  if (lengthSquared === 0) return Math.hypot(point.x - from.x, point.y - from.y);
-  const projection = Math.max(0, Math.min(
-    1,
-    ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSquared,
-  ));
-  return Math.hypot(
-    point.x - (from.x + dx * projection),
-    point.y - (from.y + dy * projection),
-  );
+  const fromCenterX = from.x - center.x;
+  const fromCenterY = from.y - center.y;
+  const radiusSquared = radius * radius;
+  if (fromCenterX * fromCenterX + fromCenterY * fromCenterY <= radiusSquared + 1e-9) {
+    return canonicalPoint(from);
+  }
+
+  const a = dx * dx + dy * dy;
+  if (a === 0) return undefined;
+  const b = 2 * (fromCenterX * dx + fromCenterY * dy);
+  const c = fromCenterX * fromCenterX + fromCenterY * fromCenterY - radiusSquared;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) return undefined;
+
+  const squareRoot = Math.sqrt(Math.max(0, discriminant));
+  const roots = [(-b - squareRoot) / (2 * a), (-b + squareRoot) / (2 * a)];
+  const first = roots.find((root) => root >= -1e-9 && root <= 1 + 1e-9);
+  if (first === undefined) return undefined;
+  const progress = Math.max(0, Math.min(1, first));
+  return canonicalPoint({
+    x: from.x + dx * progress,
+    y: from.y + dy * progress,
+  });
+}
+
+function canonicalPoint(point: Point): Point {
+  return {
+    x: Math.round(point.x * 1e9) / 1e9,
+    y: Math.round(point.y * 1e9) / 1e9,
+  };
 }
 
 export class ProjectileSystem {
   private readonly pool: ObjectPool<MutableProjectile>;
   private readonly active = new Set<MutableProjectile>();
+  private readonly shelterRadius: number;
 
-  constructor(capacity: number, private readonly shelterRadius = 38) {
+  constructor(capacity: number, shelterRadius = 38) {
+    if (!Number.isFinite(shelterRadius) || shelterRadius < 0) {
+      throw new RangeError('Projectile shelter radius must be finite and non-negative');
+    }
+    this.shelterRadius = shelterRadius;
     this.pool = new ObjectPool(capacity, () => ({
       id: -1,
       kind: 'poop',
@@ -149,13 +180,22 @@ export class ProjectileSystem {
         x: previous.x + projectile.velocity.x * movementMs / 1000,
         y: previous.y + projectile.velocity.y * movementMs / 1000,
       };
-      projectile.position = next;
       projectile.ageMs += movementMs;
-      const hit = pointToSegmentDistance(projectile.target, previous, next)
-        <= this.shelterRadius + 1e-9;
-      if (hit) {
+      const impactPosition = firstSegmentCircleIntersection(
+        previous,
+        next,
+        projectile.target,
+        this.shelterRadius,
+      );
+      projectile.position = impactPosition ?? next;
+      if (impactPosition !== undefined) {
         events.push(
-          { type: 'projectileHit', projectileId: projectile.id, kind: projectile.kind },
+          {
+            type: 'projectileHit',
+            projectileId: projectile.id,
+            kind: projectile.kind,
+            position: impactPosition,
+          },
           {
             type: 'shelterDamageRequested',
             projectileId: projectile.id,
@@ -163,7 +203,7 @@ export class ProjectileSystem {
           },
         );
       }
-      if (hit || reachedDuration(projectile.ageMs, projectile.lifeMs)) {
+      if (impactPosition !== undefined || reachedDuration(projectile.ageMs, projectile.lifeMs)) {
         this.release(projectile);
       }
     }

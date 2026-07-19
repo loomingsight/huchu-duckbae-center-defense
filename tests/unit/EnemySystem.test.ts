@@ -44,6 +44,36 @@ it('3000ms 기절은 60Hz 정확히 180 tick 뒤 풀린다', () => {
   expect(system.snapshots().at(0)!.state).toBe('moving');
 });
 
+it('fractional 기절 종료 tick은 남은 시간만 이동과 animation에 소비한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+  const stunMs = 17;
+
+  system.stun(0, stunMs);
+  system.step(1000 / 60);
+  system.step(1000 / 60);
+
+  const activeMs = 2 * 1000 / 60 - stunMs;
+  expect(system.snapshots().at(0)).toMatchObject({
+    state: 'moving',
+    stunnedMs: 0,
+  });
+  expect(system.snapshots().at(0)!.pathProgress).toBeCloseTo(44 * activeMs / 1000, 8);
+  expect(system.snapshots().at(0)!.animationElapsedMs).toBeCloseTo(activeMs, 8);
+});
+
+it('fractional 기절을 포함한 큰 step은 같은 합계의 분할 step과 같다', () => {
+  const whole = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+  const split = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+  whole.stun(0, 17);
+  split.stun(0, 17);
+
+  whole.step(1017);
+  split.step(17);
+  split.step(1000);
+
+  expect(whole.snapshots()).toEqual(split.snapshots());
+});
+
 it('공격 경계에서 진행도를 clamp하고 moving 상태는 유지한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
 

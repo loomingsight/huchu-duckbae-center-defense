@@ -5,7 +5,10 @@ import {
 } from '../constants';
 import { FixedStepClock } from '../core/FixedStepClock';
 import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
-import { ProjectileActorPool } from '../combat/ProjectileActorPool';
+import {
+  ProjectileActorPool,
+  type ProjectileImpactSnapshot,
+} from '../combat/ProjectileActorPool';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
 import type { GameEvent } from '../events/GameEvents';
 import type { MovementIntent } from '../player/InputVector';
@@ -158,6 +161,11 @@ export class GameScene extends Phaser.Scene {
     return this.projectileActors.snapshot();
   }
 
+  projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[] {
+    if (this.projectileActors === undefined) throw new Error('Projectile actor pool is not initialized');
+    return this.projectileActors.impactSnapshots();
+  }
+
   combatEffectsSnapshot(): PoolSnapshot {
     return this.playerView.effectPoolSnapshot();
   }
@@ -219,7 +227,7 @@ export class GameScene extends Phaser.Scene {
         this.showOffLeashAttack(event.enemyId);
       }
       if (event.type === 'projectileHit') {
-        this.projectileActors?.showHit(event.projectileId, event.kind);
+        this.projectileActors?.showHit(event.projectileId, event.kind, event.position);
       }
       if (event.type === 'shelterDamaged') {
         this.shelterView?.render(event.visual);

@@ -117,3 +117,46 @@
 - Vite production build가 Phaser를 포함한 단일 JS chunk 약 1.41MB에 대해 500kB 초과 경고를 출력한다. build exit는 0이며 Task 9 전부터 존재한 번들 분할 항목이다.
 - Playwright는 `FORCE_COLOR` 때문에 `NO_COLOR`가 무시된다는 경고를 출력한다. 12 tests는 모두 통과했다.
 - 기능상 미해결 경고는 없다.
+
+## 리뷰 후속 수정 (2026-07-20)
+
+### 요청 이슈
+
+- [x] fractional stun 종료 tick에서 `EnemySystem`과 `EnemyAttackSystem`이 동일한 leftover 시간을 소비하고 frame 6과 release/damage를 같은 tick에 반영
+- [x] projectile hit event에 연속 충돌의 최초 교차 좌표를 기록하고 projectile actor 생명주기와 독립된 impact effect pool에서 렌더링
+
+### 후속 RED → GREEN
+
+1. fractional stun 동기화 RED
+   - 1ms stun은 실제 피해 tick 16보다 renderer frame 6이 tick 15에 먼저 노출
+   - 17ms stun은 실제 피해 tick 17보다 renderer frame 6이 tick 16에 먼저 노출
+   - `EnemySystem`은 17ms stun을 두 fixed tick으로 넘길 때 기대 leftover 이동 `0.718666...` 대신 `0`을 반환
+2. fractional stun 동기화 GREEN
+   - 두 시스템이 stun 종료 tick의 frozen 시간과 leftover 시간을 동일하게 분리 소비
+   - `EnemyAttackSystem`의 authoritative animation elapsed를 `GameSession`이 `EnemySystem`에 동기화
+   - 1ms는 renderer frame 6, damage request, damage가 모두 tick 16, 17ms는 모두 tick 17
+   - stun을 포함한 large-step과 같은 합계의 split-step event/snapshot exact equality 추가
+3. projectile impact RED
+   - `projectileHit`에 기대한 최초 교차점 `{ x: 270, y: 518 }`가 없음
+   - projectile actor와 effect가 결합돼 독립 pool 기대 graphics 200 대신 160개만 생성
+4. projectile impact GREEN
+   - continuous segment-circle 최초 교차점을 계산하고 1e-9 좌표 canonicalization 뒤 hit event에 기록
+   - projectile actor 80개와 독립된 impact actor 120개를 선할당하고 actor가 미렌더/반환된 뒤에도 event 좌표로 effect 생성
+   - batch/split hit event, effect snapshot, 전체 RGBA canvas pixel이 exact equality
+   - 브라우저에서 y=518은 poop stain 색, y=562 발사점은 non-stain 색으로 확인
+5. 리뷰 보강 RED → GREEN
+   - 잘못된 shelter radius가 거부되지 않는 RED를 추가하고 finite/non-negative constructor 검증으로 GREEN
+   - 실제 renderer `enemyFrameAt`, impact expiry/reset pool telemetry, decoded canvas/stain 대조 단언을 추가
+
+### 후속 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| focused unit 3 files | PASS, 48 tests |
+| `npm run test:unit` | PASS, 28 files / 302 tests |
+| `npm run build` | PASS, TypeScript 및 Vite production build |
+| combat E2E | PASS, desktop/mobile 14 tests |
+| `npm run test:e2e` | PASS, 41 tests / desktop-only 3 skipped |
+| production debug identifier 및 unsafe type/pure-system dependency scan | 0 matches |
+| 독립 code review | Critical 0 / Important 0 |
+| `git diff --check` | PASS |

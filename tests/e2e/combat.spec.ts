@@ -136,6 +136,35 @@ test('똥 공격은 250ms에 투사체를 만들고 도착 때 보호소를 한 
   expect((await snapshot(page)).shelterHp).toBe(hp - 3);
 });
 
+test('똥 impact는 batch·split 모두 최초 교차점 y=518에 남고 발사점에는 남지 않는다', async ({ page }) => {
+  await openScenario(page, 'poop-attack');
+  await advance(page, 470);
+  const batch = await snapshot(page);
+  const batchCanvas = await page.locator('canvas').screenshot();
+  const batchHit = (await events(page)).find(({ type }) => type === 'projectileHit');
+
+  expect(batchHit).toMatchObject({ position: { x: 270, y: 518 } });
+  expect(batch.projectileImpacts).toEqual([
+    { projectileId: 0, kind: 'poop', x: 270, y: 518, frame: 0 },
+  ]);
+
+  await loadScenario(page, 'poop-attack');
+  await advance(page, 250);
+  await advance(page, 220);
+  const split = await snapshot(page);
+  const splitCanvas = await page.locator('canvas').screenshot();
+  const splitHit = (await events(page)).find(({ type }) => type === 'projectileHit');
+
+  expect(splitHit).toEqual(batchHit);
+  expect(split.projectileImpacts).toEqual(batch.projectileImpacts);
+  expect(await canvasPixelsEqual(splitCanvas, batchCanvas)).toBe(true);
+  const impactPixel = await logicalPixel(splitCanvas, 270, 518);
+  const launchPixel = await logicalPixel(splitCanvas, 270, 562);
+  expect(impactPixel).toEqual(await logicalPixel(batchCanvas, 270, 518));
+  expect(isPoopStainColor(impactPixel)).toBe(true);
+  expect(isPoopStainColor(launchPixel)).toBe(false);
+});
+
 test('개장수는 250ms에 speed 240 포획망을 만들고 보호소에 14 피해를 준다', async ({ page }) => {
   await openScenario(page, 'boss');
   const before = await snapshot(page);
@@ -165,6 +194,27 @@ async function logicalPixel(
   const y = Math.min(info.height - 1, Math.floor(logicalY * info.height / WORLD.height));
   const offset = (y * info.width + x) * info.channels;
   return { red: data[offset]!, green: data[offset + 1]!, blue: data[offset + 2]! };
+}
+
+async function canvasPixelsEqual(left: Buffer, right: Buffer): Promise<boolean> {
+  const [leftPixels, rightPixels] = await Promise.all([
+    sharp(left).raw().toBuffer({ resolveWithObject: true }),
+    sharp(right).raw().toBuffer({ resolveWithObject: true }),
+  ]);
+  return leftPixels.info.width === rightPixels.info.width
+    && leftPixels.info.height === rightPixels.info.height
+    && leftPixels.info.channels === rightPixels.info.channels
+    && leftPixels.data.equals(rightPixels.data);
+}
+
+function isPoopStainColor(pixel: {
+  readonly red: number;
+  readonly green: number;
+  readonly blue: number;
+}): boolean {
+  return pixel.red >= 95 && pixel.red <= 125
+    && pixel.green >= 55 && pixel.green <= 80
+    && pixel.blue >= 30 && pixel.blue <= 55;
 }
 
 function expectColor(color: number): {

@@ -1,4 +1,4 @@
-import { subtractDuration } from '../constants';
+import { subtractDuration, TIME_EPSILON_MS } from '../constants';
 import { BALANCE } from '../data/balance';
 import { PATH_DEFINITIONS } from '../data/pathDefinitions';
 import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
@@ -168,23 +168,25 @@ export class EnemySystem {
     if (stepMs === 0) return;
 
     for (const enemy of this.enemies.values()) {
+      let activeStepMs = stepMs;
       if (enemy.state === 'stunned') {
-        enemy.stunnedMs = subtractDuration(enemy.stunnedMs, stepMs);
-        if (enemy.stunnedMs === 0) {
-          enemy.state = 'moving';
-          enemy.animationElapsedMs = 0;
-        }
-        continue;
+        const frozenMs = Math.min(enemy.stunnedMs, activeStepMs);
+        enemy.stunnedMs = subtractDuration(enemy.stunnedMs, frozenMs);
+        activeStepMs = Math.max(0, activeStepMs - frozenMs);
+        if (enemy.stunnedMs > 0) continue;
+        enemy.state = 'moving';
+        enemy.animationElapsedMs = 0;
+        if (activeStepMs <= TIME_EPSILON_MS) continue;
       }
       if (enemy.state !== 'moving') {
-        enemy.animationElapsedMs += stepMs;
+        enemy.animationElapsedMs += activeStepMs;
         continue;
       }
       enemy.pathProgress = Math.min(
         enemy.attackProgress,
-        enemy.pathProgress + enemy.speed * stepMs / 1000,
+        enemy.pathProgress + enemy.speed * activeStepMs / 1000,
       );
-      enemy.animationElapsedMs += stepMs;
+      enemy.animationElapsedMs += activeStepMs;
     }
   }
 
@@ -205,19 +207,23 @@ export class EnemySystem {
     ];
   }
 
-  setState(enemyId: number, state: EnemyAttackState, animationElapsedMs = 0): void {
+  setState(enemyId: number, state: EnemyAttackState, animationElapsedMs?: number): void {
     assertEnemyId(enemyId);
     if (!ENEMY_ATTACK_STATE_SET.has(state)) {
       throw new RangeError(`Unknown enemy attack state ${String(state)}`);
     }
-    assertFiniteNonNegative(animationElapsedMs, 'Enemy animationElapsedMs');
+    if (animationElapsedMs !== undefined) {
+      assertFiniteNonNegative(animationElapsedMs, 'Enemy animationElapsedMs');
+    }
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
 
-    const preserveAttackElapsed = enemy.state === 'windup' && state === 'holding';
+    const preserveAttackElapsed = animationElapsedMs === undefined
+      && enemy.state === 'windup'
+      && state === 'holding';
     enemy.state = state;
     enemy.stunnedMs = 0;
-    if (!preserveAttackElapsed) enemy.animationElapsedMs = animationElapsedMs;
+    if (!preserveAttackElapsed) enemy.animationElapsedMs = animationElapsedMs ?? 0;
   }
 
   knockBack(enemyId: number, distance: number): void {

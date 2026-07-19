@@ -26,6 +26,35 @@ it('보호소 원에 닿을 때 피해를 한 번 적용하고 풀로 반환한�
   expect(projectiles.step(500)).toEqual([]);
 });
 
+it('큰 step과 분할 step은 보호소 원의 같은 최초 교차 좌표에서 hit한다', () => {
+  const input = {
+    id: 1,
+    kind: 'poop' as const,
+    from: { x: 270, y: 566 },
+    to: { x: 270, y: 480 },
+    speed: 220,
+    damage: 3,
+    lifeMs: 1200,
+  };
+  const whole = new ProjectileSystem(1);
+  const split = new ProjectileSystem(1);
+  whole.spawn(input);
+  split.spawn(input);
+
+  const wholeHit = whole.step(500).find(({ type }) => type === 'projectileHit');
+  const splitHit = Array.from({ length: 30 }, () => split.step(FIXED_STEP_MS))
+    .flat()
+    .find(({ type }) => type === 'projectileHit');
+
+  expect(wholeHit).toMatchObject({
+    type: 'projectileHit',
+    projectileId: 1,
+    kind: 'poop',
+    position: { x: 270, y: 518 },
+  });
+  expect(splitHit).toEqual(wholeHit);
+});
+
 it('cap 이후 투사체는 새 객체 생성이나 crash 없이 drop event로 끝난다', () => {
   const projectiles = new ProjectileSystem(1);
   const input = {
@@ -95,13 +124,21 @@ it('정확히 lifetime 경계에서 보호소 원에 닿으면 피해를 한 번
   });
 
   expect(projectiles.step(1000)).toEqual([
-    { type: 'projectileHit', projectileId: 1, kind: 'electric' },
+    {
+      type: 'projectileHit',
+      projectileId: 1,
+      kind: 'electric',
+      position: { x: 100, y: 0 },
+    },
     { type: 'shelterDamageRequested', projectileId: 1, damage: 18 },
   ]);
   expect(projectiles.step(1)).toEqual([]);
 });
 
 it('invalid step과 spawn number는 상태 변경 전에 거부한다', () => {
+  for (const shelterRadius of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => new ProjectileSystem(1, shelterRadius)).toThrow(RangeError);
+  }
   const projectiles = new ProjectileSystem(1);
   const input = {
     id: 1,
@@ -190,7 +227,7 @@ it('hit effect는 fixed-step 4 frame 뒤 종료한다', () => {
   expect([0, 30, 60, 90].map(projectileImpactFrameAt)).toEqual([0, 1, 2, 3]);
 });
 
-it('ProjectileActorPool은 80개를 시작 시 선할당하고 hit·expiry snapshot 부재를 모두 반환한다', () => {
+it('ProjectileActorPool은 projectile actor 없이도 authoritative 위치에 독립 hit effect를 만든다', () => {
   const fake = createFakeProjectileScene();
   const pool = new ProjectileActorPool(fake.scene as never);
   const initial = pool.snapshot();
@@ -205,21 +242,31 @@ it('ProjectileActorPool은 80개를 시작 시 선할당하고 hit·expiry snaps
   };
 
   expect(fake.containers).toHaveLength(80);
+  expect(fake.graphics).toHaveLength(200);
   expect(initial).toMatchObject({ created: 80, active: 0, available: 80 });
-  pool.render([projectile]);
-  expect(pool.snapshot()).toEqual({ ...initial, active: 1, available: 79 });
-  pool.showHit(1, 'poop');
-  pool.render([]);
+  expect(pool.impactPoolSnapshot()).toMatchObject({ created: 120, active: 0, available: 120 });
+  pool.showHit(1, 'poop', { x: 270, y: 518 });
+  expect(pool.impactSnapshots()).toEqual([
+    { projectileId: 1, kind: 'poop', x: 270, y: 518, frame: 0 },
+  ]);
   expect(pool.snapshot()).toEqual(initial);
   expect(pool.activeEffectCount).toBe(1);
   pool.stepEffects(119);
   expect(pool.activeEffectCount).toBe(1);
   pool.stepEffects(1);
   expect(pool.activeEffectCount).toBe(0);
+  expect(pool.impactPoolSnapshot()).toMatchObject({ active: 0, available: 120 });
 
   pool.render([{ ...projectile, id: 2, kind: 'electric' }]);
   pool.render([]);
+  pool.showHit(2, 'electric', { x: 270, y: 518 });
+  expect(pool.impactSnapshots()).toEqual([
+    { projectileId: 2, kind: 'electric', x: 270, y: 518, frame: 0 },
+  ]);
+  pool.releaseAll();
   expect(pool.snapshot()).toEqual(initial);
+  expect(pool.impactPoolSnapshot()).toMatchObject({ active: 0, available: 120 });
+  expect(pool.impactSnapshots()).toEqual([]);
   expect(fake.graphics.every((graphic) => graphic.listenerCount === 0)).toBe(true);
 });
 

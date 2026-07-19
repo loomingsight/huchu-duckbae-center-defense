@@ -3,6 +3,7 @@ import {
   distanceToShelterBoundary,
 } from '../../src/game/combat/EnemyAttackSystem';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
+import { enemyFrameAt } from '../../src/game/enemies/EnemyActor';
 import { GameSession } from '../../src/game/session/GameSession';
 import { attackFrameAt } from '../../src/game/world/AnimationFrameResolver';
 import {
@@ -106,6 +107,25 @@ it('큰 step도 cadence 경계를 유실하지 않고 분할 step과 같은 even
   expect(whole.snapshot(1)).toEqual(split.snapshot(1));
 });
 
+it('fractional 기절을 포함한 큰 step도 분할 step과 같은 event와 elapsed를 만든다', () => {
+  const target = inRangeEnemy();
+  const whole = attackSystemFor('offLeashGuardian');
+  const split = attackSystemFor('offLeashGuardian');
+  whole.step(200, target);
+  split.step(200, target);
+  whole.stun(1, 17);
+  split.stun(1, 17);
+
+  const wholeEvents = whole.step(3217, target);
+  const splitEvents = [
+    ...split.step(17, target),
+    ...Array.from({ length: 64 }, () => split.step(50, target)).flat(),
+  ];
+
+  expect(wholeEvents).toEqual(splitEvents);
+  expect(whole.snapshot(1)).toEqual(split.snapshot(1));
+});
+
 it('GameSession은 off-leash release command를 보호소 피해로 정확히 한 번 소비한다', () => {
   const run = GameSession.create({ seed: 1 });
   run.suppressWaveSpawnsForScenario();
@@ -186,6 +206,47 @@ it('GameSession stun은 이동·cooldown·animation을 함께 freeze하고 inter
   const events = run.step(FIXED_STEP_MS, { x: 0, y: 0 });
   expect(events.filter(({ type }) => type === 'attackStarted')).toHaveLength(1);
 });
+
+it.each([1, 17])(
+  'GameSession fractional stun %sms 뒤 첫 frame 6과 release/damage는 같은 tick이다',
+  (stunMs) => {
+    const run = GameSession.create({ seed: 1 });
+    run.suppressWaveSpawnsForScenario();
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'offLeashGuardian',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'attackBoundary' },
+    });
+    for (let tick = 0; tick < 12; tick += 1) {
+      run.step(FIXED_STEP_MS, { x: 0, y: 0 });
+    }
+    run.stunEnemy(enemyId, stunMs);
+
+    let firstFrame6Tick: number | undefined;
+    let damageRequestedTick: number | undefined;
+    let damageTick: number | undefined;
+    for (let tick = 1; tick <= 20; tick += 1) {
+      const tickEvents = run.step(FIXED_STEP_MS, { x: 0, y: 0 });
+      const enemy = run.snapshot().enemies.at(0)!;
+      if (
+        firstFrame6Tick === undefined
+        && enemyFrameAt(enemy.state, enemy.animationElapsedMs) === 6
+      ) {
+        firstFrame6Tick = tick;
+      }
+      if (tickEvents.some(({ type }) => type === 'shelterDamageRequested')) {
+        damageRequestedTick = tick;
+      }
+      if (tickEvents.some(({ type }) => type === 'shelterDamaged')) damageTick = tick;
+    }
+
+    expect(damageTick).toBe(Math.ceil((250 + stunMs) / FIXED_STEP_MS));
+    expect(damageRequestedTick).toBe(damageTick);
+    expect(firstFrame6Tick).toBe(damageTick);
+    expect(run.snapshot().shelterHp).toBe(94);
+  },
+);
 
 it('GameSession knockback은 holding과 attack track을 함께 취소한다', () => {
   const run = GameSession.create({ seed: 1 });

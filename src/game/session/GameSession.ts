@@ -219,15 +219,13 @@ export class GameSession {
 
   private stepEnemyAttacks(stepMs: number, shelterDamage: number[]): void {
     for (const enemy of this.enemies.snapshots()) {
-      const startedFromMoving = enemy.state === 'moving';
-      for (const event of this.attacks[enemy.kind].step(stepMs, enemy)) {
+      const attack = this.attacks[enemy.kind];
+      const events = attack.step(stepMs, enemy);
+      let cancelled = false;
+      for (const event of events) {
         this.eventBuffer.push(event);
-        if (event.type === 'attackStarted') {
-          this.enemies.setState(event.enemyId, 'windup', startedFromMoving ? stepMs : 0);
-        } else if (event.type === 'attackHolding') {
-          this.enemies.setState(event.enemyId, 'holding');
-        } else if (event.type === 'attackCancelled') {
-          this.enemies.setState(event.enemyId, 'moving');
+        if (event.type === 'attackCancelled') {
+          cancelled = true;
         } else if (event.type === 'shelterDamageRequested') {
           shelterDamage.push(event.damage);
         } else if (event.type === 'projectileRequested') {
@@ -242,6 +240,16 @@ export class GameSession {
           }));
           this.nextProjectileId += 1;
         }
+      }
+      const attackState = attack.snapshot(enemy.id);
+      if (attackState.state === 'windup' || attackState.state === 'holding') {
+        this.enemies.setState(
+          enemy.id,
+          attackState.state,
+          attackState.animationElapsedMs,
+        );
+      } else if (cancelled) {
+        this.enemies.setState(enemy.id, 'moving', 0);
       }
     }
   }

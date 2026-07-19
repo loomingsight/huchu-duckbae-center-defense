@@ -1,4 +1,5 @@
 import type { GameMode } from '../core/GameMode';
+import type { ProjectileImpactSnapshot } from '../combat/ProjectileActorPool';
 import type { ProjectileKind } from '../combat/ProjectileSystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
@@ -28,6 +29,7 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly player: { readonly x: number; readonly y: number };
   readonly enemyPool: PoolSnapshot;
   readonly projectilePool: PoolSnapshot;
+  readonly projectileImpacts: readonly ProjectileImpactSnapshot[];
   readonly barkWavePool: PoolSnapshot;
 }
 
@@ -47,9 +49,15 @@ export type GameDebugEvent = GameDebugEventMetadata & (
     readonly enemyId: number;
   }
   | {
-    readonly type: 'projectileSpawned' | 'projectileHit';
+    readonly type: 'projectileSpawned';
     readonly projectileId: number;
     readonly kind: ProjectileKind;
+  }
+  | {
+    readonly type: 'projectileHit';
+    readonly projectileId: number;
+    readonly kind: ProjectileKind;
+    readonly position: { readonly x: number; readonly y: number };
   }
   | {
     readonly type: 'projectileDropped';

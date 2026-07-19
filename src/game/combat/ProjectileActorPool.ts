@@ -18,6 +18,14 @@ export interface ProjectileVisualTransform {
   readonly angle: number;
 }
 
+export interface ProjectileImpactSnapshot {
+  readonly projectileId: number;
+  readonly kind: ProjectileKind;
+  readonly x: number;
+  readonly y: number;
+  readonly frame: number;
+}
+
 export function projectileImpactFrameAt(elapsedMs: number): number {
   if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
     throw new RangeError('Projectile impact elapsed time must be finite and non-negative');
@@ -46,19 +54,13 @@ export function projectileVisualTransform(
 class ProjectileActor {
   readonly container: Phaser.GameObjects.Container;
   private readonly projectileGraphics: Phaser.GameObjects.Graphics;
-  private readonly impactGraphics: Phaser.GameObjects.Graphics;
   private projectileId = -1;
   private start: Point = { x: 0, y: 0 };
-  private lastPosition: Point = { x: 0, y: 0 };
-  private impactPosition: Point = { x: 0, y: 0 };
-  private impactAgeMs = IMPACT_FADE_MS;
-  private impactKind: ProjectileKind = 'poop';
 
   constructor(scene: Phaser.Scene) {
     this.projectileGraphics = scene.add.graphics();
-    this.impactGraphics = scene.add.graphics().setDepth(1001);
     this.container = scene.add.container(0, 0, [this.projectileGraphics]);
-    this.resetAll();
+    this.resetProjectile();
   }
 
   render(snapshot: ProjectileSnapshot): void {
@@ -72,7 +74,6 @@ class ProjectileActor {
       { x: snapshot.x, y: snapshot.y },
       SHELTER_CENTER,
     );
-    this.lastPosition = { x: snapshot.x, y: snapshot.y };
     this.drawProjectile(snapshot.kind);
     this.container
       .setPosition(snapshot.x, snapshot.y + transform.offsetY)
@@ -83,27 +84,9 @@ class ProjectileActor {
       .setVisible(true);
   }
 
-  showHit(kind: ProjectileKind): void {
-    this.impactKind = kind;
-    this.impactPosition = { ...this.lastPosition };
-    this.impactAgeMs = 0;
-    this.renderImpact();
-  }
-
-  stepEffect(stepMs: number): boolean {
-    this.impactAgeMs += stepMs;
-    if (reachedDuration(this.impactAgeMs, IMPACT_FADE_MS)) {
-      this.resetImpact();
-      return false;
-    }
-    this.renderImpact();
-    return true;
-  }
-
   resetProjectile(): void {
     this.projectileId = -1;
     this.start = { x: 0, y: 0 };
-    this.lastPosition = { x: 0, y: 0 };
     this.projectileGraphics.removeAllListeners();
     this.projectileGraphics.clear();
     this.projectileGraphics.setAlpha(1).setActive(false).setVisible(false);
@@ -116,12 +99,6 @@ class ProjectileActor {
       .setScale(1)
       .setActive(false)
       .setVisible(false);
-  }
-
-  resetAll(): void {
-    this.resetProjectile();
-    this.impactGraphics.removeAllListeners();
-    this.resetImpact();
   }
 
   private drawProjectile(kind: ProjectileKind): void {
@@ -159,30 +136,55 @@ class ProjectileActor {
       .strokePath();
   }
 
-  private renderImpact(): void {
-    const frame = projectileImpactFrameAt(this.impactAgeMs);
-    const alpha = [0.85, 0.65, 0.4, 0.2][frame]!;
-    const scale = [0.75, 1, 1.2, 1.4][frame]!;
-    this.impactGraphics.clear();
-    if (this.impactKind === 'poop') {
-      this.impactGraphics.fillStyle(0x75421f, alpha).fillEllipse(0, 0, 18, 8);
-    } else if (this.impactKind === 'net') {
-      this.impactGraphics.lineStyle(3, 0xf1d57a, alpha).strokeCircle(0, 0, 16);
-    } else {
-      this.impactGraphics.lineStyle(4, 0x55f4ef, alpha).strokeCircle(0, 0, 14);
-    }
-    this.impactGraphics
-      .setPosition(this.impactPosition.x, this.impactPosition.y)
-      .setScale(scale)
-      .setAlpha(1)
-      .setActive(true)
-      .setVisible(true);
+}
+
+class ProjectileImpactActor {
+  private readonly graphics: Phaser.GameObjects.Graphics;
+  private projectileId = -1;
+  private kind: ProjectileKind = 'poop';
+  private position: Point = { x: 0, y: 0 };
+  private ageMs = IMPACT_FADE_MS;
+
+  constructor(scene: Phaser.Scene) {
+    this.graphics = scene.add.graphics().setDepth(1001);
+    this.reset();
   }
 
-  private resetImpact(): void {
-    this.impactAgeMs = IMPACT_FADE_MS;
-    this.impactPosition = { x: 0, y: 0 };
-    this.impactGraphics
+  show(projectileId: number, kind: ProjectileKind, position: Point): void {
+    this.projectileId = projectileId;
+    this.kind = kind;
+    this.position = { ...position };
+    this.ageMs = 0;
+    this.render();
+  }
+
+  step(stepMs: number): boolean {
+    this.ageMs += stepMs;
+    if (reachedDuration(this.ageMs, IMPACT_FADE_MS)) {
+      this.reset();
+      return false;
+    }
+    this.render();
+    return true;
+  }
+
+  snapshot(): ProjectileImpactSnapshot {
+    return {
+      projectileId: this.projectileId,
+      kind: this.kind,
+      x: this.position.x,
+      y: this.position.y,
+      frame: projectileImpactFrameAt(this.ageMs),
+    };
+  }
+
+  reset(): void {
+    this.projectileId = -1;
+    this.kind = 'poop';
+    this.position = { x: 0, y: 0 };
+    this.ageMs = IMPACT_FADE_MS;
+    this.graphics
+      .removeAllListeners()
       .clear()
       .setPosition(0, 0)
       .setScale(1)
@@ -190,25 +192,43 @@ class ProjectileActor {
       .setActive(false)
       .setVisible(false);
   }
+
+  private render(): void {
+    const frame = projectileImpactFrameAt(this.ageMs);
+    const alpha = [0.85, 0.65, 0.4, 0.2][frame]!;
+    const scale = [0.75, 1, 1.2, 1.4][frame]!;
+    this.graphics.clear();
+    if (this.kind === 'poop') {
+      this.graphics.fillStyle(0x75421f, alpha).fillEllipse(0, 0, 18, 8);
+    } else if (this.kind === 'net') {
+      this.graphics.lineStyle(3, 0xf1d57a, alpha).strokeCircle(0, 0, 16);
+    } else {
+      this.graphics.lineStyle(4, 0x55f4ef, alpha).strokeCircle(0, 0, 14);
+    }
+    this.graphics
+      .setPosition(this.position.x, this.position.y)
+      .setScale(scale)
+      .setAlpha(1)
+      .setActive(true)
+      .setVisible(true);
+  }
 }
 
 export class ProjectileActorPool {
   private readonly pool: ObjectPool<ProjectileActor>;
-  private readonly allActors: readonly ProjectileActor[];
+  private readonly impactPool: ObjectPool<ProjectileImpactActor>;
   private readonly activeActors = new Map<number, ProjectileActor>();
-  private readonly effectActors = new Set<ProjectileActor>();
+  private readonly activeImpacts = new Set<ProjectileImpactActor>();
 
   constructor(scene: Phaser.Scene) {
-    const actors: ProjectileActor[] = [];
     this.pool = new ObjectPool(
       BALANCE.caps.projectiles,
-      () => {
-        const actor = new ProjectileActor(scene);
-        actors.push(actor);
-        return actor;
-      },
+      () => new ProjectileActor(scene),
     );
-    this.allActors = actors;
+    this.impactPool = new ObjectPool(
+      BALANCE.caps.particles,
+      () => new ProjectileImpactActor(scene),
+    );
   }
 
   render(snapshots: readonly ProjectileSnapshot[]): void {
@@ -223,35 +243,56 @@ export class ProjectileActorPool {
     }
   }
 
-  showHit(projectileId: number, kind: ProjectileKind): void {
-    const actor = this.activeActors.get(projectileId);
-    if (actor === undefined) return;
-    actor.showHit(kind);
-    this.effectActors.add(actor);
+  showHit(projectileId: number, kind: ProjectileKind, position: Point): void {
+    if (
+      !Number.isSafeInteger(projectileId)
+      || projectileId < 0
+      || !Number.isFinite(position.x)
+      || !Number.isFinite(position.y)
+    ) {
+      throw new RangeError('Invalid projectile impact');
+    }
+    const impact = this.impactPool.acquire();
+    if (impact === undefined) return;
+    impact.show(projectileId, kind, position);
+    this.activeImpacts.add(impact);
   }
 
   stepEffects(stepMs: number): void {
     if (!Number.isFinite(stepMs) || stepMs < 0) {
       throw new RangeError('Projectile effect step must be finite and non-negative');
     }
-    for (const actor of [...this.effectActors]) {
-      if (!actor.stepEffect(stepMs)) this.effectActors.delete(actor);
+    for (const impact of [...this.activeImpacts]) {
+      if (!impact.step(stepMs)) {
+        this.activeImpacts.delete(impact);
+        this.impactPool.release(impact);
+      }
     }
   }
 
   get activeEffectCount(): number {
-    return this.effectActors.size;
+    return this.activeImpacts.size;
   }
 
   releaseAll(): void {
     this.activeActors.clear();
     this.pool.releaseAll((actor) => actor.resetProjectile());
-    this.effectActors.clear();
-    for (const actor of this.allActors) actor.resetAll();
+    this.activeImpacts.clear();
+    this.impactPool.releaseAll((impact) => impact.reset());
   }
 
   snapshot(): PoolSnapshot {
     return this.pool.snapshot();
+  }
+
+  impactPoolSnapshot(): PoolSnapshot {
+    return this.impactPool.snapshot();
+  }
+
+  impactSnapshots(): readonly ProjectileImpactSnapshot[] {
+    return [...this.activeImpacts]
+      .map((impact) => impact.snapshot())
+      .sort((left, right) => left.projectileId - right.projectileId);
   }
 
   private acquire(projectileId: number): ProjectileActor | undefined {

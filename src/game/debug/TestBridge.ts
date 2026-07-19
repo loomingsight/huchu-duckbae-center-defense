@@ -9,6 +9,7 @@ import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
+import type { ProjectileImpactSnapshot } from '../combat/ProjectileActorPool';
 import type { ScenarioEnemySeed } from './ScenarioSessionPort';
 import { ManualStepScheduler } from './ManualStepScheduler';
 import { loadScenario, type SessionScenarioRuntime } from './ScenarioFactory';
@@ -32,6 +33,7 @@ interface SessionScenePort {
   sessionSnapshot(): RunSnapshot;
   enemyActorPoolSnapshot(): PoolSnapshot;
   projectileActorPoolSnapshot(): PoolSnapshot;
+  projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[];
   combatEffectsSnapshot(): PoolSnapshot;
   seedEnemyForScenario(seed: ScenarioEnemySeed): number;
   suppressWaveSpawnsForScenario(): void;
@@ -82,6 +84,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       player: this.scene.playerSnapshot(),
       enemyPool: this.scene.enemyActorPoolSnapshot(),
       projectilePool: this.scene.projectileActorPoolSnapshot(),
+      projectileImpacts: this.scene.projectileImpactSnapshots(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
     };
   }
@@ -166,11 +169,18 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         this.appendEvent({ type: event.type, enemyId: event.enemyId });
         return;
       case 'projectileSpawned':
+        this.appendEvent({
+          type: event.type,
+          projectileId: event.projectileId,
+          kind: event.kind,
+        });
+        return;
       case 'projectileHit':
         this.appendEvent({
           type: event.type,
           projectileId: event.projectileId,
           kind: event.kind,
+          position: event.position,
         });
         return;
       case 'projectileDropped':
