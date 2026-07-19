@@ -257,6 +257,44 @@ async function rawPixelsEqual(expected, actual) {
   );
 }
 
+export async function verifyApprovedAttackRows(outputRoot = '.') {
+  const attackFailures = [];
+  for (const entry of characterSheets.filter(({ attackEdit }) => attackEdit !== undefined)) {
+    const file = characterOutput(entry.key);
+    try {
+      const [approvedAttack, runtimeAttack] = await Promise.all([
+        sharp(entry.attackEdit)
+          .extract({ left: 0, top: 512, width: 1536, height: 512 })
+          .ensureAlpha()
+          .resize(768, 256, { kernel: sharp.kernel.lanczos3 })
+          .raw()
+          .toBuffer({ resolveWithObject: true }),
+        rgbaPixels(path.resolve(outputRoot, file), {
+          left: 0,
+          top: 256,
+          width: 768,
+          height: 256,
+        }),
+      ]);
+      if (
+        approvedAttack.info.width !== runtimeAttack.info.width ||
+        approvedAttack.info.height !== runtimeAttack.info.height ||
+        approvedAttack.info.channels !== runtimeAttack.info.channels ||
+        !approvedAttack.data.equals(runtimeAttack.data)
+      ) {
+        attackFailures.push({ file, reason: 'approved attack row changed' });
+      }
+    } catch (error) {
+      attackFailures.push({
+        file,
+        reason: 'approved attack row changed',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return attackFailures;
+}
+
 export async function verifyRuntimeFreshness(outputRoot = '.') {
   const freshnessFailures = [];
   for (const entry of characterSheets) {
@@ -317,6 +355,7 @@ export async function main() {
   try {
     await verifyProvenance();
     failures.push(...(await verifyGeneratedApprovals()));
+    failures.push(...(await verifyApprovedAttackRows()));
     failures.push(...(await verifyRuntimeFreshness()));
     for (const entry of characterSheets) await verifyCharacter(entry);
     await Promise.all([verifyShelter(), verifyMap()]);

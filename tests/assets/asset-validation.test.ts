@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error Asset build scripts are executable ESM JavaScript without declaration files.
 import { buildAssets } from '../../scripts/assets/build-assets.mjs';
 // @ts-expect-error Asset verifier is executable ESM JavaScript without declaration files.
-import { percentileFromByteHistogram, verifyGeneratedApprovals, verifyRuntimeFreshness } from '../../scripts/assets/verify-assets.mjs';
+import { percentileFromByteHistogram, verifyApprovedAttackRows, verifyGeneratedApprovals, verifyRuntimeFreshness } from '../../scripts/assets/verify-assets.mjs';
 
 describe('asset approval validation', () => {
   it('승인된 generated source가 바뀌면 실패한다', async () => {
@@ -101,6 +101,61 @@ describe('runtime asset freshness', () => {
         reason: 'runtime output is stale for current sources',
       }),
     );
+  });
+});
+
+describe('approved attack rows', () => {
+  const attacks = [
+    {
+      base: 'assets/source/characters/enemy-poop-male-base.png',
+      edit: 'assets/source/generated/enemy-poop-male-throw-edit.png',
+      output: 'public/assets/characters/enemy-poop-male.png',
+    },
+    {
+      base: 'assets/source/characters/enemy-poop-female-base.png',
+      edit: 'assets/source/generated/enemy-poop-female-throw-edit.png',
+      output: 'public/assets/characters/enemy-poop-female.png',
+    },
+  ] as const;
+
+  async function resizedRawRow(source: string, top: number) {
+    return sharp(source)
+      .extract({ left: 0, top, width: 1536, height: 512 })
+      .ensureAlpha()
+      .resize(768, 256, { kernel: sharp.kernel.lanczos3 })
+      .raw()
+      .toBuffer();
+  }
+
+  async function writeRuntimeSheet(
+    root: string,
+    entry: (typeof attacks)[number],
+    attackTop: number,
+  ) {
+    const [walk, attack] = await Promise.all([
+      resizedRawRow(entry.base, 0),
+      resizedRawRow(entry.edit, attackTop),
+    ]);
+    const output = path.join(root, entry.output);
+    await mkdir(path.dirname(output), { recursive: true });
+    await sharp(Buffer.concat([walk, attack]), {
+      raw: { width: 768, height: 512, channels: 4 },
+    })
+      .png({ compressionLevel: 9, palette: false })
+      .toFile(output);
+  }
+
+  it('승인 edit의 다른 행으로 runtime attack row를 교체하면 실패한다', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'huchu-approved-attack-'));
+    for (const entry of attacks) await writeRuntimeSheet(root, entry, 512);
+    expect(await verifyApprovedAttackRows(root)).toEqual([]);
+
+    await writeRuntimeSheet(root, attacks[0], 0);
+
+    expect(await verifyApprovedAttackRows(root)).toContainEqual({
+      file: attacks[0].output,
+      reason: 'approved attack row changed',
+    });
   });
 });
 
