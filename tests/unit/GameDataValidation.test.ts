@@ -27,6 +27,94 @@ const makeSpawn = (overrides: Partial<TestSpawn> = {}): TestSpawn => ({
   ...overrides,
 });
 
+const withSpawnVariant = (
+  waveNumber: number,
+  spawnIndex: number,
+  variant: EnemyVariant | 'seeded',
+) => WAVE_DEFINITIONS.map((wave) => ({
+  wave: wave.wave,
+  spawns: wave.spawns.map((spawn, index) => (
+    wave.wave === waveNumber && index === spawnIndex ? { ...spawn, variant } : spawn
+  )),
+}));
+
+const EXPECTED_WAVE_SCHEDULES = [
+  [1, [
+    [0, 'P1', 'poopGuardian', 'male'],
+    [1000, 'P2', 'poopGuardian', 'female'],
+    [2000, 'P1', 'poopGuardian', 'male'],
+    [3000, 'P2', 'poopGuardian', 'female'],
+    [4000, 'P1', 'poopGuardian', 'male'],
+    [5000, 'P2', 'poopGuardian', 'female'],
+    [6000, 'P1', 'poopGuardian', 'male'],
+    [7000, 'P2', 'poopGuardian', 'female'],
+    [8000, 'P1', 'poopGuardian', 'male'],
+    [9000, 'P2', 'poopGuardian', 'female'],
+  ]],
+  [2, [
+    [0, 'P1', 'poopGuardian', 'male'],
+    [900, 'P2', 'offLeashGuardian', 'male'],
+    [1800, 'P3', 'offLeashGuardian', 'female'],
+    [2700, 'P4', 'poopGuardian', 'female'],
+    [3600, 'P1', 'offLeashGuardian', 'male'],
+    [4500, 'P2', 'offLeashGuardian', 'female'],
+    [5400, 'P3', 'poopGuardian', 'male'],
+    [6300, 'P4', 'offLeashGuardian', 'male'],
+    [7200, 'P1', 'offLeashGuardian', 'female'],
+    [8100, 'P2', 'poopGuardian', 'female'],
+    [9000, 'P3', 'offLeashGuardian', 'male'],
+    [9900, 'P4', 'offLeashGuardian', 'female'],
+    [10800, 'P1', 'poopGuardian', 'male'],
+    [11700, 'P2', 'poopGuardian', 'female'],
+  ]],
+  [3, [
+    [0, 'P2', 'offLeashGuardian', 'male'],
+    [1000, 'P4', 'offLeashGuardian', 'female'],
+    [2000, 'P6', 'offLeashGuardian', 'male'],
+    [3000, 'P2', 'offLeashGuardian', 'female'],
+    [4000, 'P4', 'offLeashGuardian', 'male'],
+    [5000, 'P6', 'offLeashGuardian', 'female'],
+    [7000, 'P3', 'dogTrader', 'male'],
+  ]],
+  [4, [
+    [0, 'P1', 'poopGuardian', 'male'],
+    [0, 'P2', 'offLeashGuardian', 'male'],
+    [1100, 'P3', 'poopGuardian', 'female'],
+    [1100, 'P4', 'offLeashGuardian', 'female'],
+    [2200, 'P5', 'poopGuardian', 'male'],
+    [2200, 'P6', 'offLeashGuardian', 'male'],
+    [3300, 'P1', 'poopGuardian', 'female'],
+    [3300, 'P2', 'offLeashGuardian', 'female'],
+    [4400, 'P3', 'poopGuardian', 'male'],
+    [4400, 'P4', 'offLeashGuardian', 'male'],
+    [5500, 'P5', 'poopGuardian', 'female'],
+    [5500, 'P6', 'offLeashGuardian', 'female'],
+    [6600, 'P1', 'poopGuardian', 'male'],
+    [6600, 'P2', 'offLeashGuardian', 'male'],
+    [7700, 'P3', 'poopGuardian', 'female'],
+    [7700, 'P4', 'offLeashGuardian', 'female'],
+    [8800, 'P5', 'offLeashGuardian', 'male'],
+    [8800, 'P6', 'offLeashGuardian', 'female'],
+  ]],
+  [5, [
+    [0, 'P1', 'poopGuardian', 'male'],
+    [0, 'P2', 'offLeashGuardian', 'male'],
+    [1100, 'P5', 'poopGuardian', 'female'],
+    [1100, 'P6', 'offLeashGuardian', 'female'],
+    [2200, 'P1', 'poopGuardian', 'male'],
+    [2200, 'P2', 'offLeashGuardian', 'male'],
+    [3300, 'P5', 'poopGuardian', 'female'],
+    [3300, 'P6', 'offLeashGuardian', 'female'],
+    [4400, 'P1', 'poopGuardian', 'male'],
+    [4400, 'P2', 'offLeashGuardian', 'male'],
+    [5500, 'P5', 'poopGuardian', 'female'],
+    [5500, 'P6', 'offLeashGuardian', 'female'],
+    [6600, 'P1', 'offLeashGuardian', 'male'],
+    [6600, 'P2', 'offLeashGuardian', 'female'],
+    [8600, 'P3', 'illegalBreeder', 'seeded'],
+  ]],
+] as const;
+
 describe('고정 게임 데이터', () => {
   it('540x960 맵의 exact 6개 경로를 유지한다', () => {
     expect(PATH_DEFINITIONS).toEqual({
@@ -179,6 +267,25 @@ describe('고정 게임 데이터', () => {
       );
     }
   });
+
+  it('W1부터 W5까지 모든 spawn tuple과 boss gap을 exact schedule로 고정한다', () => {
+    expect(WAVE_DEFINITIONS.map(({ wave, spawns }) => [wave, spawns.length])).toEqual([
+      [1, 10],
+      [2, 14],
+      [3, 7],
+      [4, 18],
+      [5, 15],
+    ]);
+    expect(WAVE_DEFINITIONS.map(({ wave, spawns }) => [
+      wave,
+      spawns.map(({ atMs, pathId, kind, variant }) => [atMs, pathId, kind, variant]),
+    ])).toEqual(EXPECTED_WAVE_SCHEDULES);
+
+    const wave3 = WAVE_DEFINITIONS[2].spawns;
+    const wave5 = WAVE_DEFINITIONS[4].spawns;
+    expect(wave3.at(-1)!.atMs - wave3.at(-2)!.atMs).toBe(2000);
+    expect(wave5.at(-1)!.atMs - wave5.at(-2)!.atMs).toBe(2000);
+  });
 });
 
 describe('validateGameData', () => {
@@ -220,6 +327,54 @@ describe('validateGameData', () => {
     ]));
   });
 
+  it('경로 key 집합은 P1부터 P6까지만 허용한다', () => {
+    const errors = validateGameData({
+      paths: { ...PATH_DEFINITIONS, P7: [[0, 0], [1, 1]] },
+      waves: WAVE_DEFINITIONS,
+    });
+
+    expect(errors).toContain('path P7: unexpected');
+  });
+
+  it('웨이브는 1부터 5까지 순서대로 정확히 한 번씩 요구한다', () => {
+    const emptyErrors = validateGameData({ paths: PATH_DEFINITIONS, waves: [] });
+    const missingErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: WAVE_DEFINITIONS.slice(0, 4),
+    });
+    const duplicateErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: [...WAVE_DEFINITIONS.slice(0, 4), WAVE_DEFINITIONS[3]],
+    });
+    const unknownErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: [...WAVE_DEFINITIONS.slice(0, 4), { wave: 6, spawns: [] }],
+    });
+    const reorderedErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: [
+        WAVE_DEFINITIONS[1],
+        WAVE_DEFINITIONS[0],
+        ...WAVE_DEFINITIONS.slice(2),
+      ],
+    });
+
+    expect(emptyErrors).toEqual(expect.arrayContaining([
+      'waves: expected exactly 5, received 0',
+      'wave 1: missing',
+    ]));
+    expect(missingErrors).toContain('wave 5: missing');
+    expect(duplicateErrors).toContain('wave 4: duplicate');
+    expect(unknownErrors).toEqual(expect.arrayContaining([
+      'wave 5: missing',
+      'wave 6: unexpected',
+    ]));
+    expect(reorderedErrors).toEqual(expect.arrayContaining([
+      'waves[0]: expected wave 1, received 2',
+      'waves[1]: expected wave 2, received 1',
+    ]));
+  });
+
   it('내림차순 시간과 같은 시각의 중복 경로를 보고한다', () => {
     const errors = validateGameData({
       paths: PATH_DEFINITIONS,
@@ -236,6 +391,51 @@ describe('validateGameData', () => {
     expect(errors).toEqual(expect.arrayContaining([
       expect.stringContaining('not ascending'),
       expect.stringContaining('duplicate path P2 at 0ms'),
+    ]));
+  });
+
+  it('좌표는 finite이고 모든 인접 segment 길이는 finite 양수여야 한다', () => {
+    const errors = validateGameData({
+      paths: {
+        ...PATH_DEFINITIONS,
+        P1: [[Number.NaN, 0], [270, 430]],
+        P2: [[430, 0], [430, 0], [270, 430]],
+        P3: [[Number.POSITIVE_INFINITY, 0], [270, 430]],
+      },
+      waves: WAVE_DEFINITIONS,
+    });
+
+    expect(errors).toEqual(expect.arrayContaining([
+      'path P1[0]: waypoint coordinates must be finite',
+      'path P1 segment 0-1: length must be finite and greater than zero',
+      'path P2 segment 0-1: length must be finite and greater than zero',
+      'path P3[0]: waypoint coordinates must be finite',
+      'path P3 segment 0-1: length must be finite and greater than zero',
+    ]));
+  });
+
+  it('spawn atMs는 finite이고 0 이상이어야 한다', () => {
+    const firstWave = WAVE_DEFINITIONS[0];
+    const waves = WAVE_DEFINITIONS.map((wave) => (
+      wave.wave === 1
+        ? {
+            wave: firstWave.wave,
+            spawns: [
+              { ...firstWave.spawns[0]!, atMs: Number.NaN },
+              { ...firstWave.spawns[1]!, atMs: Number.POSITIVE_INFINITY },
+              { ...firstWave.spawns[2]!, atMs: -1 },
+              ...firstWave.spawns.slice(3),
+            ],
+          }
+        : wave
+    ));
+
+    const errors = validateGameData({ paths: PATH_DEFINITIONS, waves });
+
+    expect(errors).toEqual(expect.arrayContaining([
+      'wave 1[0]: atMs must be finite and non-negative',
+      'wave 1[1]: atMs must be finite and non-negative',
+      'wave 1[2]: atMs must be finite and non-negative',
     ]));
   });
 
@@ -285,6 +485,34 @@ describe('validateGameData', () => {
       expect.stringContaining('wave 3: expected exactly one dogTrader'),
       expect.stringContaining('wave 5: expected exactly one illegalBreeder'),
     ]));
+  });
+
+  it('일반 적 variant는 seeded를 금지하고 종류별 male/female 순서를 지킨다', () => {
+    const seededErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: withSpawnVariant(1, 0, 'seeded'),
+    });
+    const parityErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: withSpawnVariant(1, 1, 'male'),
+    });
+
+    expect(seededErrors).toContain('wave 1[0]: poopGuardian cannot use seeded variant');
+    expect(parityErrors).toContain('wave 1[1]: expected female variant for poopGuardian');
+  });
+
+  it('trader는 male, breeder는 seeded variant만 허용한다', () => {
+    const traderErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: withSpawnVariant(3, 6, 'female'),
+    });
+    const breederErrors = validateGameData({
+      paths: PATH_DEFINITIONS,
+      waves: withSpawnVariant(5, 14, 'male'),
+    });
+
+    expect(traderErrors).toContain('wave 3[6]: dogTrader variant must be male');
+    expect(breederErrors).toContain('wave 5[14]: illegalBreeder variant must be seeded');
   });
 });
 

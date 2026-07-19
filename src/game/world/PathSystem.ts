@@ -6,6 +6,23 @@ const asPoint = (value: Waypoint): Point => (
   Array.isArray(value) ? { x: value[0], y: value[1] } : value as Point
 );
 
+const requireFinite = (value: number, label: string): void => {
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${label} must be finite`);
+  }
+};
+
+const rejectNaN = (value: number, label: string): void => {
+  if (Number.isNaN(value)) {
+    throw new RangeError(`${label} must not be NaN`);
+  }
+};
+
+const requireFinitePoint = (point: Point, label: string): void => {
+  requireFinite(point.x, `${label}.x`);
+  requireFinite(point.y, `${label}.y`);
+};
+
 export class PathSystem {
   private readonly points: readonly Point[];
   private readonly cumulative: readonly number[];
@@ -17,21 +34,28 @@ export class PathSystem {
     }
 
     this.points = waypoints.map(asPoint);
+    this.points.forEach((point, index) => requireFinitePoint(point, `waypoint[${index}]`));
     const cumulative = [0];
     for (let index = 1; index < this.points.length; index += 1) {
-      cumulative.push(
-        cumulative.at(-1)! + distance(this.points[index - 1]!, this.points[index]!),
-      );
+      const segmentLength = distance(this.points[index - 1]!, this.points[index]!);
+      if (!Number.isFinite(segmentLength) || segmentLength <= 0) {
+        if (this.points.length === 2 && segmentLength === 0) {
+          throw new RangeError('A path must have non-zero length');
+        }
+        throw new RangeError(`path segment ${index - 1}-${index} must have finite positive length`);
+      }
+      const totalLength = cumulative.at(-1)! + segmentLength;
+      if (!Number.isFinite(totalLength)) {
+        throw new RangeError('path length must be finite');
+      }
+      cumulative.push(totalLength);
     }
     this.cumulative = cumulative;
     this.length = cumulative.at(-1)!;
-
-    if (this.length === 0) {
-      throw new RangeError('A path must have non-zero length');
-    }
   }
 
   positionAt(progress: number): Point {
+    rejectNaN(progress, 'progress');
     const value = clamp(progress, 0, this.length);
     if (value === this.length) {
       return { ...this.points.at(-1)! };
@@ -48,6 +72,8 @@ export class PathSystem {
   }
 
   eta(progress: number, speedPerSecond: number): number {
+    rejectNaN(progress, 'progress');
+    rejectNaN(speedPerSecond, 'speedPerSecond');
     if (speedPerSecond <= 0) {
       return Number.POSITIVE_INFINITY;
     }
@@ -55,10 +81,13 @@ export class PathSystem {
   }
 
   knockBack(progress: number, pathDistance: number): number {
+    rejectNaN(progress, 'progress');
+    rejectNaN(pathDistance, 'pathDistance');
     return clamp(progress - Math.max(0, pathDistance), 0, this.length);
   }
 
   closestProgressTo(point: Point): number {
+    requireFinitePoint(point, 'point');
     let bestProgress = 0;
     let bestDistanceSquared = Number.POSITIVE_INFINITY;
 
@@ -78,11 +107,16 @@ export class PathSystem {
       const projected = { x: start.x + dx * ratio, y: start.y + dy * ratio };
       const distanceSquared = (point.x - projected.x) ** 2 + (point.y - projected.y) ** 2;
       const progress = this.cumulative[index - 1]! + Math.sqrt(lengthSquared) * ratio;
+      const distanceTolerance = 16 * Number.EPSILON * Math.max(
+        1,
+        distanceSquared,
+        bestDistanceSquared,
+      );
+      const isFirstCandidate = !Number.isFinite(bestDistanceSquared);
+      const isCloser = distanceSquared < bestDistanceSquared - distanceTolerance;
+      const isTie = Math.abs(distanceSquared - bestDistanceSquared) <= distanceTolerance;
 
-      if (
-        distanceSquared < bestDistanceSquared
-        || (distanceSquared === bestDistanceSquared && progress < bestProgress)
-      ) {
+      if (isFirstCandidate || isCloser || (isTie && progress < bestProgress)) {
         bestDistanceSquared = distanceSquared;
         bestProgress = progress;
       }
@@ -92,6 +126,8 @@ export class PathSystem {
   }
 
   firstProgressWithinCircle(center: Point, radius: number): number {
+    requireFinitePoint(center, 'center');
+    rejectNaN(radius, 'radius');
     if (radius < 0) {
       throw new RangeError('Circle radius must be non-negative');
     }
@@ -111,11 +147,13 @@ export class PathSystem {
       const b = 2 * (fx * dx + fy * dy);
       const c = fx * fx + fy * fy - radius * radius;
       const discriminant = b * b - 4 * a * c;
-      if (discriminant < 0) {
+      const discriminantScale = b * b + Math.abs(4 * a * c);
+      const discriminantTolerance = 16 * Number.EPSILON * Math.max(1, discriminantScale);
+      if (discriminant < -discriminantTolerance) {
         continue;
       }
 
-      const root = Math.sqrt(discriminant);
+      const root = Math.sqrt(Math.max(0, discriminant));
       const candidates = [(-b - root) / (2 * a), (-b + root) / (2 * a)]
         .filter((ratio) => ratio >= 0 && ratio <= 1)
         .sort((left, right) => left - right);
