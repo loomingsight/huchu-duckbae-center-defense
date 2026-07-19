@@ -33,6 +33,10 @@ export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId
       resetRun(runtime);
       seedSkillSelectionWaveClear(runtime);
       return;
+    case 'all-skills':
+      resetRun(runtime);
+      seedAllSkills(runtime);
+      return;
     case 'poop-attack':
       resetRun(runtime);
       runtime.suppressWaveSpawns();
@@ -152,6 +156,61 @@ function seedSkillSelectionWaveClear(runtime: SessionScenarioRuntime): void {
   runtime.suppressWaveSpawns();
   runtime.resetPlayer(270, 750);
   seedSkillRewardTargets(runtime);
+  runtime.advanceWorldTicks(132);
+}
+
+function seedAllSkills(runtime: SessionScenarioRuntime): void {
+  runtime.suppressWaveSpawns();
+  runtime.resetPlayer(270, 905);
+  // 31 × 2 snacks lands exactly on the fourth threshold (62), so the final
+  // combat window cannot be interrupted by the fifth skill selection.
+  for (let index = 0; index < 31; index += 1) {
+    runtime.seedEnemy({
+      kind: 'offLeashGuardian',
+      variant: index % 2 === 0 ? 'male' : 'female',
+      pathId: 'P6',
+      placement: { kind: 'worldPoint', x: 270, y: 960 },
+      currentHp: 10,
+      maxHp: 65,
+      state: 'stunned',
+      stunnedMs: 60_000,
+    });
+  }
+  // Safety Report has global threat targeting. This target is outside every
+  // local auto-skill range and dies to its exact 90 damage, so its 120s test
+  // stun cannot be shortened while the five visual targets remain frozen.
+  runtime.seedEnemy({
+    kind: 'poopGuardian',
+    variant: 'male',
+    pathId: 'P3',
+    placement: { kind: 'attackBoundary' },
+    currentHp: 90,
+    maxHp: 90,
+    state: 'stunned',
+    stunnedMs: 120_000,
+  });
+  for (let index = 0; index < 4; index += 1) {
+    runtime.seedEnemy({
+      kind: 'poopGuardian',
+      variant: index % 2 === 0 ? 'male' : 'female',
+      pathId: 'P1',
+      placement: { kind: 'worldPoint', x: 110, y: 0 },
+      currentHp: 10_000,
+      maxHp: 10_000,
+      state: 'stunned',
+      stunnedMs: 120_000,
+    });
+  }
+  runtime.seedEnemy({
+    kind: 'illegalBreeder',
+    variant: 'male',
+    pathId: 'P6',
+    placement: { kind: 'worldPoint', x: 270, y: 960 },
+    currentHp: 10_000,
+    maxHp: 10_000,
+    state: 'stunned',
+    stunnedMs: 120_000,
+  });
   runtime.advanceWorldTicks(132);
 }
 

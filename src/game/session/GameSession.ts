@@ -27,6 +27,11 @@ import type { PoolSnapshot } from '../pooling/ObjectPool';
 import { ProgressionSystem } from '../progression/ProgressionSystem';
 import { pickSkillCards } from '../progression/SkillCardPicker';
 import { ShelterSystem } from '../shelter/ShelterSystem';
+import {
+  SkillSystem,
+  type AutoSkillId,
+  type SkillSnapshot,
+} from '../skills/SkillSystem';
 import type { SkillCard, SkillLevels } from '../skills/SkillTypes';
 import type { EnemyKind, SkillId } from '../types/GameTypes';
 import { UiTransitionClock } from '../ui/UiTransitionClock';
@@ -70,6 +75,7 @@ export class GameSession {
     BALANCE.shelter.hitRadius,
   );
   private readonly shelter = new ShelterSystem(BALANCE.shelter.maxHp);
+  private readonly skills = new SkillSystem(INITIAL_SKILLS);
   private readonly progression = new ProgressionSystem(
     BALANCE.snackThresholds,
     BALANCE.pendingSkillCombatDelayMs,
@@ -77,7 +83,6 @@ export class GameSession {
   private readonly uiClock = new UiTransitionClock(0);
   private readonly outcomes = new RunOutcomeResolver();
   private simulationTicks = 0;
-  private skillLevels: SkillLevels = { ...INITIAL_SKILLS };
   private cards: readonly SkillCard[] = [];
   private uiTransition: CountdownTransition | null = null;
   private pendingNextWave: number | null = null;
@@ -137,6 +142,7 @@ export class GameSession {
     this.enemies.step(FIXED_STEP_MS);
     const combatEnemyCount = this.enemies.activeCount;
     const shelterDamage: number[] = [];
+    this.stepAutoSkills(player);
     this.stepEnemyAttacks(FIXED_STEP_MS, shelterDamage);
     this.stepProjectiles(FIXED_STEP_MS, shelterDamage);
     this.stepBark(player);
@@ -163,7 +169,7 @@ export class GameSession {
       snacks: this.progression.snapshot().snacks,
       enemies: this.enemies.snapshots(),
       projectiles: this.projectiles.snapshots(),
-      skills: { ...this.skillLevels },
+      skills: this.skills.levelsSnapshot(),
     };
   }
 
@@ -184,12 +190,24 @@ export class GameSession {
   }
 
   skillCooldownProgress(): Readonly<Record<SkillId, number>> {
+    return this.skills.cooldownProgressSnapshot();
+  }
+
+  skillStateSnapshot(): {
+    readonly levels: SkillLevels;
+    readonly learnedOrder: readonly AutoSkillId[];
+    readonly cooldowns: Readonly<Record<SkillId, SkillSnapshot>>;
+  } {
     return {
-      bark: 0,
-      scold: 0,
-      aquaBeam: 0,
-      deokbaeHowl: 0,
-      safetyReport: 0,
+      levels: this.skills.levelsSnapshot(),
+      learnedOrder: this.skills.learnedOrderSnapshot(),
+      cooldowns: {
+        bark: this.skills.snapshot('bark'),
+        scold: this.skills.snapshot('scold'),
+        aquaBeam: this.skills.snapshot('aquaBeam'),
+        deokbaeHowl: this.skills.snapshot('deokbaeHowl'),
+        safetyReport: this.skills.snapshot('safetyReport'),
+      },
     };
   }
 
@@ -210,9 +228,12 @@ export class GameSession {
     const card = this.cards.find((candidate) => candidate.id === cardId);
     if (card === undefined) throw new RangeError(`Unknown skill card ${cardId}`);
 
-    this.skillLevels = { ...this.skillLevels, [card.skillId]: card.nextLevel };
+    const nextLevel = this.skills.levelUp(card.skillId);
+    if (nextLevel !== card.nextLevel) {
+      throw new Error(`Skill card ${card.id} does not match canonical level`);
+    }
     if (card.skillId === 'bark') {
-      this.bark.setLevel(card.nextLevel);
+      this.bark.setLevel(nextLevel);
       this.bark.reset();
       this.activeBarkAttack = null;
     }
@@ -314,7 +335,7 @@ export class GameSession {
     this.progression.reset();
     this.uiClock.restart(0);
     this.outcomes.reset();
-    this.skillLevels = { ...INITIAL_SKILLS };
+    this.skills.reset();
     this.cards = [];
     this.uiTransition = null;
     this.pendingNextWave = null;
@@ -358,6 +379,39 @@ export class GameSession {
         this.enemies.setState(enemy.id, 'moving', 0);
       }
     }
+  }
+
+  private stepAutoSkills(player: PlayerSnapshot): void {
+    const casts = this.skills.step(FIXED_STEP_MS, {
+      player: { x: player.x, y: player.y },
+      enemies: this.enemies.snapshots(),
+    });
+    for (const cast of casts) {
+      for (const hit of cast.hits) {
+        const lifecycleEvents = this.enemies.damage(hit.targetId, hit.damage);
+        this.accumulateSnacks(lifecycleEvents);
+        this.eventBuffer.push(...lifecycleEvents);
+        if (!this.enemies.has(hit.targetId)) continue;
+
+        if (hit.nextPathProgress !== undefined) {
+          const enemy = this.requireActiveEnemy(hit.targetId);
+          this.enemies.applyPathProgress(hit.targetId, hit.nextPathProgress);
+          this.attacks[enemy.kind].interrupt(hit.targetId);
+        }
+        if (hit.stunMs !== undefined) {
+          const enemy = this.requireActiveEnemy(hit.targetId);
+          this.enemies.stun(hit.targetId, hit.stunMs);
+          this.attacks[enemy.kind].stun(hit.targetId, hit.stunMs, enemy.pathProgress);
+        }
+      }
+      this.eventBuffer.push(cast);
+    }
+  }
+
+  private requireActiveEnemy(enemyId: number): EnemySnapshot {
+    const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
+    if (enemy === undefined) throw new Error(`Active skill target ${enemyId} disappeared`);
+    return enemy;
   }
 
   private stepProjectiles(stepMs: number, shelterDamage: number[]): void {
@@ -448,7 +502,7 @@ export class GameSession {
   private openSkillSelection(): void {
     const request = this.progression.takeNextRequest();
     if (request === undefined) throw new Error('Progression request disappeared');
-    this.cards = pickSkillCards(this.skillLevels, this.rng);
+    this.cards = pickSkillCards(this.skills.levelsSnapshot(), this.rng);
     this.stateMachine.transition('skillSelection');
     this.eventBuffer.push(
       { type: 'modeChanged', mode: 'skillSelection' },

@@ -9,6 +9,7 @@ import type { SkillId, SkillLevel } from '../types/GameTypes';
 import type { CountdownKind } from '../ui/CountdownOverlay';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import type { ShelterVisualState } from '../shelter/ShelterTypes';
+import type { HudSnapshot } from '../ui/HudSystem';
 
 export type TestScenarioId =
   | 'empty-run'
@@ -17,6 +18,7 @@ export type TestScenarioId =
   | 'bark-targeting'
   | 'skill-selection'
   | 'skill-selection-wave-clear'
+  | 'all-skills'
   | 'poop-attack'
   | 'boss';
 
@@ -37,6 +39,8 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly projectileImpacts: readonly ProjectileImpactSnapshot[];
   readonly shelterShakeOffset: number;
   readonly barkWavePool: PoolSnapshot;
+  readonly combatEffectPool: PoolSnapshot;
+  readonly hud: HudSnapshot;
   readonly cards: readonly SkillCard[];
   readonly cooldownProgress: Readonly<Record<SkillId, number>>;
   readonly countdown: {
@@ -49,6 +53,7 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
     readonly barkAnimationElapsedMs: number | null;
     readonly barkEffectAgesMs: readonly number[];
     readonly projectileEffectAgesMs: readonly number[];
+    readonly skillEffectAgesMs: readonly number[];
     readonly shelterEffectAgeMs: number | null;
     readonly offLeashEffectAgeMs: number | null;
   };
@@ -96,6 +101,7 @@ export type GameDebugEvent = GameDebugEventMetadata & (
   | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number }
   | { readonly type: 'skillSelectionOpened'; readonly cards: readonly SkillCard[] }
   | { readonly type: 'skillLearned'; readonly skillId: SkillId; readonly level: SkillLevel }
+  | { readonly type: 'skillCast'; readonly skillId: Exclude<SkillId, 'bark'>; readonly targetIds: readonly number[] }
 );
 
 export interface HuchuTestBridge {

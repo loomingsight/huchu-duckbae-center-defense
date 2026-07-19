@@ -6,6 +6,7 @@ import {
   barkWaveVisualAt,
   PlayerView,
 } from '../../src/game/player/PlayerView';
+import { CombatEffectPool } from '../../src/game/combat/CombatEffectPool';
 import { candidate } from './fixtures';
 
 describe('BarkSystem', () => {
@@ -249,8 +250,9 @@ describe('PlayerView bark presentation', () => {
 
   it('attack 중에도 새 player 위치를 쓰고 frame 4..7 one-shot을 직접 설정한다', () => {
     const fake = createPlayerFakeScene();
-    const view = new PlayerView(fake.scene as never, { x: 10, y: 20 });
-    const sprite = fake.sprites.at(0)!;
+    const effects = new CombatEffectPool(fake.scene as never);
+    const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
+    const sprite = fake.sprites.at(-1)!;
 
     view.render({
       x: 55,
@@ -269,7 +271,8 @@ describe('PlayerView bark presentation', () => {
 
   it('wave는 고정 cap pool에서만 acquire하고 simulation age로 release한다', () => {
     const fake = createPlayerFakeScene();
-    const view = new PlayerView(fake.scene as never, { x: 10, y: 20 });
+    const effects = new CombatEffectPool(fake.scene as never);
+    const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
     const initial = view.effectPoolSnapshot();
 
     expect(fake.graphics).toHaveLength(BARK_WAVE_POOL_CAPACITY);
@@ -293,10 +296,11 @@ describe('PlayerView bark presentation', () => {
 
   it('reset과 shutdown은 active wave와 listener를 초기화하고 pool identity를 유지한다', () => {
     const fake = createPlayerFakeScene();
-    const view = new PlayerView(fake.scene as never, { x: 10, y: 20 });
+    const effects = new CombatEffectPool(fake.scene as never);
+    const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
     const initial = view.effectPoolSnapshot();
     view.showBarkWave({ x: 10, y: 20 }, { x: 100, y: 20 });
-    fake.sprites[0]!.listenerCount = 1;
+    fake.sprites.at(-1)!.listenerCount = 1;
     fake.graphics.at(-1)!.listenerCount = 1;
 
     view.resetCombatVisuals();
@@ -307,7 +311,7 @@ describe('PlayerView bark presentation', () => {
     view.showBarkWave({ x: 10, y: 20 }, { x: 100, y: 20 });
     view.destroy();
     expect(view.effectPoolSnapshot()).toEqual({ ...initial, active: 0, available: BARK_WAVE_POOL_CAPACITY });
-    expect(fake.sprites[0]!.listenerCount).toBe(0);
+    expect(fake.sprites.at(-1)!.listenerCount).toBe(0);
     expect(fake.graphics.every((graphics) => graphics.listenerCount === 0)).toBe(true);
   });
 });

@@ -239,6 +239,18 @@ export class EnemySystem {
     enemy.animationElapsedMs = 0;
   }
 
+  applyPathProgress(enemyId: number, nextPathProgress: number): void {
+    assertEnemyId(enemyId);
+    assertFiniteNonNegative(nextPathProgress, 'Enemy absolute path progress');
+    const enemy = this.enemies.get(enemyId);
+    if (enemy === undefined) return;
+
+    enemy.pathProgress = Math.min(enemy.path.length, nextPathProgress);
+    enemy.state = 'moving';
+    enemy.stunnedMs = 0;
+    enemy.animationElapsedMs = 0;
+  }
+
   stun(enemyId: number, durationMs: number): void {
     assertEnemyId(enemyId);
     assertFiniteNonNegative(durationMs, 'Enemy stun durationMs');

@@ -6,6 +6,7 @@ import {
 } from '../../src/game/combat/ProjectileActorPool';
 import { ProjectileSystem } from '../../src/game/combat/ProjectileSystem';
 import { GameSession } from '../../src/game/session/GameSession';
+import { CombatEffectPool } from '../../src/game/combat/CombatEffectPool';
 
 it('보호소 원에 닿을 때 피해를 한 번 적용하고 풀로 반환한다', () => {
   const projectiles = new ProjectileSystem(80);
@@ -229,7 +230,8 @@ it('hit effect는 fixed-step 4 frame 뒤 종료한다', () => {
 
 it('ProjectileActorPool은 projectile actor 없이도 authoritative 위치에 독립 hit effect를 만든다', () => {
   const fake = createFakeProjectileScene();
-  const pool = new ProjectileActorPool(fake.scene as never);
+  const effects = new CombatEffectPool(fake.scene as never);
+  const pool = new ProjectileActorPool(fake.scene as never, effects);
   const initial = pool.snapshot();
   const projectile = {
     id: 1,
@@ -279,9 +281,11 @@ interface FakeObject {
 function createFakeProjectileScene(): {
   readonly scene: object;
   readonly graphics: FakeObject[];
+  readonly sprites: FakeObject[];
   readonly containers: FakeObject[];
 } {
   const graphics: FakeObject[] = [];
+  const sprites: FakeObject[] = [];
   const containers: FakeObject[] = [];
   const create = (collection: FakeObject[]) => {
     const fake = createFakeObject();
@@ -292,6 +296,7 @@ function createFakeProjectileScene(): {
     scene: {
       add: {
         graphics: () => create(graphics),
+        sprite: () => create(sprites),
         container: () => create(containers),
       },
       tweens: {
@@ -299,6 +304,7 @@ function createFakeProjectileScene(): {
       },
     },
     graphics,
+    sprites,
     containers,
   };
 }

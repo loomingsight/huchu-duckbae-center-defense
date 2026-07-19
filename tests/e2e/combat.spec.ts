@@ -27,7 +27,7 @@ test('기본 짖기가 가장 위협적인 적을 250ms에 공격하고 HP bar�
   });
   const canvas = await page.locator('canvas').screenshot();
   expect(await logicalPixel(canvas, 257, 537)).toEqual(expectColor(0xf2ca45));
-  expect(after.barkWavePool).toMatchObject({ created: 8, active: 1, available: 7 });
+  expect(after.barkWavePool).toMatchObject({ created: 120, active: 1, available: 119 });
   const eventLog = await events(page);
   expect(eventLog.slice(0, 3).map(({ sequence, type }) => ({ sequence, type }))).toEqual([
     { sequence: 1, type: 'enemySpawnRequested' },
@@ -94,13 +94,13 @@ test('scenario reset은 wave pool을 재사용하고 Scene restart는 새 lifecy
   await openScenario(page, 'bark-targeting');
   const initial = (await snapshot(page)).barkWavePool;
   await advance(page, 250);
-  expect((await snapshot(page)).barkWavePool).toEqual({ ...initial, active: 1, available: 7 });
+  expect((await snapshot(page)).barkWavePool).toEqual({ ...initial, active: 1, available: 119 });
 
   await loadScenario(page, 'empty-run');
-  expect((await snapshot(page)).barkWavePool).toEqual({ ...initial, active: 0, available: 8 });
+  expect((await snapshot(page)).barkWavePool).toEqual({ ...initial, active: 0, available: 120 });
   await loadScenario(page, 'bark-targeting');
   await advance(page, 250);
-  expect((await snapshot(page)).barkWavePool).toEqual({ ...initial, active: 1, available: 7 });
+  expect((await snapshot(page)).barkWavePool).toEqual({ ...initial, active: 1, available: 119 });
 
   await page.evaluate(() => window.__HUCHU_TEST__!.restartScene());
   await page.waitForFunction((instanceId) => (
@@ -111,9 +111,9 @@ test('scenario reset은 wave pool을 재사용하고 Scene restart는 새 lifecy
   await loadScenario(page, 'bark-targeting');
 
   expect((await snapshot(page)).barkWavePool).toMatchObject({
-    created: 8,
+    created: 120,
     active: 0,
-    available: 8,
+    available: 120,
   });
 });
 

@@ -5,6 +5,7 @@ import type { EnemyLifecycleEvent } from '../enemies/EnemySystem';
 import type { SkillSelectionRequest } from '../progression/ProgressionTypes';
 import type { ShelterDamageEvent } from '../shelter/ShelterSystem';
 import type { SkillCard } from '../skills/SkillTypes';
+import type { SkillCastCommand } from '../skills/SkillSystem';
 import type { SkillId, SkillLevel } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
@@ -14,6 +15,7 @@ export type GameEvent =
   | EnemyAttackEvent
   | ProjectileEvent
   | ShelterDamageEvent
+  | SkillCastCommand
   | { readonly type: 'modeChanged'; readonly mode: GameMode }
   | {
     readonly type: 'skillSelectionOpened';

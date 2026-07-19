@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ensureSkillIconTextures } from '../assets/SkillIconTextures';
 import { PATH_DEFINITIONS } from '../data/pathDefinitions';
 import { validateGameData } from '../data/validateGameData';
 import { WAVE_DEFINITIONS } from '../data/waveDefinitions';
@@ -12,7 +13,6 @@ export class BootScene extends Phaser.Scene {
     if (this.game.renderer.type !== Phaser.WEBGL) {
       throw new Error('WebGL renderer is required.');
     }
-
     const errors = validateGameData({ paths: PATH_DEFINITIONS, waves: WAVE_DEFINITIONS });
     if (errors.length > 0) {
       this.add
@@ -27,6 +27,7 @@ export class BootScene extends Phaser.Scene {
       return;
     }
 
+    ensureSkillIconTextures(this);
     this.scene.start('Preload');
   }
 }

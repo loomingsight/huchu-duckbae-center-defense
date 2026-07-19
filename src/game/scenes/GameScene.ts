@@ -11,6 +11,7 @@ import {
   ProjectileActorPool,
   type ProjectileImpactSnapshot,
 } from '../combat/ProjectileActorPool';
+import { CombatEffectPool } from '../combat/CombatEffectPool';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
 import type { GameEvent } from '../events/GameEvents';
 import { WorldPauseController } from '../lifecycle/WorldPauseController';
@@ -30,6 +31,7 @@ import {
   type CountdownKind,
 } from '../ui/CountdownOverlay';
 import { SkillSelectionModal } from '../ui/SkillSelectionModal';
+import { HudSystem, type HudSnapshot } from '../ui/HudSystem';
 import { DebugPathOverlay } from '../world/DebugPathOverlay';
 import { MapView } from '../world/MapView';
 import { SceneRuntimeLifecycle } from './SceneRuntimeLifecycle';
@@ -49,7 +51,8 @@ export class GameScene extends Phaser.Scene {
   private virtualJoystick!: VirtualJoystick;
   private countdownOverlay!: CountdownOverlay;
   private skillSelectionModal: SkillSelectionModal | undefined;
-  private skillHudText!: Phaser.GameObjects.Text;
+  private hud!: HudSystem;
+  private combatEffects!: CombatEffectPool;
   private worldPauseController!: WorldPauseController;
   private enemyActors: EnemyActorPool | undefined;
   private projectileActors: ProjectileActorPool | undefined;
@@ -90,25 +93,24 @@ export class GameScene extends Phaser.Scene {
 
     new MapView(this);
     this.shelterView = new ShelterView(this);
-    this.projectileActors = new ProjectileActorPool(this);
+    this.combatEffects = new CombatEffectPool(this);
+    this.projectileActors = new ProjectileActorPool(this, this.combatEffects);
     this.enemyAttackEffect = this.add.graphics().setDepth(1000);
     if (import.meta.env.DEV) new DebugPathOverlay(this);
     this.countdownOverlay = new CountdownOverlay(this);
-    this.skillHudText = this.add.text(16, 16, '', {
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '18px',
-      color: '#ffffff',
-      stroke: '#34291f',
-      strokeThickness: 4,
-    }).setDepth(1800);
+    this.hud = new HudSystem(this);
     this.playerController = new PlayerController({ ...INITIAL_PLAYER_POSITION });
-    this.playerView = new PlayerView(this, this.playerController.snapshot());
+    this.playerView = new PlayerView(
+      this,
+      this.playerController.snapshot(),
+      this.combatEffects,
+    );
     this.keyboardInput = new KeyboardInput(this);
     this.virtualJoystick = new VirtualJoystick(this);
     this.renderPlayer();
     this.renderEnemies();
     this.renderProjectiles();
-    this.renderSkillHud();
+    this.renderHud();
 
     const onVisibilityChange = (): void => this.setVisibilityForTest(document.hidden);
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -142,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.session.modeStateForControllers().canStepWorld()) {
       const events = this.session.step(stepMs, this.playerController.snapshot());
       this.applySessionEvents(events);
+      this.renderHud();
       return events;
     }
     const intent = this.readMovementIntent();
@@ -152,6 +155,7 @@ export class GameScene extends Phaser.Scene {
     const events = this.session.step(stepMs, this.playerController.snapshot());
     this.applySessionEvents(events);
     if (this.session.barkSnapshot().ready) this.barkAnimationElapsedMs = undefined;
+    this.renderHud();
     return events;
   }
 
@@ -162,6 +166,7 @@ export class GameScene extends Phaser.Scene {
     this.shelterView?.reset();
     this.resetEnemyAttackEffect();
     this.playerView.resetCombatVisuals();
+    this.combatEffects.releaseAll();
     this.session.reset(seed);
     this.worldPauseController.reset();
     this.fixedClock.reset();
@@ -170,7 +175,7 @@ export class GameScene extends Phaser.Scene {
     this.barkAnimationElapsedMs = undefined;
     this.offLeashEffectAgeMs = undefined;
     this.countdownOverlay.reset();
-    this.renderSkillHud();
+    this.renderHud();
     this.renderPlayer();
     this.renderEnemies();
     this.renderProjectiles();
@@ -212,7 +217,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   combatEffectsSnapshot(): PoolSnapshot {
-    return this.playerView.effectPoolSnapshot();
+    return this.combatEffects.snapshot();
+  }
+
+  combatEffectPoolSnapshot(): PoolSnapshot {
+    return this.combatEffects.snapshot();
+  }
+
+  hudSnapshot(): HudSnapshot {
+    return this.hud.snapshot();
   }
 
   skillCardsSnapshot(): readonly SkillCard[] {
@@ -236,6 +249,7 @@ export class GameScene extends Phaser.Scene {
     readonly barkAnimationElapsedMs: number | null;
     readonly barkEffectAgesMs: readonly number[];
     readonly projectileEffectAgesMs: readonly number[];
+    readonly skillEffectAgesMs: readonly number[];
     readonly shelterEffectAgeMs: number | null;
     readonly offLeashEffectAgeMs: number | null;
   } {
@@ -245,6 +259,12 @@ export class GameScene extends Phaser.Scene {
       barkAnimationElapsedMs: this.barkAnimationElapsedMs ?? null,
       barkEffectAgesMs: this.playerView.effectAgesSnapshot(),
       projectileEffectAgesMs: this.projectileActors?.impactAgesSnapshot() ?? [],
+      skillEffectAgesMs: [
+        ...this.combatEffects.effectAges('scold'),
+        ...this.combatEffects.effectAges('aquaBeam'),
+        ...this.combatEffects.effectAges('deokbaeHowl'),
+        ...this.combatEffects.effectAges('safetyReport'),
+      ],
       shelterEffectAgeMs: this.shelterView?.shakeElapsedSnapshot() ?? null,
       offLeashEffectAgeMs: this.offLeashEffectAgeMs ?? null,
     };
@@ -315,13 +335,14 @@ export class GameScene extends Phaser.Scene {
       if (event.type === 'skillSelectionOpened') {
         this.showSkillSelection(event.cards);
       }
-      if (event.type === 'skillLearned') this.renderSkillHud();
+      if (event.type === 'skillLearned') this.renderHud();
       if (event.type === 'enemySpawned') {
         const actor = this.enemyActors?.acquire(event.enemyId);
         if (actor === undefined) throw new Error('Enemy actor pool exhausted');
       }
       if (event.type === 'barkStarted') this.barkAnimationElapsedMs = 0;
       if (event.type === 'barkReleased') this.playerView.showBarkWave(event.origin, event.target);
+      if (event.type === 'skillCast') this.combatEffects.showSkillCast(event.visual);
       if (event.type === 'shelterDamageRequested' && 'enemyId' in event) {
         this.showOffLeashAttack(event.enemyId);
       }
@@ -349,11 +370,11 @@ export class GameScene extends Phaser.Scene {
     this.runtimeLifecycle.end(generation);
     this.skillSelectionModal = undefined;
     this.countdownOverlay.destroy();
-    this.skillHudText.removeAllListeners();
-    this.skillHudText.destroy();
+    this.hud.destroy();
     this.enemyActors = undefined;
     this.projectileActors?.releaseAll();
     this.projectileActors = undefined;
+    this.combatEffects.releaseAll();
     this.shelterView?.destroy();
     this.shelterView = undefined;
     this.enemyAttackEffect?.destroy();
@@ -392,8 +413,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private advanceCombatVisuals(stepMs: number): void {
-    this.playerView.stepSimulation(stepMs);
-    this.projectileActors?.stepEffects(stepMs);
+    this.combatEffects.step(stepMs);
     this.shelterView?.stepSimulation(stepMs);
     this.stepOffLeashEffect(stepMs);
     if (this.barkAnimationElapsedMs === undefined) return;
@@ -422,7 +442,7 @@ export class GameScene extends Phaser.Scene {
     const modal = new SkillSelectionModal(this, cards, (cardId) => {
       const events = this.session.selectCard(cardId);
       this.applySessionEvents(events);
-      this.renderSkillHud();
+      this.renderHud();
     });
     this.skillSelectionModal = modal;
     this.runtimeLifecycle.attach(this.runtimeGeneration, () => modal.destroy());
@@ -433,14 +453,8 @@ export class GameScene extends Phaser.Scene {
     this.skillSelectionModal = undefined;
   }
 
-  private renderSkillHud(): void {
-    const skills = this.session.snapshot().skills;
-    const rows = [`짖기 Lv.${skills.bark}`];
-    if (skills.scold > 0) rows.push(`호통치기 Lv.${skills.scold}`);
-    if (skills.aquaBeam > 0) rows.push(`아쿠아빔 Lv.${skills.aquaBeam}`);
-    if (skills.deokbaeHowl > 0) rows.push(`덕배 하울링 Lv.${skills.deokbaeHowl}`);
-    if (skills.safetyReport > 0) rows.push(`안전신문고 Lv.${skills.safetyReport}`);
-    this.skillHudText.setText(rows);
+  private renderHud(): void {
+    this.hud.render(this.session.snapshot(), this.session.skillStateSnapshot());
   }
 
   private setWorldPaused(paused: boolean): void {

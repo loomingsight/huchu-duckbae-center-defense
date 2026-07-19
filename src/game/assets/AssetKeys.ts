@@ -10,4 +10,9 @@ export const AssetKeys = {
   trader: 'enemy-trader',
   breederMale: 'enemy-breeder-male',
   breederFemale: 'enemy-breeder-female',
+  skillBark: 'skill-icon-bark',
+  skillScold: 'skill-icon-scold',
+  skillAquaBeam: 'skill-icon-aqua-beam',
+  skillDeokbaeHowl: 'skill-icon-deokbae-howl',
+  skillSafetyReport: 'skill-icon-safety-report',
 } as const;

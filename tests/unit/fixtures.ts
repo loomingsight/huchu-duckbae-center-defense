@@ -2,8 +2,9 @@ import { EnemyAttackSystem } from '../../src/game/combat/EnemyAttackSystem';
 import { BALANCE } from '../../src/game/data/balance';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
 import { ProgressionSystem } from '../../src/game/progression/ProgressionSystem';
+import { SkillSystem, type SkillContext } from '../../src/game/skills/SkillSystem';
 import type { SkillLevels } from '../../src/game/skills/SkillTypes';
-import type { EnemyKind } from '../../src/game/types/GameTypes';
+import type { EnemyKind, SkillId } from '../../src/game/types/GameTypes';
 
 export const skillLevels = (overrides: Partial<SkillLevels> = {}): SkillLevels => ({
   bark: 1,
@@ -59,3 +60,19 @@ export const attackSystemFor = (kind: EnemyKind): EnemyAttackSystem => new Enemy
   balance: BALANCE.enemies[kind],
   shelter: { center: { x: 270, y: 480 }, radius: 38 },
 });
+
+export function learnedSkillSystem(id: Exclude<SkillId, 'bark'>): SkillSystem {
+  return new SkillSystem(skillLevels({ [id]: 1 } as Partial<SkillLevels>));
+}
+
+export const emptySkillContext = (): SkillContext => ({
+  player: { x: 270, y: 600 },
+  enemies: [],
+});
+
+export const candidateAt = (
+  x: number,
+  y: number,
+  etaMs: number,
+  overrides: Partial<EnemySnapshot> = {},
+): EnemySnapshot => enemy({ position: { x, y }, etaMs, ...overrides });

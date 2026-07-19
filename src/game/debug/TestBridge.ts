@@ -11,6 +11,7 @@ import type { PlayerSnapshot } from '../player/PlayerTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { ProjectileImpactSnapshot } from '../combat/ProjectileActorPool';
+import type { HudSnapshot } from '../ui/HudSystem';
 import type { ScenarioEnemySeed } from './ScenarioSessionPort';
 import { ManualStepScheduler } from './ManualStepScheduler';
 import { loadScenario, type SessionScenarioRuntime } from './ScenarioFactory';
@@ -37,6 +38,8 @@ interface SessionScenePort {
   projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[];
   shelterShakeOffsetSnapshot(): number;
   combatEffectsSnapshot(): PoolSnapshot;
+  combatEffectPoolSnapshot(): PoolSnapshot;
+  hudSnapshot(): HudSnapshot;
   skillCardsSnapshot(): GameDebugSnapshot['cards'];
   skillCooldownProgressSnapshot(): GameDebugSnapshot['cooldownProgress'];
   countdownSnapshot(): GameDebugSnapshot['countdown'];
@@ -94,6 +97,8 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       projectileImpacts: this.scene.projectileImpactSnapshots(),
       shelterShakeOffset: this.scene.shelterShakeOffsetSnapshot(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
+      combatEffectPool: this.scene.combatEffectPoolSnapshot(),
+      hud: this.scene.hudSnapshot(),
       cards: this.scene.skillCardsSnapshot(),
       cooldownProgress: this.scene.skillCooldownProgressSnapshot(),
       countdown: this.scene.countdownSnapshot(),
@@ -264,6 +269,13 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
           type: event.type,
           skillId: event.skillId,
           level: event.level,
+        });
+        return;
+      case 'skillCast':
+        this.appendEvent({
+          type: event.type,
+          skillId: event.skillId,
+          targetIds: event.targetIds,
         });
         return;
       case 'modeChanged':

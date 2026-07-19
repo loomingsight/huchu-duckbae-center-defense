@@ -119,6 +119,25 @@ it('knockback은 경로 앞으로만 clamp하고 기절·애니메이션을 취�
   expect(system.snapshots().at(0)!.pathProgress).toBe(0);
 });
 
+it('absolute path progress API는 nextPathProgress를 distance로 재해석하지 않고 position/상태를 동기화한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
+  system.step(1000);
+  system.stun(0, 3000);
+
+  system.applyPathProgress(0, 10);
+
+  const applied = system.snapshots().at(0)!;
+  expect(applied).toMatchObject({
+    pathProgress: 10,
+    state: 'moving',
+    stunnedMs: 0,
+    animationElapsedMs: 0,
+  });
+  expect(applied.position).not.toEqual({ x: 0, y: 0 });
+  system.knockBack(0, 4);
+  expect(system.snapshots().at(0)!.pathProgress).toBe(6);
+});
+
 it('snapshot을 spawnSequence, id 순으로 결정적 정렬한다', () => {
   const system = EnemySystem.createDefault();
   system.spawn(spawnRequest(2, { pathId: 'P3' }));
@@ -234,8 +253,11 @@ it('step과 mutation API의 invalid number는 fail-fast하고 valid unknown id�
   expect(() => system.stun(0, Number.POSITIVE_INFINITY)).toThrow(RangeError);
   expect(() => system.knockBack(0, -1)).toThrow(RangeError);
   expect(() => system.knockBack(0, Number.NaN)).toThrow(RangeError);
+  expect(() => system.applyPathProgress(0, -1)).toThrow(RangeError);
+  expect(() => system.applyPathProgress(0, Number.NaN)).toThrow(RangeError);
   expect(() => system.stun(99, 1000)).not.toThrow();
   expect(() => system.knockBack(99, 10)).not.toThrow();
+  expect(() => system.applyPathProgress(99, 10)).not.toThrow();
   expect(() => system.removeWithoutReward(99)).not.toThrow();
 });
 

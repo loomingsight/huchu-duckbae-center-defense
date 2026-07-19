@@ -1,8 +1,11 @@
 import { FIXED_STEP_MS } from '../../src/game/constants';
 import type { GameEvent } from '../../src/game/events/GameEvents';
 import { GameSession } from '../../src/game/session/GameSession';
+import type { AutoSkillId } from '../../src/game/skills/SkillSystem';
+import type { SkillCard } from '../../src/game/skills/SkillTypes';
 
 const PLAYER = { x: 270, y: 650 } as const;
+const SAFETY_PLAYER = { x: 270, y: 701 } as const;
 
 describe('GameSession', () => {
   it('bark cadence를 snapshot 없이 readonly number 단일값으로 제공한다', () => {
@@ -297,6 +300,152 @@ describe('GameSession', () => {
     expect(run.currentCards()).toEqual([]);
   });
 
+  it('non-bark 선택은 canonical level/order/cooldown을 원자적으로 갱신하고 reset한다', () => {
+    const { run, card } = sessionOfferingUnlock('aquaBeam');
+
+    run.selectCard(card.id);
+
+    expect(run.skillStateSnapshot()).toMatchObject({
+      levels: { bark: 1, aquaBeam: 1 },
+      learnedOrder: ['aquaBeam'],
+      cooldowns: {
+        aquaBeam: {
+          level: 1,
+          cooldownRemainingMs: 9000,
+          progress: 0,
+          ready: false,
+        },
+      },
+    });
+    expect(run.snapshot().skills).toEqual(run.skillStateSnapshot().levels);
+    expect(run.skillCooldownProgress()).toMatchObject({ aquaBeam: 0 });
+
+    run.reset(99);
+
+    expect(run.skillStateSnapshot()).toMatchObject({
+      levels: { bark: 1, scold: 0, aquaBeam: 0, deokbaeHowl: 0, safetyReport: 0 },
+      learnedOrder: [],
+      cooldowns: { aquaBeam: { level: 0, ready: false } },
+    });
+  });
+
+  it('호통은 같은 tick attack release보다 먼저 damage와 absolute progress/attack sync를 적용한다', () => {
+    const { run, card } = sessionOfferingUnlock('scold');
+    run.selectCard(card.id);
+    finishSelectionCountdown(run);
+    seedCooldownAnchor(run);
+    for (let tick = 0; tick < 465; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'offLeashGuardian',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'attackBoundary' },
+      currentHp: 10_000,
+      maxHp: 10_000,
+    });
+    const beforeProgress = run.snapshot().enemies.find(({ id }) => id === enemyId)!.pathProgress;
+    for (let tick = 0; tick < 14; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+    expect(run.skillStateSnapshot().cooldowns.scold.cooldownRemainingMs)
+      .toBeCloseTo(FIXED_STEP_MS, 8);
+
+    const boundaryEvents = run.step(FIXED_STEP_MS, PLAYER);
+
+    const cast = boundaryEvents.find((event) => event.type === 'skillCast');
+    expect(cast).toMatchObject({
+      type: 'skillCast',
+      skillId: 'scold',
+      targetIds: [enemyId],
+      hits: [{
+        targetId: enemyId,
+        damage: 20,
+        nextPathProgress: beforeProgress - 28,
+      }],
+    });
+    expect(run.snapshot().enemies.find(({ id }) => id === enemyId)).toMatchObject({
+      currentHp: 9970,
+      pathProgress: beforeProgress - 28,
+      state: 'moving',
+    });
+    expect(boundaryEvents.some(({ type }) => type === 'shelterDamageRequested')).toBe(false);
+    expect(run.snapshot().shelterHp).toBe(100);
+  });
+
+  it('lethal auto skill은 death/snack/attack cleanup을 한 번만 하고 후속 knockback state를 만들지 않는다', () => {
+    const { run, card } = sessionOfferingUnlock('scold');
+    run.selectCard(card.id);
+    finishSelectionCountdown(run);
+    seedCooldownAnchor(run);
+    for (let tick = 0; tick < 465; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'offLeashGuardian',
+      variant: 'female',
+      pathId: 'P6',
+      placement: { kind: 'attackBoundary' },
+      currentHp: 20,
+      maxHp: 10_000,
+    });
+    for (let tick = 0; tick < 14; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+    expect(run.skillStateSnapshot().cooldowns.scold.cooldownRemainingMs)
+      .toBeCloseTo(FIXED_STEP_MS, 8);
+
+    const lethalEvents = run.step(FIXED_STEP_MS, PLAYER);
+    const cast = lethalEvents.find((event) => event.type === 'skillCast');
+
+    expect(cast).toMatchObject({
+      skillId: 'scold',
+      visual: {
+        kind: 'scold',
+        origin: PLAYER,
+        targetPositions: [expect.objectContaining({ targetId: enemyId })],
+      },
+    });
+    expect(lethalEvents.filter((event) => event.type === 'enemyDied' && event.enemyId === enemyId))
+      .toHaveLength(1);
+    expect(lethalEvents.filter((event) => event.type === 'snackEarned' && event.enemyId === enemyId))
+      .toHaveLength(1);
+    expect(lethalEvents.some(({ type }) => type === 'shelterDamageRequested')).toBe(false);
+    expect(run.snapshot().enemies.some(({ id }) => id === enemyId)).toBe(false);
+    expect(run.snapshot().snacks).toBe(10);
+
+    const later = run.step(FIXED_STEP_MS, PLAYER);
+    expect(later.filter((event) => event.type === 'enemyDied' || event.type === 'snackEarned'))
+      .toEqual([]);
+    expect(run.snapshot().snacks).toBe(10);
+  });
+
+  it('안전신문고 nonlethal hit는 damage 뒤 stun을 적용하고 attack track도 같은 duration으로 동기화한다', () => {
+    const { run, card } = sessionOfferingUnlock('safetyReport');
+    run.selectCard(card.id);
+    finishSelectionCountdown(run);
+    seedCooldownAnchor(run);
+    for (let tick = 0; tick < 1185; tick += 1) run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+    const enemyId = run.spawnEnemyForScenario({
+      kind: 'offLeashGuardian',
+      variant: 'male',
+      pathId: 'P6',
+      placement: { kind: 'attackBoundary' },
+      currentHp: 10_000,
+      maxHp: 10_000,
+    });
+    for (let tick = 0; tick < 14; tick += 1) run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+    expect(run.skillStateSnapshot().cooldowns.safetyReport.cooldownRemainingMs)
+      .toBeCloseTo(FIXED_STEP_MS, 8);
+
+    const boundaryEvents = run.step(FIXED_STEP_MS, SAFETY_PLAYER);
+
+    expect(boundaryEvents.find((event) => event.type === 'skillCast')).toMatchObject({
+      skillId: 'safetyReport',
+      hits: [{ targetId: enemyId, damage: 90, stunMs: 3000 }],
+    });
+    expect(run.snapshot().enemies.find(({ id }) => id === enemyId)).toMatchObject({
+      currentHp: 9910,
+      state: 'stunned',
+      stunnedMs: 3000,
+    });
+    expect(boundaryEvents.some(({ type }) => type === 'shelterDamageRequested')).toBe(false);
+    expect(run.snapshot().shelterHp).toBe(100);
+  });
+
   it('skill due 없는 wave clear는 next wave countdown 하나를 즉시 시작한다', () => {
     const run = GameSession.create({ seed: 1 });
     run.suppressWaveSpawnsForScenario();
@@ -326,4 +475,37 @@ function openSelectionWithEightRewards(run: GameSession): void {
   }
   run.step(FIXED_STEP_MS, PLAYER);
   expect(run.currentMode()).toBe('skillSelection');
+}
+
+function sessionOfferingUnlock(id: AutoSkillId): {
+  readonly run: GameSession;
+  readonly card: SkillCard;
+} {
+  for (let seed = 1; seed <= 100; seed += 1) {
+    const run = GameSession.create({ seed });
+    openSelectionWithEightRewards(run);
+    const card = run.currentCards().find((candidate) => (
+      candidate.skillId === id && candidate.kind === 'unlock'
+    ));
+    if (card !== undefined) return { run, card };
+  }
+  throw new Error(`No deterministic seed offered ${id}`);
+}
+
+function finishSelectionCountdown(run: GameSession): void {
+  for (let tick = 0; tick < 180; tick += 1) run.step(FIXED_STEP_MS, PLAYER);
+  expect(run.currentMode()).toBe('playing');
+}
+
+function seedCooldownAnchor(run: GameSession): void {
+  run.spawnEnemyForScenario({
+    kind: 'offLeashGuardian',
+    variant: 'male',
+    pathId: 'P1',
+    placement: { kind: 'worldPoint', x: 110, y: 0 },
+    currentHp: 10_000,
+    maxHp: 10_000,
+    state: 'stunned',
+    stunnedMs: 60_000,
+  });
 }

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   advance,
+  events,
   loadScenario,
   openScenario,
   snapshot,
@@ -219,6 +220,70 @@ test('wave clear와 selection이 겹치면 다음 웨이브 countdown 하나로 
   expect(await snapshot(page)).toMatchObject({ mode: 'playing', wave: 2 });
   await advance(page, 1);
   expect(await snapshot(page)).toMatchObject({ mode: 'playing', wave: 2 });
+});
+
+test('실제 카드 경로로 배운 네 자동 스킬이 cast되고 실제 HUD display list가 32px/noninteractive다', async ({ page }) => {
+  await openScenario(page, 'all-skills');
+  const learnedOrder: string[] = [];
+
+  for (let selection = 0; selection < 4; selection += 1) {
+    const choosing = await snapshot(page);
+    expect(choosing.mode).toBe('skillSelection');
+    const unlock = selection < 3
+      ? choosing.cards.find(({ kind, skillId }) => (
+        kind === 'unlock' && skillId !== 'bark' && skillId !== 'scold'
+      ))
+      : choosing.cards.find(({ kind, skillId }) => kind === 'unlock' && skillId === 'scold');
+    expect(unlock).toBeDefined();
+    learnedOrder.push(unlock!.skillId);
+
+    await page.getByRole('button', { name: unlock!.title }).click();
+    const selected = await snapshot(page);
+    expect(selected).toMatchObject({
+      mode: 'countdown',
+      skills: { [unlock!.skillId]: 1 },
+      cooldownProgress: { [unlock!.skillId]: 0 },
+    });
+    await advance(page, 3000);
+    if (selection < 3) {
+      await advance(page, 8000);
+      expect((await snapshot(page)).mode).toBe('skillSelection');
+    }
+  }
+
+  expect(new Set(learnedOrder)).toEqual(new Set([
+    'scold',
+    'aquaBeam',
+    'deokbaeHowl',
+    'safetyReport',
+  ]));
+  await advance(page, 20_000);
+
+  const castTypes = (await events(page))
+    .filter((event) => event.type === 'skillCast')
+    .map((event) => event.skillId);
+  expect(new Set(castTypes)).toEqual(new Set(learnedOrder));
+  const final = await snapshot(page);
+  expect(final.shelterHp).toBe(100);
+  expect(final.enemies.filter(({ maxHp }) => maxHp === 10_000)).toHaveLength(5);
+  expect(final.hud.skillSlots.map(({ id }) => id)).toEqual(['bark', ...learnedOrder]);
+  expect(final.hud.skillSlots).toHaveLength(5);
+  expect(final.hud.skillSlots.every((slot) => (
+    slot.x === 12
+    && slot.width === 32
+    && slot.height === 32
+    && slot.iconWidth <= 28
+    && slot.iconHeight <= 28
+    && slot.fontPx === 9
+    && slot.interactive === false
+  ))).toBe(true);
+  expect(final.hud.skillSlots.map(({ y }) => y)).toEqual([92, 128, 164, 200, 236]);
+  expect(final.hud.top.text).toBe(`보호소 HP 100/100   WAVE ${final.wave}/5   간식 ${final.snacks}`);
+  expect(final.hud.top.text).not.toContain('\n');
+  expect(final.hud.top.interactive).toBe(false);
+  expect(final.hud.top.y + final.hud.top.height).toBeLessThanOrEqual(92);
+  expect(final.combatEffectPool).toMatchObject({ created: 120 });
+  expect(final.combatEffectPool.active).toBeLessThanOrEqual(120);
 });
 
 interface LayoutRect {
