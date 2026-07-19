@@ -135,3 +135,67 @@
 - Playwright는 `FORCE_COLOR` 때문에 `NO_COLOR`가 무시된다는 경고를 출력한다. 전체 51 tests는 통과했다.
 - `CountdownOverlay`는 Phaser Canvas text라 DOM locator로 문구를 읽을 수 없다. label/render unit과 cross-layer countdown state 및 정확한 전환 E2E를 결합해 검증했다.
 - 기능상 미해결 Critical/Important 이슈는 없다.
+
+## 외부 리뷰 후속: SkillSelectionModal DOM 정렬 (2026-07-20)
+
+### 리뷰 finding
+
+- Critical 0 / Important 1
+- `src/styles.css`의 `#game-root, #game-root > div` selector가 Phaser의 absolute DOM container까지 grid/min-height container로 만들었다.
+- Phaser DOMElement의 logical position transform에 CSS grid 정렬이 다시 적용돼 desktop에서 오른쪽으로, mobile에서 왼쪽·위로 이중 offset됐다.
+
+### RED 실측
+
+- 실제 Phaser canvas, direct-child DOM overlay, 제목, 버튼 3개의 `boundingBox()`를 desktop/mobile에서 읽는 E2E를 먼저 추가했다.
+- overlay와 canvas의 x/y/width/height 차이는 각각 1px 이하, 제목/버튼은 canvas 내부, 수평 center 오차 1px 이하, 제목 다음 버튼 1~3 세로 순서, 버튼 physical height 44px 이상을 계약으로 고정했다.
+- desktop RED
+  - canvas 및 overlay: `(0, 0, 540, 960)`
+  - title: `x=310.156, width=229.688`, center `425` vs canvas center `270`, 오차 `155px`
+  - buttons: `x=280, width=260`, center `410` vs `270`, 오차 `140px`
+- mobile RED
+  - canvas: `(0, 112.828, 390, 693.328)`
+  - overlay: `(-75, -20.5, 390, 693.333)`, x 오차 `75px`, y 오차 약 `133.328px`
+  - buttons: `x=127.222, width=187.778`, center `221.111` vs canvas center `195`, 오차 약 `26.111px`
+- 첫 selector 축소로 child overlay의 grid는 제거돼 desktop은 GREEN이 됐지만, mobile은 root grid가 transform 전 logical `540x960` overlay를 계속 center해 `x=-75`로 남았다.
+
+### GREEN 수정
+
+- CSS root는 `position: relative; min-height: 100dvh`만 소유한다.
+- Phaser `Scale.FIT + CENTER_BOTH`가 canvas inline margin과 DOM overlay scale/transform을 단독 소유한다.
+- Phaser가 생성한 `transform: scale(...)` 및 logical DOMElement 좌표는 덮어쓰지 않았다.
+- desktop GREEN
+  - canvas = overlay: `(0, 0, 540, 960)`
+  - title center `269.844` vs canvas `270`, 오차 약 `0.156px`
+  - buttons: `x=140, width=260, height=64`, center `270`
+- mobile GREEN
+  - canvas: `(0, 75, 390, 693.328)`
+  - overlay: `(0, 75, 390, 693.333)`, 최대 rect 오차 약 `0.005px`
+  - title center `194.887` vs canvas `195`, 오차 약 `0.113px`
+  - buttons: `x=101.111, width=187.778, height=46.222`, center `195`
+- trace-on root screenshot을 직접 확인했다. desktop은 전체 canvas에서, mobile은 상하 FIT letterbox 안에서 제목과 카드 3장이 모두 잘림 없이 순서대로 표시됐다.
+
+### 후속 변경 파일
+
+- `src/styles.css`
+- `tests/e2e/skill-selection.spec.ts`
+- `.superpowers/sdd/task-10-report.md`
+
+### 후속 최종 검증
+
+| 검증 | 결과 |
+| --- | --- |
+| modal geometry 최소 E2E | PASS, desktop/mobile 2 tests |
+| `npm run test:e2e -- tests/e2e/skill-selection.spec.ts` | PASS, desktop/mobile 10 tests |
+| trace-on modal screenshot E2E | PASS, desktop/mobile 2 tests 및 이미지 직접 확인 |
+| `npm run test:unit` | PASS, 34 files / 349 tests |
+| `npm run build` | PASS, TypeScript 및 Vite production build |
+| `npm run test:e2e` | PASS, 53 tests / desktop-only 3 skipped |
+| source/dist child grid/place-items selector scan | 0 matches, `rg` exit 1 |
+| production debug/test hook scan | 0 matches, `rg` exit 1 |
+| 변경 파일 unsafe type 및 source/test secret scan | 0 matches, `rg` exit 1 |
+| `git diff --check` | PASS |
+
+### 후속 경고
+
+- Vite의 Phaser 단일 chunk 500kB 초과 경고와 Playwright의 `FORCE_COLOR`/`NO_COLOR` 경고만 유지된다.
+- 외부 리뷰 Important finding은 해결됐고 기능상 미해결 Critical/Important 이슈는 없다.

@@ -7,6 +7,76 @@ import {
 } from './helpers';
 
 const SKILL_SELECTION_SEED = 7;
+const LAYOUT_TOLERANCE_PX = 1;
+
+test('modal DOM overlay는 canvas와 같은 rect에서 제목과 카드 3장을 완전히 표시한다', async ({
+  page,
+}, testInfo) => {
+  await openScenario(page, 'skill-selection', SKILL_SELECTION_SEED);
+  const canvas = page.locator('#game-root canvas');
+  const overlay = page.locator('#game-root > div:has(button)');
+  const title = page.getByRole('heading', { name: '간식으로 스킬 배우기' });
+  const buttons = page.getByRole('button');
+  await expect(overlay).toHaveCount(1);
+  await expect(title).toBeVisible();
+  await expect(buttons).toHaveCount(3);
+
+  const canvasRect = requiredRect(await canvas.boundingBox(), 'canvas');
+  const overlayRect = requiredRect(await overlay.boundingBox(), 'DOM overlay');
+  const titleRect = requiredRect(await title.boundingBox(), 'modal title');
+  const buttonRects = await Promise.all(
+    [0, 1, 2].map(async (index) => requiredRect(
+      await buttons.nth(index).boundingBox(),
+      `modal button ${index + 1}`,
+    )),
+  );
+  const layoutStyles = await page.evaluate(() => {
+    const read = (element: Element | null): Record<string, string> => {
+      if (element === null) throw new Error('modal layout element is missing');
+      const computed = window.getComputedStyle(element);
+      return {
+        inline: element.getAttribute('style') ?? '',
+        display: computed.display,
+        position: computed.position,
+        inset: `${computed.top} ${computed.right} ${computed.bottom} ${computed.left}`,
+        margin: computed.margin,
+        transform: computed.transform,
+        transformOrigin: computed.transformOrigin,
+      };
+    };
+    return {
+      root: read(document.querySelector('#game-root')),
+      canvas: read(document.querySelector('#game-root canvas')),
+      overlay: read(document.querySelector('#game-root > div:has(button)')),
+    };
+  });
+  await testInfo.attach('skill-selection-modal-layout', {
+    body: JSON.stringify({
+      canvasRect,
+      overlayRect,
+      titleRect,
+      buttonRects,
+      layoutStyles,
+    }, null, 2),
+    contentType: 'application/json',
+  });
+  await testInfo.attach('skill-selection-modal', {
+    body: await page.locator('#game-root').screenshot(),
+    contentType: 'image/png',
+  });
+
+  expectRectClose(overlayRect, canvasRect);
+  expectContained(titleRect, canvasRect);
+  expectHorizontalCenter(titleRect, canvasRect);
+  for (const rect of buttonRects) {
+    expectContained(rect, canvasRect);
+    expectHorizontalCenter(rect, canvasRect);
+    expect(rect.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(titleRect.y + titleRect.height).toBeLessThan(buttonRects[0]!.y);
+  expect(buttonRects[0]!.y + buttonRects[0]!.height).toBeLessThan(buttonRects[1]!.y);
+  expect(buttonRects[1]!.y + buttonRects[1]!.height).toBeLessThan(buttonRects[2]!.y);
+});
 
 test('간식 8에서 월드가 멈추고 카드 선택 뒤 3초 후 bark Lv2로 재개한다', async ({ page }) => {
   await openScenario(page, 'skill-selection', SKILL_SELECTION_SEED);
@@ -150,3 +220,39 @@ test('wave clear와 selection이 겹치면 다음 웨이브 countdown 하나로 
   await advance(page, 1);
   expect(await snapshot(page)).toMatchObject({ mode: 'playing', wave: 2 });
 });
+
+interface LayoutRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+function requiredRect(rect: LayoutRect | null, label: string): LayoutRect {
+  if (rect === null) throw new Error(`${label} has no bounding rect`);
+  return rect;
+}
+
+function expectRectClose(actual: LayoutRect, expected: LayoutRect): void {
+  expect(Math.abs(actual.x - expected.x)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(Math.abs(actual.y - expected.y)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(Math.abs(actual.width - expected.width)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+  expect(Math.abs(actual.height - expected.height)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+}
+
+function expectContained(inner: LayoutRect, outer: LayoutRect): void {
+  expect(inner.x).toBeGreaterThanOrEqual(outer.x - LAYOUT_TOLERANCE_PX);
+  expect(inner.y).toBeGreaterThanOrEqual(outer.y - LAYOUT_TOLERANCE_PX);
+  expect(inner.x + inner.width).toBeLessThanOrEqual(
+    outer.x + outer.width + LAYOUT_TOLERANCE_PX,
+  );
+  expect(inner.y + inner.height).toBeLessThanOrEqual(
+    outer.y + outer.height + LAYOUT_TOLERANCE_PX,
+  );
+}
+
+function expectHorizontalCenter(inner: LayoutRect, outer: LayoutRect): void {
+  const innerCenter = inner.x + inner.width / 2;
+  const outerCenter = outer.x + outer.width / 2;
+  expect(Math.abs(innerCenter - outerCenter)).toBeLessThanOrEqual(LAYOUT_TOLERANCE_PX);
+}

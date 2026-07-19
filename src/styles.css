@@ -1,5 +1,5 @@
 :root { font-family: system-ui, sans-serif; color: #34291f; background: #213c2b; }
 * { box-sizing: border-box; }
 html, body, #game-root { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; touch-action: none; }
-#game-root, #game-root > div { display: grid; place-items: center; min-height: 100dvh; }
+#game-root { position: relative; min-height: 100dvh; }
 .primary-game-button { min-width: 188px; min-height: 52px; border: 0; border-radius: 14px; padding: 12px 20px; color: white; background: #3d7c45; font: 700 24px system-ui, sans-serif; cursor: pointer; }
