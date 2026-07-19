@@ -778,7 +778,7 @@ Run: `npm run test:unit && npm run typecheck`
 
 Expected: core 테스트 전체 통과, `Math.random|Date.now|performance.now`가 `src/game/core`, `data`, `combat`, `progression`, `skills`, `waves`에 없음.
 
-Run: `rg "Math\.random|Date\.now|performance\.now" src/game/core src/game/data src/game/combat src/game/progression src/game/skills src/game/waves`
+Run: `(cd src/game && rg "Math\.random|Date\.now|performance\.now" . --glob 'core/**' --glob 'data/**' --glob 'combat/**' --glob 'progression/**' --glob 'skills/**' --glob 'waves/**')`
 
 Expected: 출력 없음.
 
