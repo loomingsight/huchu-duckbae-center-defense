@@ -13,6 +13,7 @@ export class TypedEventBus {
     this.listeners.set(type, subscribers);
 
     return () => {
+      if (this.listeners.get(type) !== subscribers) return;
       subscribers.delete(listener as EventListener);
       if (subscribers.size === 0) this.listeners.delete(type);
     };

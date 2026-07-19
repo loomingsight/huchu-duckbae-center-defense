@@ -21,11 +21,13 @@ export class GameStateMachine {
   }
 
   hide(): void {
+    if (this.mode === 'won' || this.mode === 'lost' || this.mode === 'visibilityPause') return;
     this.resumeState = this.mode;
     this.mode = 'visibilityPause';
   }
 
   resume(): GameMode {
+    if (this.mode !== 'visibilityPause') return this.mode;
     this.mode = this.resumeState ?? 'playing';
     this.resumeState = null;
     return this.mode;
