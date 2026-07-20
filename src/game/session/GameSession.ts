@@ -77,7 +77,7 @@ export class GameSession {
     BALANCE.caps.projectiles,
     BALANCE.shelter.hitRadius,
   );
-  private readonly shelter = new ShelterSystem(BALANCE.shelter.maxHp);
+  private shelter = new ShelterSystem(BALANCE.shelter.maxHp);
   private readonly skills = new SkillSystem(INITIAL_SKILLS);
   private readonly progression = new ProgressionSystem(
     BALANCE.snackThresholds,
@@ -190,6 +190,10 @@ export class GameSession {
 
   currentMode(): GameMode {
     return this.stateMachine.current();
+  }
+
+  simulationTimeMs(): number {
+    return simulationMsFromTicks(this.simulationTicks);
   }
 
   barkSnapshot(): BarkSnapshot {
@@ -340,6 +344,34 @@ export class GameSession {
         this.resolvePostStepOutcome();
         return this.flushEvents();
       },
+      replaceShelter: (currentHp, maxHp = currentHp) => {
+        this.shelter = new ShelterSystem(maxHp, currentHp);
+      },
+      spawnProjectile: (seed) => {
+        const events = this.projectiles.spawn(seed);
+        this.nextProjectileId = Math.max(this.nextProjectileId, seed.id + 1);
+        return events;
+      },
+      maintainStressProjectiles: () => {
+        const events: GameEvent[] = [];
+        while (this.projectiles.activeCount < BALANCE.caps.projectiles) {
+          const id = this.nextProjectileId;
+          this.nextProjectileId += 1;
+          events.push(...this.projectiles.spawn({
+            id,
+            kind: 'poop',
+            from: stressProjectileOrigin(id),
+            to: { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
+            speed: 1,
+            damage: 0,
+            lifeMs: 60_000,
+          }));
+        }
+        return events;
+      },
+      resetSimulationClock: () => {
+        this.simulationTicks = 0;
+      },
       projectilePoolTelemetry: () => this.projectiles.poolSnapshot(),
     };
   }
@@ -356,7 +388,7 @@ export class GameSession {
     this.enemies.clear();
     for (const attack of Object.values(this.attacks)) attack.clear();
     this.projectiles.clear();
-    this.shelter.reset();
+    this.shelter = new ShelterSystem(BALANCE.shelter.maxHp);
     this.bark.setLevel(INITIAL_SKILLS.bark);
     this.bark.reset();
     this.eventBuffer.length = 0;
@@ -635,4 +667,11 @@ function assertPlayer(player: PlayerSnapshot): void {
   if (!Number.isFinite(player.x) || !Number.isFinite(player.y)) {
     throw new RangeError('GameSession player position must be finite');
   }
+}
+
+function stressProjectileOrigin(id: number): Point {
+  return {
+    x: 24 + id % 20 * 26,
+    y: 24 + Math.floor(id % 80 / 20) * 72,
+  };
 }

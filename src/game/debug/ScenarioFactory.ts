@@ -3,8 +3,11 @@ import type {
   ScenarioEnemySeed,
   ScenarioWaveSchedule,
 } from './ScenarioSessionPort';
+import type { ProjectileSpawn } from '../combat/ProjectileSystem';
+import type { PathId } from '../types/GameTypes';
 
 export interface SessionScenarioRuntime {
+  stopScenarioMaintainers(): void;
   resetManualScheduler(): void;
   resetEventLog(): void;
   resetSession(): void;
@@ -13,62 +16,63 @@ export interface SessionScenarioRuntime {
   seedEnemy(seed: ScenarioEnemySeed): number;
   useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void;
   damageShelter(damage: number): void;
+  replaceShelter(currentHp: number, maxHp?: number): void;
+  seedProjectile(seed: ProjectileSpawn): void;
+  seedEffectPool(active: number): void;
+  enableStressMaintenance(): void;
+  resetSimulationClock(): void;
   enableWaveAutoClear(): void;
   advanceWorldTicks(ticks: number): void;
 }
 
 export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId): void {
+  resetRun(runtime);
   switch (id) {
     case 'empty-run':
-      resetRun(runtime);
-      return;
+      break;
     case 'wave-schedule':
-      resetRun(runtime);
+      runtime.useWaveSchedule(1, 'real');
       runtime.enableWaveAutoClear();
-      return;
+      break;
     case 'health-bar-colors':
-      resetRun(runtime);
       seedHealthBarColors(runtime);
-      return;
+      break;
     case 'bark-targeting':
-      resetRun(runtime);
+      runtime.useWaveSchedule(1, 'real');
       seedBarkTargets(runtime);
-      return;
+      break;
     case 'skill-selection':
-      resetRun(runtime);
       seedSkillSelection(runtime);
-      return;
+      break;
     case 'skill-selection-wave-clear':
-      resetRun(runtime);
       seedSkillSelectionWaveClear(runtime);
-      return;
+      break;
     case 'all-skills':
-      resetRun(runtime);
       seedAllSkills(runtime);
-      return;
+      break;
     case 'poop-attack':
-      resetRun(runtime);
       runtime.suppressWaveSpawns();
       seedPoopAttack(runtime);
-      return;
+      break;
     case 'boss':
-      resetRun(runtime);
       runtime.useWaveSchedule(3, 'exhausted');
       seedBossAttack(runtime);
-      return;
+      break;
     case 'shelter-defeat':
-      resetRun(runtime);
       runtime.useWaveSchedule(1, 'held');
       runtime.damageShelter(100);
-      return;
+      break;
     case 'final-enemy':
-      resetRun(runtime);
       runtime.useWaveSchedule(5, 'exhausted');
       seedFinalEnemy(runtime);
-      return;
+      break;
+    case 'stress':
+      seedStress(runtime);
+      break;
     default:
       throw new RangeError(`Unknown test scenario: ${String(id)}`);
   }
+  runtime.resetSimulationClock();
 }
 
 export function loadEmptyRun(runtime: SessionScenarioRuntime): void {
@@ -91,10 +95,43 @@ export function loadBarkTargeting(runtime: SessionScenarioRuntime): void {
 }
 
 function resetRun(runtime: SessionScenarioRuntime): void {
+  runtime.stopScenarioMaintainers();
   runtime.resetManualScheduler();
-  runtime.resetEventLog();
   runtime.resetSession();
+  runtime.resetEventLog();
   runtime.resetPlayer(270, 650);
+  runtime.useWaveSchedule(1, 'held');
+}
+
+function seedStress(runtime: SessionScenarioRuntime): void {
+  runtime.replaceShelter(1_000_000, 1_000_000);
+  for (let index = 0; index < 60; index += 1) {
+    runtime.seedEnemy({
+      kind: index % 2 === 0 ? 'poopGuardian' : 'offLeashGuardian',
+      variant: index % 2 === 0 ? 'male' : 'female',
+      pathId: `P${index % 6 + 1}` as PathId,
+      placement: {
+        kind: 'worldPoint',
+        x: 40 + index % 10 * 50,
+        y: 120 + Math.floor(index / 10) * 90,
+      },
+      currentHp: 1_000_000,
+      maxHp: 1_000_000,
+    });
+  }
+  for (let index = 0; index < 80; index += 1) {
+    runtime.seedProjectile({
+      id: index,
+      kind: 'poop',
+      from: { x: 24 + index % 20 * 26, y: 24 + Math.floor(index / 20) * 72 },
+      to: { x: 270, y: 480 },
+      speed: 1,
+      damage: 0,
+      lifeMs: 60_000,
+    });
+  }
+  runtime.seedEffectPool(120);
+  runtime.enableStressMaintenance();
 }
 
 function seedHealthBarColors(runtime: SessionScenarioRuntime): void {

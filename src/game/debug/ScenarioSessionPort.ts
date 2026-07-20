@@ -1,4 +1,5 @@
 import type { GameEvent } from '../events/GameEvents';
+import type { ProjectileSpawn } from '../combat/ProjectileSystem';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type {
   EnemyKind,
@@ -31,6 +32,10 @@ export interface ScenarioSessionPort {
   suppressWaveSpawns(): void;
   useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void;
   damageShelter(damage: number): readonly GameEvent[];
+  replaceShelter(currentHp: number, maxHp?: number): void;
+  spawnProjectile(seed: ProjectileSpawn): readonly GameEvent[];
+  maintainStressProjectiles(): readonly GameEvent[];
+  resetSimulationClock(): void;
   projectilePoolTelemetry(): PoolSnapshot;
 }
 
@@ -39,6 +44,12 @@ export interface ScenarioScenePort {
   suppressWaveSpawns(): void;
   useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void;
   damageShelter(damage: number): readonly GameEvent[];
+  replaceShelter(currentHp: number, maxHp?: number): void;
+  seedProjectile(seed: ProjectileSpawn): readonly GameEvent[];
+  seedEffectPool(active: number): void;
+  maintainStressPools(): readonly GameEvent[];
+  resetSimulationClock(): void;
+  projectilePoolTelemetry(): PoolSnapshot;
   removeEnemyWithoutReward(enemyId: number): void;
   sessionIdentity(): object;
 }

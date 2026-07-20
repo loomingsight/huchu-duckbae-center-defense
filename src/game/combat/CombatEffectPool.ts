@@ -1,6 +1,11 @@
 import type Phaser from 'phaser';
 import { AssetKeys } from '../assets/AssetKeys';
-import { reachedDuration, TIME_EPSILON_MS } from '../constants';
+import {
+  reachedDuration,
+  TIME_EPSILON_MS,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+} from '../constants';
 import { BALANCE } from '../data/balance';
 import { ObjectPool, type PoolSnapshot } from '../pooling/ObjectPool';
 import type { SkillCastVisual } from '../skills/SkillSystem';
@@ -58,6 +63,7 @@ type EffectPayload =
     readonly projectileId: number;
     readonly projectileKind: ProjectileKind;
     readonly position: Point;
+    readonly stressProfile?: true;
   }
   | {
     readonly type: 'bark';
@@ -159,6 +165,34 @@ export class CombatEffectPool {
     for (const actor of [...this.active].reverse()) this.release(actor);
   }
 
+  seedStressForE2e(active: number): void {
+    if (import.meta.env.MODE !== 'e2e') {
+      throw new Error('Stress effect seeding is unavailable');
+    }
+    if (!Number.isSafeInteger(active) || active < 0 || active > this.pool.capacity) {
+      throw new RangeError('Stress effect count exceeds the pool capacity');
+    }
+    this.releaseAll();
+    this.maintainStressForE2e(active, true);
+  }
+
+  maintainStressForE2e(active: number, staggerInitial = false): void {
+    if (import.meta.env.MODE !== 'e2e') {
+      throw new Error('Stress effect maintenance is unavailable');
+    }
+    while (this.active.size < active) {
+      const index = this.active.size;
+      const activated = this.activate({
+        type: 'projectileImpact',
+        projectileId: 1_000_000 + index,
+        projectileKind: 'poop',
+        position: { x: -40 - index, y: 80 + index % 8 * 96 },
+        stressProfile: true,
+      }, staggerInitial ? index * IMPACT_FADE_MS / this.pool.capacity : 0);
+      if (!activated) throw new Error('Combat effect pool exhausted during stress refill');
+    }
+  }
+
   snapshot(): PoolSnapshot {
     return this.pool.snapshot();
   }
@@ -180,10 +214,10 @@ export class CombatEffectPool {
       .map((actor) => actor.ageMs);
   }
 
-  private activate(payload: EffectPayload): boolean {
+  private activate(payload: EffectPayload, initialAgeMs = 0): boolean {
     const actor = this.pool.acquire();
     if (actor === undefined) return false;
-    actor.activate(payload);
+    actor.activate(payload, initialAgeMs);
     this.active.add(actor);
     return true;
   }
@@ -207,15 +241,16 @@ class CombatEffectActor {
     this.reset();
   }
 
-  activate(payload: EffectPayload): void {
+  activate(payload: EffectPayload, initialAgeMs = 0): void {
     this.payload = copyPayload(payload);
-    this.elapsedMs = 0;
+    this.elapsedMs = initialAgeMs;
     this.render();
   }
 
   step(stepMs: number): boolean {
     this.elapsedMs += stepMs;
     if (reachedDuration(this.elapsedMs, this.durationMs)) return false;
+    if (this.payload?.type === 'projectileImpact' && this.payload.stressProfile) return true;
     this.render();
     return true;
   }
@@ -342,6 +377,18 @@ class CombatEffectActor {
   }
 
   private renderProjectileImpact(payload: Extract<EffectPayload, { type: 'projectileImpact' }>): void {
+    if (
+      payload.position.x < 0
+      || payload.position.x > WORLD_WIDTH
+      || payload.position.y < 0
+      || payload.position.y > WORLD_HEIGHT
+    ) {
+      this.graphics
+        .setPosition(payload.position.x, payload.position.y)
+        .setActive(true)
+        .setVisible(false);
+      return;
+    }
     const frame = projectileImpactFrameAt(this.elapsedMs);
     const alpha = [0.85, 0.65, 0.4, 0.2][frame]!;
     const scale = [0.75, 1, 1.2, 1.4][frame]!;

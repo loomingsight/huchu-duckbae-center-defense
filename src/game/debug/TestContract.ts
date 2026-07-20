@@ -22,7 +22,8 @@ export type TestScenarioId =
   | 'poop-attack'
   | 'boss'
   | 'shelter-defeat'
-  | 'final-enemy';
+  | 'final-enemy'
+  | 'stress';
 
 export interface PoolCount {
   readonly instanceId: number;

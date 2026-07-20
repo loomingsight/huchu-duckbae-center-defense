@@ -39,6 +39,8 @@ interface SessionScenePort {
   resetPlayer(x: number, y: number): void;
   playerSnapshot(): PlayerSnapshot;
   sessionSnapshot(): RunSnapshot;
+  currentModeSnapshot(): GameMode;
+  simulationMsSnapshot(): number;
   enemyActorPoolSnapshot(): PoolSnapshot;
   projectileActorPoolSnapshot(): PoolSnapshot;
   projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[];
@@ -63,6 +65,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   private readonly eventLog: GameDebugEvent[] = [];
   private nextSequence = 1;
   private waveAutoClear = false;
+  private stressMaintenance = false;
   private readonly removeSessionResetListener: () => void;
   private readonly scenario: ScenarioScenePort;
 
@@ -72,7 +75,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   ) {
     this.scenario = scene.scenarioPortForE2e();
     this.removeSessionResetListener = scene.onSessionReset(() => {
-      this.waveAutoClear = false;
+      this.stopScenarioMaintainers();
     });
     this.ready = scene.waitForRenderFlush();
   }
@@ -91,14 +94,18 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     await this.scene.waitForRenderFlush();
   }
 
-  advanceWithoutFlush(_ms: number): void {
-    throw new Error('advanceWithoutFlush is only available for the stress scenario');
+  advanceWithoutFlush(ms: number): void {
+    if (!this.stressMaintenance) {
+      throw new Error('advanceWithoutFlush is only available for the stress scenario');
+    }
+    this.advanceTicks(ms);
   }
 
   snapshot(): GameDebugSnapshot {
     const run = this.scene.sessionSnapshot();
     const enemyPool = this.scene.enemyActorPoolSnapshot();
     const projectilePool = this.scene.projectileActorPoolSnapshot();
+    const simulationProjectilePool = this.scenario.projectilePoolTelemetry();
     const effectPool = this.scene.combatEffectPoolSnapshot();
     return {
       ...run,
@@ -120,7 +127,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       combatEffectPool: effectPool,
       pools: {
         enemies: enemyPool,
-        projectiles: projectilePool,
+        projectiles: simulationProjectilePool,
         effects: effectPool,
       },
       runtime: { sessionInstanceId: objectIdentity(this.scenario.sessionIdentity()) },
@@ -138,9 +145,9 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   }
 
   async simulateVisibility(hidden: boolean): Promise<void> {
-    const previousMode = this.scene.sessionSnapshot().mode;
+    const previousMode = this.scene.currentModeSnapshot();
     this.scene.setVisibilityForTest(hidden);
-    const currentMode = this.scene.sessionSnapshot().mode;
+    const currentMode = this.scene.currentModeSnapshot();
     if (currentMode !== previousMode) {
       this.appendEvent({ type: 'modeChanged', mode: currentMode });
     }
@@ -161,6 +168,11 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
 
   resetManualScheduler(): void {
     this.scheduler.reset();
+  }
+
+  stopScenarioMaintainers(): void {
+    this.waveAutoClear = false;
+    this.stressMaintenance = false;
   }
 
   resetEventLog(): void {
@@ -192,8 +204,31 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     this.waveAutoClear = true;
   }
 
+  enableStressMaintenance(): void {
+    this.stressMaintenance = true;
+  }
+
   seedEnemy(seed: ScenarioEnemySeed): number {
     return this.scenario.seedEnemy(seed);
+  }
+
+  replaceShelter(currentHp: number, maxHp?: number): void {
+    this.scenario.replaceShelter(currentHp, maxHp);
+  }
+
+  seedProjectile(seed: Parameters<ScenarioScenePort['seedProjectile']>[0]): void {
+    this.scenario.seedProjectile(seed).forEach((event) => this.appendSessionEvent(event));
+  }
+
+  seedEffectPool(active: number): void {
+    this.scenario.seedEffectPool(active);
+  }
+
+  resetSimulationClock(): void {
+    this.scenario.resetSimulationClock();
+    for (const event of this.eventLog) {
+      (event as { atMs: number }).atMs = 0;
+    }
   }
 
   advanceWorldTicks(ticks: number): void {
@@ -201,7 +236,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       throw new RangeError('Scenario ticks must be an integer from 0 to 10000');
     }
     for (let index = 0; index < ticks; index += 1) {
-      if (this.scene.sessionSnapshot().mode !== 'playing') {
+      if (this.scene.currentModeSnapshot() !== 'playing') {
         throw new Error('Scenario world ticks require playing mode');
       }
       this.stepOneTick();
@@ -212,11 +247,11 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     if (!Number.isFinite(ms) || ms < 0) {
       throw new RangeError('advance duration must be finite and non-negative');
     }
-    const entryMode = this.scene.sessionSnapshot().mode;
+    const entryMode = this.scene.currentModeSnapshot();
     if (entryMode !== 'playing' && entryMode !== 'countdown' && entryMode !== 'lost') return;
     for (let ticks = this.scheduler.take(ms); ticks > 0; ticks -= 1) {
       this.stepOneTick();
-      const mode = this.scene.sessionSnapshot().mode;
+      const mode = this.scene.currentModeSnapshot();
       if (mode === 'skillSelection' || mode === 'visibilityPause' || mode === 'won') {
         this.scheduler.reset();
         break;
@@ -238,6 +273,10 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
           this.scenario.removeEnemyWithoutReward(event.enemyId);
         }
       }
+    }
+    if (this.stressMaintenance) {
+      this.scenario.maintainStressPools()
+        .forEach((event) => this.appendSessionEvent(event));
     }
   }
 
@@ -349,7 +388,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   private appendEvent(event: DebugEventPayload): void {
     const loggedEvent = {
       sequence: this.nextSequence,
-      atMs: this.scene.sessionSnapshot().simulationMs,
+      atMs: this.scene.simulationMsSnapshot(),
       ...event,
     };
     this.eventLog.push(loggedEvent);

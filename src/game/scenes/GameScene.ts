@@ -112,7 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.combatEffects = new CombatEffectPool(this);
     this.projectileActors = new ProjectileActorPool(this, this.combatEffects);
     this.enemyAttackEffect = this.add.graphics().setDepth(1000);
-    if (import.meta.env.DEV) new DebugPathOverlay(this);
+    if (import.meta.env.DEV && import.meta.env.MODE !== 'e2e') new DebugPathOverlay(this);
     this.countdownOverlay = new CountdownOverlay(this);
     this.hud = new HudSystem(this);
     this.playerController = new PlayerController({ ...INITIAL_PLAYER_POSITION });
@@ -306,6 +306,14 @@ export class GameScene extends Phaser.Scene {
     return this.session.snapshot();
   }
 
+  currentModeSnapshot(): GameMode {
+    return this.session.currentMode();
+  }
+
+  simulationMsSnapshot(): number {
+    return this.session.simulationTimeMs();
+  }
+
   enemyActorPoolSnapshot(): PoolSnapshot {
     if (this.enemyActors === undefined) throw new Error('Enemy actor pool is not initialized');
     return this.enemyActors.snapshot();
@@ -404,6 +412,29 @@ export class GameScene extends Phaser.Scene {
         this.renderHud();
         return events;
       },
+      replaceShelter: (currentHp, maxHp) => {
+        session.replaceShelter(currentHp, maxHp);
+        this.shelterView?.render(shelterVisualState(currentHp, maxHp ?? currentHp));
+        this.renderHud();
+      },
+      seedProjectile: (seed) => {
+        const events = session.spawnProjectile(seed);
+        this.applySessionEvents(events);
+        this.renderProjectiles();
+        return events;
+      },
+      seedEffectPool: (active) => {
+        this.combatEffects.seedStressForE2e(active);
+      },
+      maintainStressPools: () => {
+        const events = session.maintainStressProjectiles();
+        this.applySessionEvents(events);
+        this.combatEffects.maintainStressForE2e(120);
+        this.renderProjectiles();
+        return events;
+      },
+      resetSimulationClock: () => session.resetSimulationClock(),
+      projectilePoolTelemetry: () => session.projectilePoolTelemetry(),
       removeEnemyWithoutReward: (enemyId) => {
         session.removeEnemyWithoutReward(enemyId);
         this.enemyActors?.release(enemyId);
