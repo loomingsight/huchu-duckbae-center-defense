@@ -23,6 +23,15 @@ describe('TargetingSystem', () => {
     expect(selectThreatTarget(origin, candidates, 216)?.id).toBe(1);
   });
 
+  it('모든 threat 필드와 spawnSequence가 같으면 id 오름차순으로 정렬한다', () => {
+    const ranked = rankThreatTargets({ x: 0, y: 0 }, [
+      enemy({ id: 9, position: { x: 100, y: 0 }, spawnSequence: 3 }),
+      enemy({ id: 2, position: { x: 100, y: 0 }, spawnSequence: 3 }),
+    ], 216);
+
+    expect(ranked.map(({ enemy: target }) => target.id)).toEqual([2, 9]);
+  });
+
   it('아쿠아빔 표적은 최고 HP 뒤 boss와 보호소 위협도로 동률을 푼다', () => {
     const ranked = rankHighestHpTargets({ x: 0, y: 0 }, [
       enemy({ id: 1, currentHp: 200, isBoss: false, etaMs: 100 }),
