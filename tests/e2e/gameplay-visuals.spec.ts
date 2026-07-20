@@ -3,7 +3,6 @@ import { advance, openScenario, snapshot } from './helpers';
 
 for (const scenario of ['health-bar-colors', 'all-skills', 'boss', 'shelter-defeat'] as const) {
   test(`${scenario} 캔버스 시각 회귀`, async ({ page }) => {
-    await page.setViewportSize({ width: 540, height: 960 });
     await openScenario(page, scenario);
     if (scenario === 'all-skills') await learnAllSkills(page);
     await advance(page, 0);

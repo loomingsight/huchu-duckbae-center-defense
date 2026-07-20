@@ -51,6 +51,7 @@ export class BossHud {
     if (this.destroyed) return;
     const boss = enemies.find((enemy) => enemy.isBoss && enemy.state !== 'dead');
     if (boss === undefined) {
+      if (this.activeBossId === null) return;
       this.hide();
       return;
     }

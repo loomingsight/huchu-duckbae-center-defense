@@ -28,6 +28,7 @@ export function formatTopHud(model: TopHudModel): string {
 
 export class TopHud {
   private readonly text: Phaser.GameObjects.Text;
+  private renderedText = '';
 
   constructor(scene: Phaser.Scene) {
     this.text = scene.add.text(12, 12, '', {
@@ -40,7 +41,10 @@ export class TopHud {
   }
 
   render(model: TopHudModel): void {
-    this.text.setText(formatTopHud(model));
+    const nextText = formatTopHud(model);
+    if (nextText === this.renderedText) return;
+    this.renderedText = nextText;
+    this.text.setText(nextText);
   }
 
   snapshot(): TopHudSnapshot {

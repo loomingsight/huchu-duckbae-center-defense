@@ -4,7 +4,7 @@ import {
 } from '../../src/game/combat/EnemyAttackSystem';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
 import { enemyFrameAt } from '../../src/game/enemies/EnemyActor';
-import { GameSession } from '../../src/game/session/GameSession';
+import { E2eGameSession as GameSession } from '../../src/game/debug/E2eGameSession';
 import { attackFrameAt } from '../../src/game/world/AnimationFrameResolver';
 import {
   attackSystemFor,

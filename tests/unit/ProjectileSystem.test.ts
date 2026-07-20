@@ -5,7 +5,7 @@ import {
   projectileVisualTransform,
 } from '../../src/game/combat/ProjectileActorPool';
 import { ProjectileSystem } from '../../src/game/combat/ProjectileSystem';
-import { GameSession } from '../../src/game/session/GameSession';
+import { E2eGameSession as GameSession } from '../../src/game/debug/E2eGameSession';
 import { CombatEffectPool } from '../../src/game/combat/CombatEffectPool';
 
 it('보호소 원에 닿을 때 피해를 한 번 적용하고 풀로 반환한다', () => {

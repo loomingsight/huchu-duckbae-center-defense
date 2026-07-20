@@ -6,9 +6,6 @@ import {
 } from '../constants';
 import { FixedStepClock } from '../core/FixedStepClock';
 import type { GameMode } from '../core/GameMode';
-import type {
-  ScenarioScenePort,
-} from '../debug/ScenarioSessionPort';
 import {
   ProjectileActorPool,
   type ProjectileImpactSnapshot,
@@ -51,24 +48,24 @@ const OFF_LEASH_EFFECT_DURATION_MS = 120;
 export class GameScene extends Phaser.Scene {
   private readonly fixedClock = new FixedStepClock(FIXED_STEP_MS, MAX_CATCH_UP_STEPS);
   private readonly runtimeLifecycle = new SceneRuntimeLifecycle();
-  private session!: GameSession;
+  protected session!: GameSession;
   private playerController!: PlayerController;
   private playerView!: PlayerView;
   private keyboardInput!: KeyboardInput;
   private virtualJoystick!: VirtualJoystick;
   private countdownOverlay!: CountdownOverlay;
   private skillSelectionModal: SkillSelectionModal | undefined;
-  private hud!: HudSystem;
-  private combatEffects!: CombatEffectPool;
+  protected hud!: HudSystem;
+  protected combatEffects!: CombatEffectPool;
   private worldPauseController!: WorldPauseController;
   private lifecyclePauseCoordinator!: LifecyclePauseCoordinator;
   private visibilityController!: VisibilityController;
   private webGlRecoveryController!: WebGlRecoveryController;
   private resumeOverlay!: RuntimeErrorOverlay;
   private restoreOverlay!: RuntimeErrorOverlay;
-  private enemyActors: EnemyActorPool | undefined;
-  private projectileActors: ProjectileActorPool | undefined;
-  private shelterView: ShelterView | undefined;
+  protected enemyActors: EnemyActorPool | undefined;
+  protected projectileActors: ProjectileActorPool | undefined;
+  protected shelterView: ShelterView | undefined;
   private enemyAttackEffect: Phaser.GameObjects.Graphics | undefined;
   private manualClock = false;
   private worldAnimationMs = 0;
@@ -94,7 +91,7 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.style.zIndex = '0';
 
     this.fixedClock.reset();
-    this.session = GameSession.create({ seed: DEFAULT_RUN_SEED });
+    this.session = this.createSession(DEFAULT_RUN_SEED);
     this.manualClock = isE2eManualClock();
     this.worldAnimationMs = 0;
     this.moving = false;
@@ -109,7 +106,7 @@ export class GameScene extends Phaser.Scene {
 
     new MapView(this);
     this.shelterView = new ShelterView(this);
-    this.combatEffects = new CombatEffectPool(this);
+    this.combatEffects = this.createCombatEffectPool();
     this.projectileActors = new ProjectileActorPool(this, this.combatEffects);
     this.enemyAttackEffect = this.add.graphics().setDepth(1000);
     if (import.meta.env.DEV && import.meta.env.MODE !== 'e2e') new DebugPathOverlay(this);
@@ -214,12 +211,6 @@ export class GameScene extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdownRuntime(generation));
 
-    if (import.meta.env.MODE === 'e2e') {
-      void import('../debug/TestBridge').then(({ installTestBridge }) => {
-        if (!this.runtimeLifecycle.isActive(generation)) return;
-        this.runtimeLifecycle.attach(generation, installTestBridge(this));
-      });
-    }
   }
 
   update(_time: number, delta: number): void {
@@ -388,63 +379,6 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  scenarioPortForE2e(): ScenarioScenePort {
-    if (import.meta.env.PROD) throw new Error('Scenario scene port is unavailable');
-    const session = this.session.scenarioPortForE2e();
-    return {
-      seedEnemy: (seed) => {
-        const enemyId = session.spawnEnemy(seed);
-        const actor = this.enemyActors?.acquire(enemyId);
-        if (actor === undefined) throw new Error('Enemy actor pool exhausted');
-        this.renderEnemies();
-        this.renderHud();
-        return enemyId;
-      },
-      suppressWaveSpawns: () => session.suppressWaveSpawns(),
-      useWaveSchedule: (wave, schedule) => {
-        session.useWaveSchedule(wave, schedule);
-        this.renderHud();
-        this.renderEnemies();
-      },
-      damageShelter: (damage) => {
-        const events = session.damageShelter(damage);
-        this.applySessionEvents(events);
-        this.renderHud();
-        return events;
-      },
-      replaceShelter: (currentHp, maxHp) => {
-        session.replaceShelter(currentHp, maxHp);
-        this.shelterView?.render(shelterVisualState(currentHp, maxHp ?? currentHp));
-        this.renderHud();
-      },
-      seedProjectile: (seed) => {
-        const events = session.spawnProjectile(seed);
-        this.applySessionEvents(events);
-        this.renderProjectiles();
-        return events;
-      },
-      seedEffectPool: (active) => {
-        this.combatEffects.seedStressForE2e(active);
-      },
-      maintainStressPools: () => {
-        const events = session.maintainStressProjectiles();
-        this.applySessionEvents(events);
-        this.combatEffects.maintainStressForE2e(120);
-        this.renderProjectiles();
-        return events;
-      },
-      resetSimulationClock: () => session.resetSimulationClock(),
-      projectilePoolTelemetry: () => session.projectilePoolTelemetry(),
-      removeEnemyWithoutReward: (enemyId) => {
-        session.removeEnemyWithoutReward(enemyId);
-        this.enemyActors?.release(enemyId);
-        this.renderEnemies();
-        this.renderHud();
-      },
-      sessionIdentity: () => this.session,
-    };
-  }
-
   onSessionReset(listener: () => void): () => void {
     this.sessionResetListeners.add(listener);
     return () => this.sessionResetListeners.delete(listener);
@@ -480,15 +414,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private renderEnemies(): void {
+  protected renderEnemies(): void {
     this.enemyActors?.render(this.session.snapshot().enemies);
   }
 
-  private renderProjectiles(): void {
+  protected renderProjectiles(): void {
     this.projectileActors?.render(this.session.snapshot().projectiles);
   }
 
-  private applySessionEvents(events: readonly GameEvent[]): void {
+  protected applySessionEvents(events: readonly GameEvent[]): void {
     events.forEach((event) => {
       if (event.type === 'modeChanged') {
         this.worldPauseController.sync();
@@ -632,7 +566,7 @@ export class GameScene extends Phaser.Scene {
     this.skillSelectionModal = undefined;
   }
 
-  private renderHud(): void {
+  protected renderHud(): void {
     this.hud.render(this.session.snapshot(), this.session.skillStateSnapshot());
   }
 
@@ -656,6 +590,14 @@ export class GameScene extends Phaser.Scene {
     if (this.game.renderer.type !== Phaser.WEBGL) return true;
     const renderer = this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
     return !renderer.gl.isContextLost();
+  }
+
+  protected createSession(seed: number): GameSession {
+    return GameSession.create({ seed });
+  }
+
+  protected createCombatEffectPool(): CombatEffectPool {
+    return new CombatEffectPool(this);
   }
 }
 

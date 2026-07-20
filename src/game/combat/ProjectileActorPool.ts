@@ -45,6 +45,7 @@ class ProjectileActor {
   readonly container: Phaser.GameObjects.Container;
   private readonly projectileGraphics: Phaser.GameObjects.Graphics;
   private projectileId = -1;
+  private projectileKind: ProjectileKind | undefined;
   private start: Point = { x: 0, y: 0 };
 
   constructor(scene: Phaser.Scene) {
@@ -57,6 +58,7 @@ class ProjectileActor {
     if (this.projectileId !== snapshot.id) {
       this.projectileId = snapshot.id;
       this.start = { x: snapshot.x, y: snapshot.y };
+      this.projectileKind = undefined;
     }
     const transform = projectileVisualTransform(
       snapshot.kind,
@@ -64,7 +66,10 @@ class ProjectileActor {
       { x: snapshot.x, y: snapshot.y },
       SHELTER_CENTER,
     );
-    this.drawProjectile(snapshot.kind);
+    if (this.projectileKind !== snapshot.kind) {
+      this.drawProjectile(snapshot.kind);
+      this.projectileKind = snapshot.kind;
+    }
     this.container
       .setPosition(snapshot.x, snapshot.y + transform.offsetY)
       .setAngle(transform.angle)
@@ -76,6 +81,7 @@ class ProjectileActor {
 
   resetProjectile(): void {
     this.projectileId = -1;
+    this.projectileKind = undefined;
     this.start = { x: 0, y: 0 };
     this.projectileGraphics.removeAllListeners();
     this.projectileGraphics.clear();

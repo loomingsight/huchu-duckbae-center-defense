@@ -6,7 +6,9 @@ import { PreloadScene } from './scenes/PreloadScene';
 import { ResultScene } from './scenes/ResultScene';
 import { TitleScene } from './scenes/TitleScene';
 
-export function createGameConfig(): Phaser.Types.Core.GameConfig {
+export function createGameConfig(
+  gameScene: typeof GameScene = GameScene,
+): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.WEBGL,
     parent: 'game-root',
@@ -16,10 +18,10 @@ export function createGameConfig(): Phaser.Types.Core.GameConfig {
     dom: { createContainer: true },
     render: { antialias: true, roundPixels: true, powerPreference: 'high-performance' },
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    scene: [BootScene, PreloadScene, TitleScene, GameScene, ResultScene],
+    scene: [BootScene, PreloadScene, TitleScene, gameScene, ResultScene],
   };
 }
 
-export function createGame(): Phaser.Game {
-  return new Phaser.Game(createGameConfig());
+export function createGame(gameScene?: typeof GameScene): Phaser.Game {
+  return new Phaser.Game(createGameConfig(gameScene));
 }

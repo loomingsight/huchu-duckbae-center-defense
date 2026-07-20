@@ -5,15 +5,20 @@ void bootstrap();
 
 async function bootstrap(): Promise<void> {
   let supported = probeWebgl();
+  let gameScene: Parameters<typeof createGame>[0];
   if (import.meta.env.MODE === 'e2e') {
-    const { overrideWebglProbe } = await import('./game/debug/E2eBootOverrides');
+    const [{ overrideWebglProbe }, { E2eGameScene }] = await Promise.all([
+      import('./game/debug/E2eBootOverrides'),
+      import('./game/debug/E2eGameScene'),
+    ]);
     supported = overrideWebglProbe(supported);
+    gameScene = E2eGameScene;
   }
   if (!supported) {
     renderUnsupportedMessage();
     return;
   }
-  createGame();
+  createGame(gameScene);
 }
 
 function probeWebgl(): boolean {

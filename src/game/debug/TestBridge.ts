@@ -52,7 +52,7 @@ interface SessionScenePort {
   skillCooldownProgressSnapshot(): GameDebugSnapshot['cooldownProgress'];
   countdownSnapshot(): GameDebugSnapshot['countdown'];
   worldClocksSnapshot(): GameDebugSnapshot['worldClocks'];
-  scenarioPortForE2e(): ScenarioScenePort;
+  scenarioAdapter(): ScenarioScenePort;
   onSessionReset(listener: () => void): () => void;
   setVisibilityForTest(hidden: boolean): void;
   forceModeForTest(mode: GameMode): void;
@@ -73,7 +73,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     private readonly scene: SessionScenePort,
     readonly seed: number,
   ) {
-    this.scenario = scene.scenarioPortForE2e();
+    this.scenario = scene.scenarioAdapter();
     this.removeSessionResetListener = scene.onSessionReset(() => {
       this.stopScenarioMaintainers();
     });
@@ -125,6 +125,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
       shelterShakeOffset: this.scene.shelterShakeOffsetSnapshot(),
       barkWavePool: this.scene.combatEffectsSnapshot(),
       combatEffectPool: effectPool,
+      combatEffectImpacts: this.scenario.effectImpacts(),
       pools: {
         enemies: enemyPool,
         projectiles: simulationProjectilePool,

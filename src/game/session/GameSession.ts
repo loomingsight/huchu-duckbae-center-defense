@@ -18,11 +18,6 @@ import { GameStateMachine } from '../core/GameStateMachine';
 import { SeededRng } from '../core/SeededRng';
 import { BALANCE } from '../data/balance';
 import { WAVE_DEFINITIONS } from '../data/waveDefinitions';
-import type {
-  ScenarioEnemySeed,
-  ScenarioSessionPort,
-  ScenarioWaveSchedule,
-} from '../debug/ScenarioSessionPort';
 import { EnemySystem, type EnemyLifecycleEvent } from '../enemies/EnemySystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { GameEvent } from '../events/GameEvents';
@@ -52,11 +47,6 @@ const INITIAL_SKILLS: SkillLevels = {
 };
 
 const BARK_RANGE = 150;
-const SCENARIO_WAVE_DEFINITIONS = WAVE_DEFINITIONS.map(({ wave }) => ({
-  wave,
-  spawns: [],
-}));
-
 type CountdownTransition = 'resumeCombat' | 'nextWave' | 'lostResult';
 
 interface ActiveBarkAttack {
@@ -66,36 +56,38 @@ interface ActiveBarkAttack {
 }
 
 export class GameSession {
-  private readonly stateMachine = new GameStateMachine('playing');
-  private rng: SeededRng;
-  private waves: WaveSystem;
-  private readonly enemies = EnemySystem.createDefault();
-  private readonly combat = new CombatSystem(this.enemies);
-  private readonly bark = new BarkSystem(INITIAL_SKILLS.bark);
-  private readonly attacks = createAttackSystems();
-  private readonly projectiles = new ProjectileSystem(
+  protected readonly stateMachine = new GameStateMachine('playing');
+  protected rng: SeededRng;
+  protected waves: WaveSystem;
+  protected readonly enemies: EnemySystem;
+  protected readonly combat: CombatSystem;
+  protected readonly bark = new BarkSystem(INITIAL_SKILLS.bark);
+  protected readonly attacks = createAttackSystems();
+  protected readonly projectiles = new ProjectileSystem(
     BALANCE.caps.projectiles,
     BALANCE.shelter.hitRadius,
   );
-  private shelter = new ShelterSystem(BALANCE.shelter.maxHp);
-  private readonly skills = new SkillSystem(INITIAL_SKILLS);
-  private readonly progression = new ProgressionSystem(
+  protected shelter = new ShelterSystem(BALANCE.shelter.maxHp);
+  protected readonly skills = new SkillSystem(INITIAL_SKILLS);
+  protected readonly progression = new ProgressionSystem(
     BALANCE.snackThresholds,
     BALANCE.pendingSkillCombatDelayMs,
   );
-  private readonly uiClock = new UiTransitionClock(0);
-  private readonly outcomes = new RunOutcomeResolver();
-  private simulationTicks = 0;
-  private cards: readonly SkillCard[] = [];
-  private uiTransition: CountdownTransition | null = null;
-  private nextBarkAttackSequence = 1;
-  private nextProjectileId = 0;
-  private activeBarkAttack: ActiveBarkAttack | null = null;
-  private waveStartEventPending = true;
-  private readonly eventBuffer: GameEvent[] = [];
+  protected readonly uiClock = new UiTransitionClock(0);
+  protected readonly outcomes = new RunOutcomeResolver();
+  protected simulationTicks = 0;
+  protected cards: readonly SkillCard[] = [];
+  protected uiTransition: CountdownTransition | null = null;
+  protected nextBarkAttackSequence = 1;
+  protected nextProjectileId = 0;
+  protected activeBarkAttack: ActiveBarkAttack | null = null;
+  protected waveStartEventPending = true;
+  protected readonly eventBuffer: GameEvent[] = [];
 
-  private constructor(seed: number) {
+  protected constructor(seed: number, enemies = EnemySystem.createDefault()) {
     assertSeed(seed);
+    this.enemies = enemies;
+    this.combat = new CombatSystem(this.enemies);
     this.rng = new SeededRng(seed);
     this.waves = new WaveSystem(WAVE_DEFINITIONS, this.rng, BALANCE.caps.enemies);
     this.waves.start(1);
@@ -287,95 +279,6 @@ export class GameSession {
     return this.stateMachine;
   }
 
-  scenarioPortForE2e(): ScenarioSessionPort {
-    if (import.meta.env.PROD) throw new Error('Scenario session port is unavailable');
-    const useWaveSchedule = (wave: number, schedule: ScenarioWaveSchedule): void => {
-      const definitions = schedule === 'real'
-        ? WAVE_DEFINITIONS
-        : schedule === 'exhausted'
-          ? SCENARIO_WAVE_DEFINITIONS
-          : WAVE_DEFINITIONS.map(({ wave: waveNumber }) => ({
-            wave: waveNumber,
-            spawns: [{
-              atMs: 86_400_000,
-              pathId: 'P6' as const,
-              kind: 'poopGuardian' as const,
-              variant: 'male' as const,
-            }],
-          }));
-      this.waves = new WaveSystem(definitions, this.rng, BALANCE.caps.enemies);
-      this.waves.start(wave);
-      this.waveStartEventPending = true;
-    };
-    return {
-      spawnEnemy: (seed: ScenarioEnemySeed) => {
-        const spawned = this.enemies.spawnForScenario(seed);
-        if (seed.stunnedMs !== undefined && seed.stunnedMs > 0) {
-          const snapshot = this.enemies.snapshots().find(({ id }) => id === spawned.enemyId)!;
-          this.attacks[seed.kind].stun(spawned.enemyId, seed.stunnedMs, snapshot.pathProgress);
-        }
-        return spawned.enemyId;
-      },
-      damageEnemy: (enemyId, amount) => {
-        const events = this.enemies.damage(enemyId, amount);
-        this.accumulateSnacks(events);
-        return events;
-      },
-      stunEnemy: (enemyId, durationMs) => {
-        const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
-        this.enemies.stun(enemyId, durationMs);
-        if (enemy !== undefined && durationMs > 0) {
-          this.attacks[enemy.kind].stun(enemyId, durationMs, enemy.pathProgress);
-        }
-      },
-      knockBackEnemy: (enemyId, distance) => {
-        const enemy = this.enemies.snapshots().find(({ id }) => id === enemyId);
-        this.enemies.knockBack(enemyId, distance);
-        if (enemy !== undefined && distance > 0) this.attacks[enemy.kind].interrupt(enemyId);
-      },
-      removeEnemyWithoutReward: (enemyId) => {
-        this.enemies.removeWithoutReward(enemyId);
-        for (const attack of Object.values(this.attacks)) attack.remove(enemyId);
-      },
-      suppressWaveSpawns: () => useWaveSchedule(1, 'exhausted'),
-      useWaveSchedule,
-      damageShelter: (damage) => {
-        this.eventBuffer.push(...this.shelter.damage(damage));
-        this.resolvePostStepOutcome();
-        return this.flushEvents();
-      },
-      replaceShelter: (currentHp, maxHp = currentHp) => {
-        this.shelter = new ShelterSystem(maxHp, currentHp);
-      },
-      spawnProjectile: (seed) => {
-        const events = this.projectiles.spawn(seed);
-        this.nextProjectileId = Math.max(this.nextProjectileId, seed.id + 1);
-        return events;
-      },
-      maintainStressProjectiles: () => {
-        const events: GameEvent[] = [];
-        while (this.projectiles.activeCount < BALANCE.caps.projectiles) {
-          const id = this.nextProjectileId;
-          this.nextProjectileId += 1;
-          events.push(...this.projectiles.spawn({
-            id,
-            kind: 'poop',
-            from: stressProjectileOrigin(id),
-            to: { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
-            speed: 1,
-            damage: 0,
-            lifeMs: 60_000,
-          }));
-        }
-        return events;
-      },
-      resetSimulationClock: () => {
-        this.simulationTicks = 0;
-      },
-      projectilePoolTelemetry: () => this.projectiles.poolSnapshot(),
-    };
-  }
-
   reset(seed: number): void {
     assertSeed(seed);
     const rng = new SeededRng(seed);
@@ -551,7 +454,7 @@ export class GameSession {
     });
   }
 
-  private accumulateSnacks(events: readonly EnemyLifecycleEvent[]): void {
+  protected accumulateSnacks(events: readonly EnemyLifecycleEvent[]): void {
     for (const event of events) {
       if (event.type === 'enemyDied') {
         for (const attack of Object.values(this.attacks)) attack.remove(event.enemyId);
@@ -561,7 +464,7 @@ export class GameSession {
     }
   }
 
-  private flushEvents(): readonly GameEvent[] {
+  protected flushEvents(): readonly GameEvent[] {
     const events = this.eventBuffer.splice(0);
     return events;
   }
@@ -599,7 +502,7 @@ export class GameSession {
     });
   }
 
-  private resolvePostStepOutcome(): void {
+  protected resolvePostStepOutcome(): void {
     const resolution = this.outcomes.resolve({
       shelterHp: this.shelter.currentHp,
       wave: this.waves.current,
@@ -667,11 +570,4 @@ function assertPlayer(player: PlayerSnapshot): void {
   if (!Number.isFinite(player.x) || !Number.isFinite(player.y)) {
     throw new RangeError('GameSession player position must be finite');
   }
-}
-
-function stressProjectileOrigin(id: number): Point {
-  return {
-    x: 24 + id % 20 * 26,
-    y: 24 + Math.floor(id % 80 / 20) * 72,
-  };
 }

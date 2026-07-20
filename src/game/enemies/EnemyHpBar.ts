@@ -24,10 +24,16 @@ export function enemyHpColor(ratio: number): number {
 }
 
 export class EnemyHpBar {
+  private current: number | undefined;
+  private max: number | undefined;
+
   constructor(private readonly graphics: Phaser.GameObjects.Graphics) {}
 
   render(current: number, max: number): void {
     const ratio = enemyHpRatio(current, max);
+    if (this.current === current && this.max === max) return;
+    this.current = current;
+    this.max = max;
     this.graphics.clear();
     this.graphics.fillStyle(0x2a241f, 0.75);
     this.graphics.fillRect(
@@ -47,6 +53,8 @@ export class EnemyHpBar {
   }
 
   reset(): void {
+    this.current = undefined;
+    this.max = undefined;
     this.graphics.clear();
     this.graphics.setAlpha(1).setActive(false).setVisible(false);
   }

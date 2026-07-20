@@ -47,6 +47,7 @@ export interface GameDebugSnapshot extends Omit<RunSnapshot, 'enemies'> {
   readonly enemyPool: PoolSnapshot;
   readonly projectilePool: PoolSnapshot;
   readonly projectileImpacts: readonly ProjectileImpactSnapshot[];
+  readonly combatEffectImpacts: readonly ProjectileImpactSnapshot[];
   readonly shelterShakeOffset: number;
   readonly barkWavePool: PoolSnapshot;
   readonly combatEffectPool: PoolSnapshot;

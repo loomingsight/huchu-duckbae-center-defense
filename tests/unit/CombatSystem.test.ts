@@ -2,7 +2,7 @@ import { CombatSystem } from '../../src/game/combat/CombatSystem';
 import type { DamageCommand } from '../../src/game/combat/CombatTypes';
 import { FIXED_STEP_MS } from '../../src/game/constants';
 import type { GameEvent } from '../../src/game/events/GameEvents';
-import { GameSession } from '../../src/game/session/GameSession';
+import { E2eGameSession as GameSession } from '../../src/game/debug/E2eGameSession';
 
 describe('CombatSystem', () => {
   it('한 cast의 서로 다른 target은 모두 적용하고 같은 attack-target 쌍만 한 batch에서 한 번 처리한다', () => {

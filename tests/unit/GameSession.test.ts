@@ -1,6 +1,6 @@
 import { FIXED_STEP_MS } from '../../src/game/constants';
 import type { GameEvent } from '../../src/game/events/GameEvents';
-import { GameSession } from '../../src/game/session/GameSession';
+import { E2eGameSession as GameSession } from '../../src/game/debug/E2eGameSession';
 import type { AutoSkillId } from '../../src/game/skills/SkillSystem';
 import type { SkillCard } from '../../src/game/skills/SkillTypes';
 

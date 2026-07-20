@@ -1,4 +1,4 @@
-import { EnemySystem } from '../../src/game/enemies/EnemySystem';
+import { E2eEnemySystem as EnemySystem } from '../../src/game/debug/E2eEnemySystem';
 import { BALANCE } from '../../src/game/data/balance';
 import type { EnemySpawnRequest } from '../../src/game/waves/WaveTypes';
 import { expectTypeOf } from 'vitest';

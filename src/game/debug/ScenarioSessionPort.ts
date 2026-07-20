@@ -50,6 +50,7 @@ export interface ScenarioScenePort {
   maintainStressPools(): readonly GameEvent[];
   resetSimulationClock(): void;
   projectilePoolTelemetry(): PoolSnapshot;
+  effectImpacts(): readonly import('../combat/CombatEffectPool').ProjectileImpactSnapshot[];
   removeEnemyWithoutReward(enemyId: number): void;
   sessionIdentity(): object;
 }

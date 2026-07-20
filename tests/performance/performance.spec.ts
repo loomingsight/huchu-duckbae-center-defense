@@ -10,7 +10,15 @@ test('@perf stress 장면은 평균 55fps와 저하 지속 기준을 지킨다',
     projectiles: { active: 80 },
     effects: { active: 120 },
   };
-  expect((await snapshot(page)).pools).toMatchObject(expectedActive);
+  const startedSnapshot = await snapshot(page);
+  const startedPools = startedSnapshot.pools;
+  expect(startedPools).toMatchObject(expectedActive);
+  const stressImpacts = (startedSnapshot as unknown as {
+    combatEffectImpacts: readonly { x: number; y: number; frame: number }[];
+  }).combatEffectImpacts;
+  expect(stressImpacts).toHaveLength(120);
+  expect(stressImpacts.every(({ x, y }) => x >= 0 && x <= 540 && y >= 0 && y <= 960)).toBe(true);
+  expect(new Set(stressImpacts.map(({ frame }) => frame)).size).toBeGreaterThan(1);
   const stats = await page.evaluate(async () => {
     const frameTimes: number[] = [];
     const frameOffsets: number[] = [];
@@ -58,7 +66,7 @@ test('@perf stress 장면은 평균 55fps와 저하 지속 기준을 지킨다',
     contentType: 'application/json',
   });
   console.log(`${testInfo.project.name} FPS ${JSON.stringify(stats)}`);
-  expect((await snapshot(page)).pools).toMatchObject(expectedActive);
+  expect((await snapshot(page)).pools).toEqual(startedPools);
   expect(stats.averageFps).toBeGreaterThanOrEqual(55);
   expect(stats.maxLowStreakSeconds).toBeLessThanOrEqual(3);
 });

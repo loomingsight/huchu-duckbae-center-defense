@@ -1,7 +1,6 @@
 import { subtractDuration, TIME_EPSILON_MS } from '../constants';
 import { BALANCE } from '../data/balance';
 import { PATH_DEFINITIONS } from '../data/pathDefinitions';
-import type { ScenarioEnemySeed } from '../debug/ScenarioSessionPort';
 import type {
   EnemyKind,
   EnemyState,
@@ -19,7 +18,7 @@ export type EnemyLifecycleEvent =
 export type EnemyAttackState = Extract<EnemyState, 'moving' | 'windup' | 'holding'>;
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
-type MutableEnemy = Omit<Mutable<EnemySnapshot>, 'position' | 'etaMs'> & {
+export type MutableEnemy = Omit<Mutable<EnemySnapshot>, 'position' | 'etaMs'> & {
   readonly speed: number;
   readonly snack: number;
   readonly attackRange: number;
@@ -37,13 +36,12 @@ const ENEMY_KINDS = [
 ] as const;
 const ENEMY_KIND_SET = new Set<string>(ENEMY_KINDS);
 const ENEMY_VARIANT_SET = new Set<string>(['male', 'female']);
-const ENEMY_STATE_SET = new Set<string>(['moving', 'windup', 'holding', 'stunned', 'dead']);
 const ENEMY_ATTACK_STATE_SET = new Set<string>(['moving', 'windup', 'holding']);
 
 export class EnemySystem {
-  private readonly enemies = new Map<number, MutableEnemy>();
-  private readonly paths: Readonly<Record<PathId, PathSystem>>;
-  private nextId = 0;
+  protected readonly enemies = new Map<number, MutableEnemy>();
+  protected readonly paths: Readonly<Record<PathId, PathSystem>>;
+  protected nextId = 0;
 
   constructor(paths: Readonly<Record<PathId, PathSystem>>) {
     const pathKeys = Object.keys(paths);
@@ -112,50 +110,6 @@ export class EnemySystem {
       attackProgress,
     });
     return id;
-  }
-
-  spawnForScenario(seed: ScenarioEnemySeed): {
-    readonly enemyId: number;
-    readonly request: EnemySpawnRequest;
-  } {
-    const request: EnemySpawnRequest = {
-      atMs: 0,
-      kind: seed.kind,
-      variant: seed.variant,
-      pathId: seed.pathId,
-      spawnSequence: this.nextId,
-    };
-    assertSpawnRequest(request);
-    assertScenarioSeed(seed);
-
-    const defaultHp = BALANCE.enemies[request.kind].hp;
-    const maxHp = seed.maxHp ?? defaultHp;
-    const currentHp = seed.currentHp ?? maxHp;
-    assertScenarioHp(currentHp, maxHp);
-    const state = seed.state ?? 'moving';
-    const stunnedMs = seed.stunnedMs ?? 0;
-    if (state === 'dead') throw new RangeError('Scenario enemy state must be active');
-    if (state === 'stunned' ? stunnedMs <= 0 : stunnedMs !== 0) {
-      throw new RangeError('Scenario enemy stun state is inconsistent');
-    }
-
-    const path = this.paths[request.pathId];
-    const pathProgress = seed.placement.kind === 'attackBoundary'
-      ? path.firstProgressWithinCircle(
-        { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
-        BALANCE.shelter.hitRadius + BALANCE.enemies[request.kind].range,
-      )
-      : path.closestProgressTo({ x: seed.placement.x, y: seed.placement.y });
-
-    const enemyId = this.spawn(request);
-    const enemy = this.enemies.get(enemyId)!;
-    enemy.pathProgress = pathProgress;
-    enemy.currentHp = currentHp;
-    enemy.maxHp = maxHp;
-    enemy.state = state;
-    enemy.stunnedMs = stunnedMs;
-    enemy.animationElapsedMs = 0;
-    return { enemyId, request };
   }
 
   removeWithoutReward(enemyId: number): void {
@@ -319,34 +273,6 @@ function assertSpawnRequest(request: EnemySpawnRequest): void {
   }
   if (!PATH_ID_SET.has(request.pathId)) {
     throw new RangeError(`Unknown enemy path ${String(request.pathId)}`);
-  }
-}
-
-function assertScenarioSeed(seed: ScenarioEnemySeed): void {
-  if (seed.placement.kind === 'worldPoint') {
-    assertFinite(seed.placement.x, 'Scenario enemy x');
-    assertFinite(seed.placement.y, 'Scenario enemy y');
-  } else if (seed.placement.kind !== 'attackBoundary') {
-    const unknownPlacement = seed.placement as { readonly kind: unknown };
-    throw new RangeError(`Unknown scenario placement ${String(unknownPlacement.kind)}`);
-  }
-  if (seed.state !== undefined && !ENEMY_STATE_SET.has(seed.state)) {
-    throw new RangeError(`Unknown enemy state ${String(seed.state)}`);
-  }
-  if (seed.stunnedMs !== undefined) {
-    assertFiniteNonNegative(seed.stunnedMs, 'Scenario enemy stunnedMs');
-  }
-}
-
-function assertScenarioHp(currentHp: number, maxHp: number): void {
-  if (
-    !Number.isFinite(currentHp)
-    || !Number.isFinite(maxHp)
-    || maxHp <= 0
-    || currentHp <= 0
-    || currentHp > maxHp
-  ) {
-    throw new RangeError('Invalid scenario enemy HP');
   }
 }
 

@@ -3,6 +3,7 @@ import {
   CombatEffectPool,
   deokbaeHowlFrameAt,
 } from '../../src/game/combat/CombatEffectPool';
+import { E2eCombatEffectPool } from '../../src/game/debug/E2eCombatEffectPool';
 import type { SkillCastVisual } from '../../src/game/skills/SkillSystem';
 
 const SCOLD_VISUAL: SkillCastVisual = {
@@ -108,6 +109,32 @@ it('Task 9 impact snapshot/frame과 split fixed-step age를 유지하고 120ms�
 
   expect(effects.projectileImpactSnapshots()).toEqual([]);
   expect(effects.snapshot()).toMatchObject({ active: 0, available: 120 });
+});
+
+it('stress workload는 120개 in-bounds impact의 정상 frame/geometry path와 같은 slot을 유지한다', () => {
+  const fake = createEffectScene();
+  const effects = new E2eCombatEffectPool(fake.scene as never);
+  effects.seedEffects(120);
+  const initialPool = effects.snapshot();
+  const initialImpacts = effects.projectileImpactSnapshots();
+
+  expect(initialImpacts).toHaveLength(120);
+  expect(initialImpacts.every(({ x, y }) => x >= 0 && x <= 540 && y >= 0 && y <= 960)).toBe(true);
+  expect(new Set(initialImpacts.map(({ frame }) => frame)).size).toBeGreaterThan(1);
+  expect(fake.graphics.every(({ calls }) => (calls.get('fillEllipse')?.length ?? 0) > 0)).toBe(true);
+
+  for (let tick = 0; tick < 12; tick += 1) {
+    effects.step(FIXED_STEP_MS);
+    effects.maintainEffects(120);
+  }
+
+  expect(effects.snapshot()).toEqual(initialPool);
+  expect(new Set(effects.projectileImpactSnapshots().map(({ x, y }) => `${x}:${y}`)).size)
+    .toBe(120);
+  expect(fake.graphics.reduce(
+    (count, { calls }) => count + (calls.get('fillEllipse')?.length ?? 0),
+    0,
+  )).toBeGreaterThan(120);
 });
 
 it('releaseType은 다른 effect identity/age를 건드리지 않는다', () => {
