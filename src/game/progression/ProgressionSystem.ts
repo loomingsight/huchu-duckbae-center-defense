@@ -3,6 +3,15 @@ import type { ProgressionSnapshot, SkillPurchaseResult } from './ProgressionType
 
 const COSTS = [15, 25, 40] as const;
 const PURCHASABLE_SKILL_IDS = ['tailSwipe', 'aquaBeam', 'safetyReport'] as const;
+const PURCHASABLE_SKILL_ID_SET = new Set<string>(PURCHASABLE_SKILL_IDS);
+
+export function assertPurchasableSkillId(
+  skillId: unknown,
+): asserts skillId is PurchasableSkillId {
+  if (typeof skillId !== 'string' || !PURCHASABLE_SKILL_ID_SET.has(skillId)) {
+    throw new RangeError(`Unknown purchasable skill ${String(skillId)}`);
+  }
+}
 
 export class ProgressionSystem {
   private snacks = 0;
@@ -21,6 +30,7 @@ export class ProgressionSystem {
   }
 
   queuePurchase(skillId: PurchasableSkillId): SkillPurchaseResult {
+    assertPurchasableSkillId(skillId);
     const cost = COSTS[this.learned.size] ?? null;
     if (this.learned.has(skillId)) {
       return this.result('alreadyLearned', skillId, cost, 0);

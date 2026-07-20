@@ -17,6 +17,22 @@ import { WaveSystem } from '../../src/game/waves/WaveSystem';
 const PLAYER = { x: 270, y: 600 } as const;
 
 describe('GameSession V2 fixed-step integration', () => {
+  it('malformed purchase ID를 queue/tick 변경 전에 거부하고 이후 valid purchase를 처리한다', () => {
+    const progression = new ProgressionSystem();
+    progression.addSnacks(40);
+    const run = GameSession.create({ seed: 99 }, { progression });
+    const before = run.snapshot();
+
+    expect(() => run.queueSkillPurchase('bark' as never)).toThrow(RangeError);
+    expect(run.snapshot()).toEqual(before);
+    expect(run.snapshot().simulationMs).toBe(0);
+
+    expect(run.queueSkillPurchase('tailSwipe')).toMatchObject({ status: 'queued' });
+    expect(run.step(FIXED_STEP_MS, PLAYER)).toContainEqual(
+      expect.objectContaining({ type: 'skillPurchaseResolved' }),
+    );
+  });
+
   it('purchase는 다음 playing step 첫 단계에서 확정되고 world가 계속 돈다', () => {
     const progression = new ProgressionSystem();
     progression.addSnacks(40);
@@ -95,18 +111,36 @@ describe('GameSession V2 fixed-step integration', () => {
     run.place(enemyId, 335);
     run.learnAt('tailSwipe', 0);
     run.setSimulationTicks(479);
-    run.spawnProjectile(projectile({ id: 77, speed: 1, lifeMs: 60_000 }));
-
     expect(run.step(FIXED_STEP_MS, PLAYER)).toContainEqual(
       expect.objectContaining({ type: 'skillCastStarted', skillId: 'tailSwipe' }),
     );
     run.place(enemyId, 1_000_000);
-    const events = steps(run, 15);
+    const attackStartedEvents = run.step(FIXED_STEP_MS, PLAYER);
+    const attackStarted = findAttackStarted(attackStartedEvents);
+    expect(attackStarted).toEqual({
+      type: 'attackStarted', castId: `enemy:${enemyId}:1`, enemyId, kind: 'poopGuardian',
+    });
+    run.spawnProjectile(projectile({
+      id: 77,
+      castId: attackStarted!.castId,
+      enemyId,
+      kind: attackStarted!.kind,
+      speed: 1,
+      lifeMs: 60_000,
+    }));
+    const events = steps(run, 14);
 
     const impactIndex = events.findIndex((event) => event.type === 'skillImpact');
     const cancelIndex = events.findIndex((event) => event.type === 'attackCancelled');
     expect(impactIndex).toBeGreaterThanOrEqual(0);
     expect(cancelIndex).toBeGreaterThan(impactIndex);
+    expect(events[cancelIndex]).toEqual({
+      type: 'attackCancelled',
+      castId: attackStarted!.castId,
+      enemyId: attackStarted!.enemyId,
+      kind: attackStarted!.kind,
+    });
+    expect(events.some((event) => event.type === 'projectileRequested')).toBe(false);
     expect(events.some((event) => event.type === 'shelterDamageRequested')).toBe(false);
     expect(run.snapshot().projectiles).toEqual([
       expect.objectContaining({ id: 77 }),
@@ -134,7 +168,8 @@ describe('GameSession V2 fixed-step integration', () => {
   });
 
   it('structured shelter request를 상세 shelterDamaged로 손실 없이 바꾼다', () => {
-    const run = Harness.createHarness(5);
+    const shelter = new ShelterSystem(1000, 900);
+    const run = Harness.createHarness(5, { shelter });
     run.suppressWave(1);
     run.spawnProjectile(projectile({
       id: 41, castId: 'enemy:41:1', enemyId: 41, kind: 'dogTrader',
@@ -149,32 +184,52 @@ describe('GameSession V2 fixed-step integration', () => {
     expect(events.find((event) => event.type === 'shelterDamaged')).toMatchObject({
       castId: 'enemy:41:1', appliedAtStep: 1,
       sourceEnemyId: 41, sourceEnemyKind: 'dogTrader', amount: 120,
-      effectiveAmount: 120, hp: 880, maxHp: 1000,
+      effectiveAmount: 120, hp: 780, maxHp: 1000,
       position: { x: 270, y: 480 }, impactDirection: expect.any(Object),
       strength: 'heavy', visual: 'healthy',
     });
+    expect(run.snapshot()).toMatchObject({ shelterHp: 780, shelterMaxHp: 1000 });
   });
 
-  it.each(['dogTrader', 'illegalBreeder'] as const)(
-    '%s lifecycle은 boss active count 0↔1 event를 정확히 한 번씩 낸다',
-    (kind) => {
-      const run = Harness.createHarness(6);
-      run.suppressWave(1);
-      const enemyId = run.spawnEnemy(kind, 'P6');
-      run.place(enemyId, 335);
-      run.weaken(enemyId, 1);
+  it('boss active event는 두 boss의 0→1과 1→0에만 발생한다', () => {
+    const run = Harness.createHarness(6);
+    run.suppressWave(1);
+    const firstId = run.spawnEnemy('dogTrader', 'P6');
 
-      const events = [
-        ...run.step(FIXED_STEP_MS, PLAYER),
-        ...stepsUntil(run, (event) => event.type === 'enemyDied', 30),
-      ];
+    const firstSpawn = run.step(FIXED_STEP_MS, PLAYER);
+    expect(firstSpawn.filter((event) => event.type === 'bossActiveChanged')).toEqual([
+      { type: 'bossActiveChanged', active: true, activeBossCount: 1 },
+    ]);
 
-      expect(events.filter((event) => event.type === 'bossActiveChanged')).toEqual([
-        { type: 'bossActiveChanged', active: true, activeBossCount: 1 },
-        { type: 'bossActiveChanged', active: false, activeBossCount: 0 },
-      ]);
-    },
-  );
+    const secondId = run.spawnEnemy('illegalBreeder', 'P6');
+    const secondSpawn = run.step(FIXED_STEP_MS, PLAYER);
+    expect(secondSpawn.filter((event) => event.type === 'bossActiveChanged')).toEqual([]);
+    expect(activeBossCount(run)).toBe(2);
+
+    run.place(firstId, 335);
+    run.weaken(firstId, 1);
+    const firstKill = stepsUntil(
+      run,
+      (event) => event.type === 'enemyDied' && event.enemyId === firstId,
+      120,
+    );
+    expect(firstKill.some((event) => event.type === 'enemyDied' && event.enemyId === firstId))
+      .toBe(true);
+    expect(firstKill.filter((event) => event.type === 'bossActiveChanged')).toEqual([]);
+    expect(activeBossCount(run)).toBe(1);
+
+    run.place(secondId, 335);
+    run.weaken(secondId, 1);
+    const secondKill = stepsUntil(
+      run,
+      (event) => event.type === 'enemyDied' && event.enemyId === secondId,
+      120,
+    );
+    expect(secondKill.filter((event) => event.type === 'bossActiveChanged')).toEqual([
+      { type: 'bossActiveChanged', active: false, activeBossCount: 0 },
+    ]);
+    expect(activeBossCount(run)).toBe(0);
+  });
 
   it('projectileOriginByKind pure dependency를 attack request와 reset 뒤에도 사용한다', () => {
     const origin: AttackOriginResolver = () => ({ x: 111, y: 222 });
@@ -206,6 +261,25 @@ describe('GameSession V2 fixed-step integration', () => {
       skillStates: { tailSwipe: { learned: true } },
     });
   });
+
+  it('실제 W1 schedule의 pending과 active가 모두 소진된 뒤에만 countdown으로 전환한다', () => {
+    const run = Harness.createHarness(17);
+    const events: GameEvent[] = [];
+
+    for (let tick = 0; tick < 1800 && run.currentMode() === 'playing'; tick += 1) {
+      events.push(...run.step(FIXED_STEP_MS, PLAYER));
+      run.prepareActiveEnemiesForClear();
+    }
+
+    expect(events.filter((event) => event.type === 'enemySpawnRequested')).toHaveLength(10);
+    expect(events.filter((event) => event.type === 'enemyDied')).toHaveLength(10);
+    expect(run.snapshot()).toMatchObject({
+      mode: 'countdown', wave: 1, pendingSpawns: 0, activeEnemyCount: 0,
+    });
+    expect(events.filter((event) => event.type === 'waveTransition')).toEqual([
+      { type: 'waveTransition', fromWave: 1, toWave: 2, countdownMs: 3000 },
+    ]);
+  });
 });
 
 describe('GameSession terminal and transition priority', () => {
@@ -233,7 +307,7 @@ describe('GameSession terminal and transition priority', () => {
     progression.addSnacks(40);
     const run = GameSession.create(
       { seed: 11 },
-      { progression, shelter: new ShelterSystem(1, 0) },
+      { progression, shelter: new ShelterSystem(1000, 0) },
     );
 
     expect(run.step(FIXED_STEP_MS, PLAYER)).toEqual(expect.arrayContaining([
@@ -253,7 +327,7 @@ describe('GameSession terminal and transition priority', () => {
   });
 
   it('final clear와 loss가 같은 step이면 lost만 한 번 확정한다', () => {
-    const run = Harness.createHarness(12, { shelter: new ShelterSystem(1, 0) });
+    const run = Harness.createHarness(12, { shelter: new ShelterSystem(1000, 0) });
     run.suppressWave(5);
 
     const events = run.step(FIXED_STEP_MS, PLAYER);
@@ -290,6 +364,14 @@ describe('GameSession terminal and transition priority', () => {
     expect(shelter.currentHp).toBe(1000);
     expect(first.snapshot()).toMatchObject({ snacks: 0, shelterHp: 1000, simulationMs: 0 });
     expect(second.snapshot()).toMatchObject({ snacks: 0, shelterHp: 1000, simulationMs: 0 });
+  });
+
+  it('maxHp 1000이 아닌 shelter dependency를 생성 시점에 상태 변경 없이 거부한다', () => {
+    const shelter = new ShelterSystem(500, 400);
+
+    expect(() => GameSession.create({ seed: 18 }, { shelter })).toThrow(RangeError);
+    expect(shelter.currentHp).toBe(400);
+    expect(shelter.maximumHp).toBe(500);
   });
 });
 
@@ -339,6 +421,13 @@ class Harness extends GameSession {
   spawnProjectile(input: ProjectileSpawn): void {
     this.projectiles.spawn(input);
   }
+
+  prepareActiveEnemiesForClear(): void {
+    for (const enemy of this.enemies.snapshots()) {
+      this.enemies.damage(enemy.id, Math.max(0, enemy.currentHp - 1));
+      this.enemies.applyPathProgress(enemy.id, 1_000_000);
+    }
+  }
 }
 
 function steps(run: GameSession, count: number): GameEvent[] {
@@ -357,6 +446,25 @@ function stepsUntil(
     if (next.some(predicate)) break;
   }
   return events;
+}
+
+function activeBossCount(run: GameSession): number {
+  return run.snapshot().enemies.filter(({ isBoss }) => isBoss).length;
+}
+
+type AttackStartedTestEvent = {
+  readonly type: 'attackStarted';
+  readonly castId: string;
+  readonly enemyId: number;
+  readonly kind: EnemyKind;
+};
+
+function findAttackStarted(
+  events: readonly GameEvent[],
+): AttackStartedTestEvent | undefined {
+  return events.find((event) => event.type === 'attackStarted') as
+    | AttackStartedTestEvent
+    | undefined;
 }
 
 function projectile(overrides: Partial<ProjectileSpawn> = {}): ProjectileSpawn {

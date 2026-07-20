@@ -39,6 +39,8 @@ it('피해를 HP에 clamp하고 살아 있는 동안 호출당 한 이벤트만 
 it('무효 피해는 무시하고 reset은 최대 HP로 되돌린다', () => {
   const shelter = new ShelterSystem(100, 33);
 
+  expect(shelter.maximumHp).toBe(100);
+
   expect(shelter.damage(0)).toEqual([]);
   expect(shelter.damage(-1)).toEqual([]);
   shelter.reset();

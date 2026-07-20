@@ -1,6 +1,22 @@
 import { ProgressionSystem } from '../../src/game/progression/ProgressionSystem';
 
 describe('ProgressionSystem', () => {
+  it('malformed purchase ID를 queue 상태 변경 전에 거부하고 이후 valid purchase를 허용한다', () => {
+    const progression = new ProgressionSystem();
+    progression.addSnacks(40);
+    const before = progression.snapshot();
+
+    expect(() => progression.queuePurchase('bark' as never)).toThrow(RangeError);
+    expect(progression.snapshot()).toEqual(before);
+
+    expect(progression.queuePurchase('tailSwipe')).toMatchObject({
+      status: 'queued', skillId: 'tailSwipe', snacks: 40,
+    });
+    expect(progression.consumeQueuedPurchase()).toMatchObject({
+      status: 'learned', skillId: 'tailSwipe', spent: 15, snacks: 25,
+    });
+  });
+
   it('첫 command만 queue하고 다음 step에 15를 원자적으로 차감한다', () => {
     const progression = new ProgressionSystem();
     progression.addSnacks(40);

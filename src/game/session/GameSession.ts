@@ -22,7 +22,10 @@ import { EnemySystem, type EnemyLifecycleEvent } from '../enemies/EnemySystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
-import { ProgressionSystem } from '../progression/ProgressionSystem';
+import {
+  assertPurchasableSkillId,
+  ProgressionSystem,
+} from '../progression/ProgressionSystem';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import { ShelterSystem } from '../shelter/ShelterSystem';
 import {
@@ -90,9 +93,15 @@ export class GameSession {
     dependencies: GameSessionDependencies = {},
   ) {
     assertSeed(seed);
+    const shelter = dependencies.shelter ?? new ShelterSystem(BALANCE.shelter.maxHp);
+    if (shelter.maximumHp !== BALANCE.shelter.maxHp) {
+      throw new RangeError(
+        `GameSession shelter maximumHp must be ${BALANCE.shelter.maxHp}`,
+      );
+    }
     this.enemies = enemies;
     this.progression = dependencies.progression ?? new ProgressionSystem();
-    this.shelter = dependencies.shelter ?? new ShelterSystem(BALANCE.shelter.maxHp);
+    this.shelter = shelter;
     const learned = this.progression.snapshot().learned;
     for (const skillId of AUTO_SKILL_IDS) {
       if (learned[skillId]) this.skills.learn(skillId, 0);
@@ -152,6 +161,7 @@ export class GameSession {
     if (this.stateMachine.current() === 'playing') {
       return this.progression.queuePurchase(skillId);
     }
+    assertPurchasableSkillId(skillId);
     const snapshot = this.progression.snapshot();
     return {
       status: 'queueBusy',

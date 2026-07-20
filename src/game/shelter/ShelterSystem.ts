@@ -37,6 +37,10 @@ export class ShelterSystem {
     return this.hp;
   }
 
+  get maximumHp(): number {
+    return this.maxHp;
+  }
+
   damage(amount: number): readonly ShelterDamageEvent[] {
     if (!Number.isFinite(amount)) throw new RangeError('Invalid shelter damage');
     if (this.hp <= 0 || amount <= 0) return [];
