@@ -1,51 +1,41 @@
-import { expect, it } from 'vitest';
-import { resolvePostStep, RunOutcomeResolver } from '../../src/game/session/RunOutcomeResolver';
+import {
+  resolvePostStep,
+  RunOutcomeResolver,
+} from '../../src/game/session/RunOutcomeResolver';
 
-it('같은 스텝에 모두 참이면 패배를 한 번만 확정한다', () => {
-  const resolver = new RunOutcomeResolver();
-  const input = { shelterHp: 0, wave: 5, active: 0, pending: 0, skillDue: true };
+describe('RunOutcomeResolver V2 terminal priority', () => {
+  it('같은 step loss와 final clear면 loss를 한 번만 확정한다', () => {
+    const resolver = new RunOutcomeResolver();
 
-  expect(resolver.resolve(input)).toEqual({ mode: 'lost' });
-  expect(resolver.resolve(input)).toEqual({ mode: 'lost' });
-  expect(resolver.transitionCount).toBe(1);
-});
+    expect(resolver.resolve({ shelterHp: 0, wave: 5, active: 0, pending: 0 }))
+      .toEqual({ mode: 'lost' });
+    expect(resolver.resolve({ shelterHp: 1000, wave: 5, active: 0, pending: 0 }))
+      .toEqual({ mode: 'lost' });
+    expect(resolver.transitionCount).toBe(1);
+  });
 
-it('5웨이브를 모두 정리하면 승리를 확정한다', () => {
-  expect(resolvePostStep({ shelterHp: 1, wave: 5, active: 0, pending: 0, skillDue: false }))
-    .toEqual({ mode: 'won' });
-});
+  it('final clear는 won이고 그 전 wave clear만 next-wave countdown이다', () => {
+    expect(resolvePostStep({ shelterHp: 1, wave: 5, active: 0, pending: 0 }))
+      .toEqual({ mode: 'won' });
+    expect(resolvePostStep({ shelterHp: 1, wave: 2, active: 0, pending: 0 }))
+      .toEqual({ mode: 'countdown', nextWave: 3, countdownKind: 'nextWave' });
+  });
 
-it('마지막 전 웨이브 정리는 skillDue 없이 다음 웨이브 카운트다운으로 전환한다', () => {
-  expect(resolvePostStep({ shelterHp: 1, wave: 2, active: 0, pending: 0, skillDue: false }))
-    .toEqual({ mode: 'countdown', nextWave: 3, countdownKind: 'nextWave' });
-});
+  it('active 또는 pending이 남으면 playing을 유지한다', () => {
+    expect(resolvePostStep({ shelterHp: 1, wave: 4, active: 1, pending: 0 }))
+      .toEqual({ mode: 'playing' });
+    expect(resolvePostStep({ shelterHp: 1, wave: 4, active: 0, pending: 1 }))
+      .toEqual({ mode: 'playing' });
+  });
 
-it('마지막 전 웨이브 정리와 skillDue는 스킬 선택을 우선한다', () => {
-  expect(resolvePostStep({ shelterHp: 1, wave: 2, active: 0, pending: 0, skillDue: true }))
-    .toEqual({ mode: 'skillSelection', nextWave: 3, countdownKind: 'nextWave' });
-});
+  it('reset은 terminal 고정과 transition count를 초기화한다', () => {
+    const resolver = new RunOutcomeResolver();
+    resolver.resolve({ shelterHp: 1, wave: 5, active: 0, pending: 0 });
 
-it('전투 중 skillDue는 다음 웨이브 전환 없이 스킬 선택으로 전환한다', () => {
-  expect(resolvePostStep({ shelterHp: 1, wave: 2, active: 1, pending: 0, skillDue: true }))
-    .toEqual({ mode: 'skillSelection' });
-});
+    resolver.reset();
 
-it('패배는 웨이브 승리와 스킬 선택보다 우선한다', () => {
-  expect(resolvePostStep({ shelterHp: 0, wave: 5, active: 0, pending: 0, skillDue: true }))
-    .toEqual({ mode: 'lost' });
-});
-
-it('reset은 종료 고정과 전환 수를 초기화한다', () => {
-  const resolver = new RunOutcomeResolver();
-  const win = { shelterHp: 1, wave: 5, active: 0, pending: 0, skillDue: false };
-  const loss = { shelterHp: 0, wave: 5, active: 0, pending: 0, skillDue: false };
-
-  expect(resolver.resolve(win)).toEqual({ mode: 'won' });
-  expect(resolver.resolve(loss)).toEqual({ mode: 'won' });
-  expect(resolver.transitionCount).toBe(1);
-
-  resolver.reset();
-
-  expect(resolver.resolve(loss)).toEqual({ mode: 'lost' });
-  expect(resolver.transitionCount).toBe(1);
+    expect(resolver.resolve({ shelterHp: 0, wave: 5, active: 0, pending: 0 }))
+      .toEqual({ mode: 'lost' });
+    expect(resolver.transitionCount).toBe(1);
+  });
 });

@@ -1,31 +1,29 @@
+import type { WaveNumber } from './RunSnapshot';
+
 export interface PostStepInput {
   readonly shelterHp: number;
-  readonly wave: number;
+  readonly wave: WaveNumber;
   readonly active: number;
   readonly pending: number;
-  readonly skillDue: boolean;
 }
 
-export interface PostStepResolution {
-  readonly mode: 'lost' | 'won' | 'skillSelection' | 'countdown' | 'playing';
-  readonly nextWave?: number;
-  readonly countdownKind?: 'nextWave';
-}
+export type PostStepResolution =
+  | { readonly mode: 'lost' | 'won' | 'playing' }
+  | {
+    readonly mode: 'countdown';
+    readonly nextWave: Exclude<WaveNumber, 1>;
+    readonly countdownKind: 'nextWave';
+  };
 
 export function resolvePostStep(input: PostStepInput): PostStepResolution {
   if (input.shelterHp <= 0) return { mode: 'lost' };
-
-  const waveClear = input.active === 0 && input.pending === 0;
-  if (waveClear && input.wave === 5) return { mode: 'won' };
-  if (waveClear && input.wave < 5) {
-    const transition = { nextWave: input.wave + 1, countdownKind: 'nextWave' as const };
-    return input.skillDue
-      ? { mode: 'skillSelection', ...transition }
-      : { mode: 'countdown', ...transition };
-  }
-  if (input.skillDue) return { mode: 'skillSelection' };
-
-  return { mode: 'playing' };
+  if (input.active !== 0 || input.pending !== 0) return { mode: 'playing' };
+  if (input.wave === 5) return { mode: 'won' };
+  return {
+    mode: 'countdown',
+    nextWave: (input.wave + 1) as Exclude<WaveNumber, 1>,
+    countdownKind: 'nextWave',
+  };
 }
 
 export class RunOutcomeResolver {
@@ -34,14 +32,12 @@ export class RunOutcomeResolver {
 
   resolve(input: PostStepInput): PostStepResolution {
     if (this.outcome !== null) return { mode: this.outcome };
-
-    const next = resolvePostStep(input);
-    if (next.mode === 'won' || next.mode === 'lost') {
-      this.outcome = next.mode;
+    const resolution = resolvePostStep(input);
+    if (resolution.mode === 'won' || resolution.mode === 'lost') {
+      this.outcome = resolution.mode;
       this.transitionCount += 1;
     }
-
-    return next;
+    return resolution;
   }
 
   reset(): void {
