@@ -1,4 +1,5 @@
 import type { DamageCommand } from '../../src/game/combat/CombatTypes';
+import { TIME_EPSILON_MS } from '../../src/game/constants';
 import type { SkillImpactEvent } from '../../src/game/skills/SkillTypes';
 import {
   damageCommandsForSkillImpact,
@@ -289,6 +290,41 @@ describe('SkillSystem timeline', () => {
     });
     system.learn('tailSwipe', 9000);
     expect(system.step(17_000, context).at(0)).toMatchObject({ castId: 'tailSwipe:1' });
+  });
+
+  it('서로 다른 deadline의 동시 pending cast를 큰 time leap에서도 impactAtMs 순으로 처리한다', () => {
+    const system = new SkillSystem();
+    system.learn('safetyReport', 0);
+    system.learn('aquaBeam', 12_200);
+    const context = {
+      player: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, currentHp: 200, position: { x: 10, y: 0 } })],
+    };
+
+    expect(startedIds(system.step(22_000, context))).toEqual(['safetyReport']);
+    expect(startedIds(system.step(22_200, context))).toEqual(['aquaBeam']);
+    expect(system.snapshot('safetyReport').activeCastId).toBe('safetyReport:1');
+    expect(system.snapshot('aquaBeam').activeCastId).toBe('aquaBeam:1');
+
+    expect(system.step(23_000, context)
+      .filter((event) => event.type === 'skillImpact')
+      .map(({ castId, skillId }) => ({ castId, skillId }))).toEqual([
+      { castId: 'safetyReport:1', skillId: 'safetyReport' },
+      { castId: 'aquaBeam:1', skillId: 'aquaBeam' },
+    ]);
+  });
+
+  it('TIME_EPSILON_MS/2만큼 감소한 timestamp도 state 변경 전에 거부한다', () => {
+    const system = learnedSkillSystem('aquaBeam');
+    const context = {
+      player: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, position: { x: 10, y: 0 } })],
+    };
+    system.step(10_000, context);
+    const before = system.snapshot('aquaBeam');
+
+    expect(() => system.step(10_000 - TIME_EPSILON_MS / 2, context)).toThrow(RangeError);
+    expect(system.snapshot('aquaBeam')).toEqual(before);
   });
 
   it('큰 timestamp를 결정적으로 처리하고 감소 timestamp와 invalid 입력은 state 변경 전에 거부한다', () => {

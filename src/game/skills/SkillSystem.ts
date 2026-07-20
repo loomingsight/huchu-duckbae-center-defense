@@ -106,7 +106,7 @@ export class SkillSystem {
   step(nowMs: number, context: SkillContext): readonly SkillTimelineEvent[] {
     assertTimestamp(nowMs, 'Skill nowMs');
     validateContext(context);
-    if (nowMs + TIME_EPSILON_MS < this.lastNowMs) {
+    if (nowMs < this.lastNowMs) {
       throw new RangeError('Skill nowMs must be monotonic');
     }
 
