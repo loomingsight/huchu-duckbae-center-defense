@@ -5,6 +5,7 @@ export type LifecyclePauseReason = 'visibility' | 'webgl';
 
 export interface LifecyclePauseRuntimePort {
   setWorldPaused(paused: boolean): void;
+  setCanvasInputEnabled?(enabled: boolean): void;
 }
 
 export class LifecyclePauseCoordinator {
@@ -30,6 +31,7 @@ export class LifecyclePauseCoordinator {
       const mode = this.session.currentMode();
       if (mode === 'visibilityPause' || mode === 'won' || mode === 'lost') return false;
       this.returnMode = mode;
+      this.runtime.setCanvasInputEnabled?.(false);
       this.runtime.setWorldPaused(true);
       this.session.requestVisibilityPause();
     }
@@ -50,6 +52,7 @@ export class LifecyclePauseCoordinator {
       throw new Error(`Expected to resume ${expectedMode}, got ${resumedMode}`);
     }
     this.runtime.setWorldPaused(expectedMode !== 'playing');
+    this.runtime.setCanvasInputEnabled?.(true);
     return true;
   }
 

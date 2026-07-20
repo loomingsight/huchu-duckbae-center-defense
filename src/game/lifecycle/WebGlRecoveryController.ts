@@ -1,6 +1,24 @@
 import type { VisibilitySessionPort } from './VisibilityController';
 import { LifecyclePauseCoordinator } from './LifecyclePauseCoordinator';
 
+interface WebGlRecoveryState {
+  available: boolean;
+  generation: number;
+}
+
+const recoveryStates = new WeakMap<EventTarget, WebGlRecoveryState>();
+
+function recoveryStateFor(target: EventTarget, initialAvailable: boolean): WebGlRecoveryState {
+  const existing = recoveryStates.get(target);
+  if (existing !== undefined) {
+    if (!initialAvailable) existing.available = false;
+    return existing;
+  }
+  const state = { available: initialAvailable, generation: 0 };
+  recoveryStates.set(target, state);
+  return state;
+}
+
 export interface WebGlRuntimePort {
   setWorldPaused(paused: boolean): void;
   setRestorePromptVisible(visible: boolean): void;
@@ -11,10 +29,9 @@ export interface WebGlRuntimePort {
 
 export class WebGlRecoveryController {
   private attached = false;
-  private available = true;
-  private recoveryGeneration = 0;
   private promptGeneration: number | undefined;
   private readonly coordinator: LifecyclePauseCoordinator;
+  private readonly recoveryState: WebGlRecoveryState;
   needsConfirmation = false;
 
   constructor(
@@ -22,12 +39,14 @@ export class WebGlRecoveryController {
     private readonly session: VisibilitySessionPort,
     private readonly runtime: WebGlRuntimePort,
     coordinator?: LifecyclePauseCoordinator,
+    initialAvailable = true,
   ) {
     this.coordinator = coordinator ?? new LifecyclePauseCoordinator(session, runtime);
+    this.recoveryState = recoveryStateFor(target, initialAvailable);
   }
 
   get contextAvailable(): boolean {
-    return this.available;
+    return this.recoveryState.available;
   }
 
   get confirmationGeneration(): number | undefined {
@@ -50,17 +69,17 @@ export class WebGlRecoveryController {
 
   confirmRestore(generation = this.promptGeneration): void {
     if (
-      !this.available
+      !this.recoveryState.available
       || !this.needsConfirmation
-      || generation !== this.recoveryGeneration
-      || this.promptGeneration !== this.recoveryGeneration
+      || generation !== this.recoveryState.generation
+      || this.promptGeneration !== this.recoveryState.generation
       || !this.coordinator.has('webgl')
     ) return;
     this.restoreMode();
   }
 
   beginSession(): void {
-    if (this.available) return;
+    if (this.recoveryState.available) return;
     this.needsConfirmation = false;
     this.promptGeneration = undefined;
     this.runtime.setRestorePromptVisible(false);
@@ -71,18 +90,18 @@ export class WebGlRecoveryController {
 
   reset(): void {
     this.coordinator.abandon('webgl');
-    this.recoveryGeneration += 1;
+    this.recoveryState.generation += 1;
     this.promptGeneration = undefined;
     this.needsConfirmation = false;
     this.runtime.setRestorePromptVisible(false);
     this.runtime.setContextLostVisible?.(false);
-    this.runtime.setCanvasInputEnabled?.(this.available);
+    this.runtime.setCanvasInputEnabled?.(this.recoveryState.available);
   }
 
   private readonly onLost = (event: Event): void => {
     event.preventDefault();
-    this.available = false;
-    this.recoveryGeneration += 1;
+    this.recoveryState.available = false;
+    this.recoveryState.generation += 1;
     this.promptGeneration = undefined;
     this.needsConfirmation = false;
     this.runtime.setCanvasInputEnabled?.(false);
@@ -94,15 +113,14 @@ export class WebGlRecoveryController {
   };
 
   private readonly onRestored = (): void => {
-    this.available = true;
-    this.runtime.setCanvasInputEnabled?.(true);
+    this.recoveryState.available = true;
     this.runtime.setContextLostVisible?.(false);
     if (!this.coordinator.has('webgl')) return;
     if (this.coordinator.originalMode === 'skillSelection') {
       this.restoreMode();
       return;
     }
-    this.promptGeneration = this.recoveryGeneration;
+    this.promptGeneration = this.recoveryState.generation;
     this.needsConfirmation = true;
     this.runtime.setRestorePromptVisible(true);
   };

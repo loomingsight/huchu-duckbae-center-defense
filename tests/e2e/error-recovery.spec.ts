@@ -34,6 +34,18 @@ async function restoreContext(page: Page): Promise<void> {
   });
 }
 
+async function joystickDragWithoutRelease(page: Page): Promise<void> {
+  const box = await page.locator('canvas').boundingBox();
+  if (box === null) throw new Error('Canvas is not visible');
+  const start = {
+    x: box.x + box.width * 78 / 540,
+    y: box.y + box.height * 862 / 960,
+  };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + box.width * 48 / 540, start.y);
+}
+
 test('필수 에셋 실패는 unique 파일 수와 retry를 표시한다', async ({ page }) => {
   await page.route('**/map-background.webp', (route) => route.abort());
   await page.goto('/');
@@ -97,6 +109,54 @@ test('반복 context loss는 이전 restore prompt를 폐기하고 최신 복구
   expect((await snapshot(page)).mode).toBe('playing');
 });
 
+test('restore 확인 전 joystick gesture는 confirm 뒤 입력으로 남지 않는다', async ({ page }) => {
+  await openScenario(page, 'empty-run');
+  await loseContext(page);
+  await restoreContext(page);
+  await joystickDragWithoutRelease(page);
+
+  await page.getByRole('button', { name: '다시 그리기' }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+  });
+  await advance(page, 1000);
+  expect((await snapshot(page)).player.x).toBe(270);
+  await page.mouse.up();
+
+  await joystickDragWithoutRelease(page);
+  await advance(page, 1000);
+  expect((await snapshot(page)).player.x).toBeGreaterThan(270);
+  await page.mouse.up();
+});
+
+test('scene restart는 lost context truth를 유지하고 최신 restore 확인까지 새 run을 멈춘다', async ({ page }) => {
+  await openScenario(page, 'empty-run');
+  await loseContext(page);
+  await page.evaluate(() => {
+    (window as Window & { __TASK13_WEBGL_BRIDGE__?: unknown }).__TASK13_WEBGL_BRIDGE__
+      = window.__HUCHU_TEST__;
+    window.__HUCHU_TEST__!.restartScene();
+  });
+  await page.waitForFunction(() => (
+    window.__HUCHU_TEST__ !== undefined
+    && window.__HUCHU_TEST__ !== (window as Window & { __TASK13_WEBGL_BRIDGE__?: unknown })
+      .__TASK13_WEBGL_BRIDGE__
+  ));
+  await page.evaluate(() => window.__HUCHU_TEST__!.ready);
+
+  expect((await snapshot(page)).mode).toBe('visibilityPause');
+  const frozen = await snapshot(page);
+  await advance(page, 1000);
+  expect((await snapshot(page)).simulationMs).toBe(frozen.simulationMs);
+  await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(0);
+
+  await restoreContext(page);
+  await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(1);
+  await advance(page, 1000);
+  expect((await snapshot(page)).simulationMs).toBe(frozen.simulationMs);
+  await page.getByRole('button', { name: '다시 그리기' }).click();
+  expect((await snapshot(page)).mode).toBe('playing');
+});
+
 for (const mode of ['playing', 'countdown', 'skillSelection'] as const) {
   test(`WebGL→visibility 중첩은 ${mode}에서 마지막 reason 뒤에만 재개한다`, async ({ page }) => {
     await prepareMode(page, mode);
@@ -106,9 +166,12 @@ for (const mode of ['playing', 'countdown', 'skillSelection'] as const) {
     await restoreContext(page);
 
     if (mode !== 'skillSelection') {
+      await expect(page.locator('canvas')).toHaveCSS('pointer-events', 'none');
       await page.getByRole('button', { name: '다시 그리기' }).click();
       expect((await snapshot(page)).mode).toBe('visibilityPause');
+      await expect(page.locator('canvas')).toHaveCSS('pointer-events', 'none');
       await page.getByRole('button', { name: '계속하기' }).click();
+      await expect(page.locator('canvas')).not.toHaveCSS('pointer-events', 'none');
     }
     expect((await snapshot(page)).mode).toBe(mode);
   });
@@ -125,7 +188,9 @@ for (const mode of ['playing', 'countdown', 'skillSelection'] as const) {
     }
     await restoreContext(page);
     if (mode !== 'skillSelection') {
+      await expect(page.locator('canvas')).toHaveCSS('pointer-events', 'none');
       await page.getByRole('button', { name: '다시 그리기' }).click();
+      await expect(page.locator('canvas')).not.toHaveCSS('pointer-events', 'none');
     }
     expect((await snapshot(page)).mode).toBe(mode);
   });

@@ -49,6 +49,10 @@ export class VirtualJoystick {
     this.updateOffset(this.offset.x, this.offset.y);
   }
 
+  clearInput(): void {
+    this.release();
+  }
+
   destroy(): void {
     this.base.off(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown);
     this.scene.input.off(Phaser.Input.Events.POINTER_MOVE, this.onPointerMove);

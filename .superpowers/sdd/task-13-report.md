@@ -16,6 +16,8 @@
 - 반복 context loss마다 recovery generation을 증가시키고 restore prompt가 캡처한 generation과 현재 generation 및 `contextAvailable=true`를 함께 검사한다. 이전 prompt/callback은 현재 recovery ownership을 해제할 수 없다.
 - Result의 `won`/`lost` 중 발생한 context loss는 terminal session을 바꾸지 않지만 availability를 유지한다. 같은 runtime 재시작 시 `beginSession()`이 새 run을 즉시 `visibilityPause`로 만들고 최신 restore 확인 뒤에만 진행한다.
 - context lost 동안 canvas input을 차단해 renderer 정지 상태에서도 DOM recovery button이 클릭 가능하다. context가 아직 lost인 reset은 canvas input을 다시 켜지 않는다.
+- context restored event만으로 canvas input을 열지 않는다. coordinator가 첫 lifecycle reason을 acquire할 때 canvas를 닫고 active joystick pointer/offset을 clear하며, 유효한 확인으로 마지막 reason이 해제된 뒤에만 input을 연다. 확인 전 gesture는 재개 후 이동으로 남지 않는다.
+- canvas를 key로 한 recovery state가 `available`과 generation을 controller/scene 재생성보다 길게 유지한다. 새 `GameScene`은 renderer `gl.isContextLost()` probe를 함께 반영하고 `attach()` 직후 `beginSession()`을 호출해 lost context이면 새 session/world/UI/input을 즉시 pause한다.
 - `SceneRuntimeLifecycle` disposer가 document visibility listener, canvas WebGL listener, recovery overlay와 click listener를 함께 정리한다. Scene restart 뒤 resume/restore button은 각각 1개만 생성되고 confirm 뒤 0개가 된다.
 - `main.ts`가 Phaser 생성 전 임시 canvas로 `webgl2 || webgl`을 probe한다. 실패 시 canvas를 만들지 않고 WebGL 미지원 문구와 최신 지원 브라우저 안내를 렌더한다.
 - `E2eBootOverrides.ts`는 WebGL probe override와 복사한 P1 첫 x만 `-1`로 바꾸는 data override 두 함수만 export한다. 두 import는 각각 exact `import.meta.env.MODE === 'e2e'` 내부 dynamic import이며 production build에는 override query 문자열, TestBridge 문자열, 별도 override chunk가 없다.
@@ -70,6 +72,13 @@
 13. 독립 리뷰 Important 1: overlay action target RED
    - 실제 button `click`을 dispatch해도 action이 0회인 unit RED를 확인했다. 기존 구현은 Phaser DOMElement 전체에 listener를 연결했다.
    - 실제 button native listener로 변경하고 destroy cleanup 및 once semantics를 추가했다. unit과 resume/restore/retry message 영역 E2E가 GREEN이다.
+14. 2차 재리뷰 Critical 1: restore 확인 전 input leak RED
+   - unit에서 restored 직후 canvas input 기대 `false`, 실제 `true`였고 coordinator의 nested final-release gate 기대 `false`, 실제 `undefined`였다.
+   - actual desktop Chromium에서 restore prompt 중 joystick pointerdown/move 뒤 confirm하고 1초 진행했을 때 player x가 기대 `270`, 실제 `420`으로 이동했다.
+   - 첫 reason acquire 시 input disable과 `VirtualJoystick.clearInput()`, 마지막 reason release 시에만 enable하도록 바꿨다. 동일 Chromium 테스트는 confirm 뒤 x=270을 유지하고 fresh gesture 뒤에만 이동하며, nested 순열은 final confirm 전 `pointer-events: none`을 유지한다.
+15. 2차 재리뷰 Critical 2: scene restart recovery truth RED
+   - context loss 중 `restartScene()` 뒤 새 controller가 `available=true`로 시작해 desktop/mobile 모두 기대 `visibilityPause`, 실제 `playing`이었다.
+   - canvas-keyed WeakMap recovery truth와 actual renderer `isContextLost()` probe를 새 controller에 주입하고 create 시 `beginSession()` gate를 실행했다. desktop/mobile scene restart는 simulation clock 고정, restore prompt 1개, 확인 전 pause를 모두 검증해 GREEN이다.
 
 ## 변경 파일
 
@@ -85,6 +94,7 @@
 - `tests/unit/VisibilityController.test.ts`
 - `tests/unit/WebGlRecoveryController.test.ts`
 - `tests/unit/RuntimeErrorOverlay.test.ts`
+- `tests/unit/LifecyclePauseCoordinator.test.ts`
 - `.superpowers/sdd/task-13-report.md`
 
 ### 수정
@@ -92,6 +102,7 @@
 - `src/game/assets/assetManifest.ts`
 - `src/game/scenes/BootScene.ts`
 - `src/game/scenes/GameScene.ts`
+- `src/game/player/VirtualJoystick.ts`
 - `src/game/scenes/PreloadScene.ts`
 - `src/main.ts`
 - `src/styles.css`
@@ -107,16 +118,16 @@
 
 | 검증 | 결과 |
 | --- | --- |
-| `npm run test:unit -- tests/unit/VisibilityController.test.ts tests/unit/WebGlRecoveryController.test.ts tests/unit/RuntimeErrorOverlay.test.ts tests/unit/GameDataValidation.test.ts` | PASS, 4 files / 39 tests |
-| `npm run test:unit` | PASS, 47 files / 438 tests |
+| `npm run test:unit -- tests/unit/WebGlRecoveryController.test.ts tests/unit/LifecyclePauseCoordinator.test.ts` | PASS, 2 files / 9 tests |
+| `npm run test:unit` | PASS, 48 files / 440 tests |
 | `npm run typecheck` | PASS |
-| `npm run build` | PASS, TypeScript 및 Vite production build, JS 1,458.11 kB / gzip 381.04 kB |
+| `npm run build` | PASS, TypeScript 및 Vite production build, JS 1,458.70 kB / gzip 381.19 kB |
 | `npm run assets:verify` | PASS |
 | `npm run assets:review` | PASS |
-| desktop focused lifecycle/error E2E | PASS, 17 tests |
+| `tests/e2e/error-recovery.spec.ts` | PASS, desktop/mobile 28 tests |
 | scene restart listener/DOM focused E2E | PASS, desktop/mobile 2 tests |
 | 기존 visibility explicit-button focused E2E | PASS, desktop/mobile 8 tests |
-| `npm run test:e2e` | PASS, 101 tests / desktop-only mobile input 3 skipped / 104 total |
+| `npm run test:e2e` | PASS, 105 tests / desktop-only mobile input 3 skipped / 108 total |
 | production bundle override/query/TestBridge scan | 0 matches, `rg` exit 1; `dist`는 app JS/CSS/index 3 files만 존재 |
 | override query 문자열의 runtime source scan | 0 matches outside `E2eBootOverrides.ts`, `rg` exit 1 |
 | changed-scope risk scan (`TODO`, ignore, `any`, eval, debug log, unsafe innerHTML) | 0 matches, `rg` exit 1 |
@@ -125,6 +136,6 @@
 
 ## 남은 경고
 
-- Vite production build는 Phaser를 포함한 단일 JS chunk 1,456.33 kB에 대해 500 kB 초과 경고를 출력한다. build exit는 0이며 기존 bundle-splitting 항목이다.
+- Vite production build는 Phaser를 포함한 단일 JS chunk 1,458.70 kB에 대해 500 kB 초과 경고를 출력한다. build exit는 0이며 기존 bundle-splitting 항목이다.
 - Playwright는 `FORCE_COLOR` 때문에 `NO_COLOR`가 무시된다는 경고를 출력한다. 최종 desktop/mobile 결과에는 영향이 없다.
 - 전체 E2E의 3 skip은 desktop project에서 의도적으로 제외한 mobile touch 전용 테스트다. 같은 세 테스트는 mobile project에서 모두 통과했다.

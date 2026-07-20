@@ -34,7 +34,7 @@ it('context lost를 preventDefault하고 restore 확인 때 snapshot view를 먼
   expect(contextLost.at(-1)).toBe(true);
   target.dispatchEvent(new Event('webglcontextrestored'));
   expect(contextLost.at(-1)).toBe(false);
-  expect(canvasInput.at(-1)).toBe(true);
+  expect(canvasInput.at(-1)).toBe(false);
   expect(controller.needsConfirmation).toBe(true);
   expect(prompts.at(-1)).toBe(true);
 
@@ -43,6 +43,7 @@ it('context lost를 preventDefault하고 restore 확인 때 snapshot view를 먼
   expect(sequence).toEqual(['resync:visibilityPause']);
   expect(session.currentMode()).toBe('playing');
   expect(worldPaused.at(-1)).toBe(false);
+  expect(canvasInput.at(-1)).toBe(true);
   expect(prompts.at(-1)).toBe(false);
 });
 
@@ -141,4 +142,30 @@ it('terminal mode에서 잃은 context는 새 session을 즉시 pause하고 복�
   controller.confirmRestore();
   expect(session.currentMode()).toBe('playing');
   expect(worldPaused.at(-1)).toBe(false);
+});
+
+it('같은 canvas의 context availability는 controller 재생성 뒤에도 유지한다', () => {
+  const first = createHarness();
+  first.controller.attach();
+  first.target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  first.controller.detach();
+  first.controller.reset();
+
+  const session = GameSession.create({ seed: 2 });
+  const prompts: boolean[] = [];
+  const second = new WebGlRecoveryController(first.target, session, {
+    setWorldPaused: () => undefined,
+    setRestorePromptVisible: (visible) => prompts.push(visible),
+    setCanvasInputEnabled: () => undefined,
+    resyncView: () => undefined,
+  });
+  second.attach();
+  second.beginSession();
+
+  expect(second.contextAvailable).toBe(false);
+  expect(session.currentMode()).toBe('visibilityPause');
+  first.target.dispatchEvent(new Event('webglcontextrestored'));
+  expect(prompts.at(-1)).toBe(true);
+  second.confirmRestore();
+  expect(session.currentMode()).toBe('playing');
 });

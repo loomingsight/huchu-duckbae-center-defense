@@ -106,10 +106,6 @@ export class GameScene extends Phaser.Scene {
       this.session.modeStateForControllers(),
       { setPaused: (paused) => this.setWorldPaused(paused) },
     );
-    this.lifecyclePauseCoordinator = new LifecyclePauseCoordinator(
-      this.session,
-      { setWorldPaused: (paused) => this.setWorldPaused(paused) },
-    );
 
     new MapView(this);
     this.shelterView = new ShelterView(this);
@@ -127,6 +123,17 @@ export class GameScene extends Phaser.Scene {
     );
     this.keyboardInput = new KeyboardInput(this);
     this.virtualJoystick = new VirtualJoystick(this);
+    const setCanvasInputEnabled = (enabled: boolean): void => {
+      if (!enabled) this.virtualJoystick.clearInput();
+      this.game.canvas.style.pointerEvents = enabled ? '' : 'none';
+    };
+    this.lifecyclePauseCoordinator = new LifecyclePauseCoordinator(
+      this.session,
+      {
+        setWorldPaused: (paused) => this.setWorldPaused(paused),
+        setCanvasInputEnabled,
+      },
+    );
     this.resumeOverlay = new RuntimeErrorOverlay(this, 2500);
     this.restoreOverlay = new RuntimeErrorOverlay(this, 2510);
     this.webGlRecoveryController = new WebGlRecoveryController(
@@ -134,9 +141,7 @@ export class GameScene extends Phaser.Scene {
       this.session,
       {
         setWorldPaused: (paused) => this.setWorldPaused(paused),
-        setCanvasInputEnabled: (enabled) => {
-          this.game.canvas.style.pointerEvents = enabled ? '' : 'none';
-        },
+        setCanvasInputEnabled,
         setContextLostVisible: (visible) => {
           if (visible) {
             this.restoreOverlay.show('화면을 다시 준비하고 있어요');
@@ -162,6 +167,7 @@ export class GameScene extends Phaser.Scene {
         resyncView: () => this.resyncViewFromSnapshot(),
       },
       this.lifecyclePauseCoordinator,
+      this.webGlContextAvailable(),
     );
     this.visibilityController = new VisibilityController(
       this.session,
@@ -186,6 +192,7 @@ export class GameScene extends Phaser.Scene {
       this.lifecyclePauseCoordinator,
     );
     this.webGlRecoveryController.attach();
+    this.webGlRecoveryController.beginSession();
     this.renderPlayer();
     this.renderEnemies();
     this.renderProjectiles();
@@ -612,6 +619,12 @@ export class GameScene extends Phaser.Scene {
     this.worldPaused = paused;
     if (paused) this.physics?.world?.pause();
     else this.physics?.world?.resume();
+  }
+
+  private webGlContextAvailable(): boolean {
+    if (this.game.renderer.type !== Phaser.WEBGL) return true;
+    const renderer = this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+    return !renderer.gl.isContextLost();
   }
 }
 
