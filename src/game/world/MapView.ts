@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { AssetKeys } from '../assets/AssetKeys';
-import { WORLD_HEIGHT, WORLD_WIDTH } from '../constants';
+import { HUCHU_PRESENTATION } from '../presentation/PresentationConfig';
 
 export class MapView {
   readonly image: Phaser.GameObjects.Image;
@@ -9,7 +9,7 @@ export class MapView {
     this.image = scene.add
       .image(0, 0, AssetKeys.map)
       .setOrigin(0)
-      .setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT)
+      .setDisplaySize(HUCHU_PRESENTATION.logicalWidth, HUCHU_PRESENTATION.logicalHeight)
       .setDepth(-1000);
   }
 }

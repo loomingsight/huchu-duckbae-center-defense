@@ -16,7 +16,7 @@ export function createGameConfig(
     height: GAME_CONFIG_SPEC.height,
     backgroundColor: '#8fc66b',
     dom: { createContainer: true },
-    render: { antialias: true, roundPixels: true, powerPreference: 'high-performance' },
+    render: GAME_CONFIG_SPEC.render,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     scene: [BootScene, PreloadScene, TitleScene, gameScene, ResultScene],
   };
