@@ -280,23 +280,60 @@ export class EnemySystem {
   private advanceMoving(enemy: MovementState, stepMs: number): void {
     let remainingMs = stepMs;
     while (remainingMs > 0) {
+      if (this.settleAtAttackProgress(enemy)) return;
       this.resolveMovementBoundaries(enemy);
+      if (this.settleAtAttackProgress(enemy)) return;
+
+      const speedPerMs = enemy.speed * enemy.moveSpeedMultiplier / 1000;
+      if (!Number.isFinite(speedPerMs) || speedPerMs <= 0) {
+        throw new Error('Invalid internal enemy movement speed');
+      }
+      const untilArrivalMs = (enemy.attackProgress - enemy.pathProgress) / speedPerMs;
       const slowBoundary = enemy.slowRemainingMs > 0
         ? enemy.slowRemainingMs
         : Number.POSITIVE_INFINITY;
       const dashBoundary = enemy.kind === 'offLeashGuardian'
         ? enemy.dashCooldownRemainingMs
         : Number.POSITIVE_INFINITY;
-      const sliceMs = Math.min(remainingMs, slowBoundary, dashBoundary);
+      const sliceMs = Math.min(remainingMs, untilArrivalMs, slowBoundary, dashBoundary);
+      const previousProgress = enemy.pathProgress;
+      const previousMultiplier = enemy.moveSpeedMultiplier;
+      const previousSlowRemainingMs = enemy.slowRemainingMs;
+      const previousDashRemainingMs = enemy.dashCooldownRemainingMs;
       enemy.pathProgress = Math.min(
         enemy.attackProgress,
-        enemy.pathProgress + enemy.speed * enemy.moveSpeedMultiplier * sliceMs / 1000,
+        enemy.pathProgress + speedPerMs * sliceMs,
       );
       enemy.slowRemainingMs = Math.max(0, enemy.slowRemainingMs - sliceMs);
       enemy.dashCooldownRemainingMs = Math.max(0, enemy.dashCooldownRemainingMs - sliceMs);
-      remainingMs = Math.max(0, remainingMs - sliceMs);
+      const nextRemainingMs = Math.max(0, remainingMs - sliceMs);
+      if (this.settleAtAttackProgress(enemy)) return;
       this.resolveMovementBoundaries(enemy);
+
+      const timeAdvanced = nextRemainingMs < remainingMs;
+      const stateAdvanced = enemy.pathProgress !== previousProgress
+        || enemy.moveSpeedMultiplier !== previousMultiplier
+        || enemy.slowRemainingMs !== previousSlowRemainingMs
+        || enemy.dashCooldownRemainingMs !== previousDashRemainingMs;
+      if (!timeAdvanced && !stateAdvanced) {
+        throw new Error('Enemy movement integration could not advance');
+      }
+      remainingMs = nextRemainingMs;
     }
+  }
+
+  private settleAtAttackProgress(enemy: MovementState): boolean {
+    if (enemy.attackProgress - enemy.pathProgress > TIME_EPSILON_MS) return false;
+
+    enemy.pathProgress = enemy.attackProgress;
+    if (enemy.slowRemainingMs <= TIME_EPSILON_MS) {
+      enemy.slowRemainingMs = 0;
+      enemy.moveSpeedMultiplier = 1;
+    }
+    if (enemy.dashCooldownRemainingMs <= TIME_EPSILON_MS) {
+      enemy.dashCooldownRemainingMs = 0;
+    }
+    return true;
   }
 
   private resolveMovementBoundaries(enemy: MovementState): void {
@@ -328,12 +365,10 @@ export class EnemySystem {
     };
     let elapsedMs = 0;
     while (estimate.pathProgress < estimate.attackProgress) {
+      if (this.settleAtAttackProgress(estimate)) break;
       this.resolveMovementBoundaries(estimate);
+      if (this.settleAtAttackProgress(estimate)) break;
       const remainingDistance = estimate.attackProgress - estimate.pathProgress;
-      if (remainingDistance <= TIME_EPSILON_MS) {
-        estimate.pathProgress = estimate.attackProgress;
-        break;
-      }
       const speedPerMs = estimate.speed * estimate.moveSpeedMultiplier / 1000;
       if (speedPerMs <= 0) return Number.POSITIVE_INFINITY;
       const untilArrivalMs = remainingDistance / speedPerMs;

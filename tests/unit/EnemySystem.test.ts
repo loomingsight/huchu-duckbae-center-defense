@@ -85,6 +85,32 @@ it('sub-epsilon dash 경계에서 snapshot ETA는 종료하고 finite하다', ()
   expect(Number.isFinite(system.snapshots()[0]!.etaMs)).toBe(true);
 });
 
+it('off-leash의 매우 큰 finite step도 도달 경계에서 즉시 종료한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
+
+  system.step(1e20);
+  const settled = system.snapshots()[0]!;
+  system.step(1e20);
+
+  expect(settled).toMatchObject({ state: 'moving', etaMs: 0 });
+  expect(system.snapshots()[0]).toMatchObject({
+    state: 'moving',
+    etaMs: 0,
+    pathProgress: settled.pathProgress,
+    position: settled.position,
+  });
+});
+
+it('일반 적의 매우 큰 finite step도 도달 경계에서 즉시 종료한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
+
+  system.step(1e20);
+  const settled = system.snapshots()[0]!;
+
+  expect(settled).toMatchObject({ state: 'moving', etaMs: 0 });
+  expect(Number.isFinite(settled.pathProgress)).toBe(true);
+});
+
 it('slow와 dash가 같은 sub-epsilon 경계면 slow을 먼저 풀고 정상 배율 dash한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
   system.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 4000 });
