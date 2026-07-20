@@ -45,6 +45,7 @@ test('가시성 일시정지 중에는 수동 tick과 애니메이션 시간을 
   await advance(page, 1000);
   expect(await snapshot(page)).toMatchObject({ mode: 'visibilityPause', simulationMs: 0 });
   await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(false));
+  await page.getByRole('button', { name: '계속하기' }).click();
   await advance(page, 1000);
   expect(await snapshot(page)).toMatchObject({ mode: 'playing', simulationMs: 1000 });
 });
@@ -54,6 +55,7 @@ test('가시성 일시정지의 부분 ms도 resume 후 tick에 합치지 않는
   await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(true));
   await advance(page, 8);
   await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(false));
+  await page.getByRole('button', { name: '계속하기' }).click();
   await advance(page, 9);
   expect((await snapshot(page)).simulationMs).toBe(0);
   await advance(page, 8);

@@ -18,6 +18,15 @@ describe('required asset status', () => {
     expect(requiredAssetFailureCount(requiredTextureKeys, () => true, 1)).toBe(1);
   });
 
+  it('같은 required file의 중복 error event는 한 파일로 집계한다', () => {
+    const failed = requiredTextureKeys[0]!;
+    expect(requiredAssetFailureCount(
+      requiredTextureKeys,
+      (key) => key !== failed,
+      new Set([failed, failed]),
+    )).toBe(1);
+  });
+
   it('load error event가 없어도 required texture가 없으면 실패한다', () => {
     const missing = requiredTextureKeys[2];
     expect(requiredAssetFailureCount(requiredTextureKeys, (key) => key !== missing, 0)).toBe(1);

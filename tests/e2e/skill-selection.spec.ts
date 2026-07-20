@@ -172,6 +172,7 @@ test('visibility pause는 countdown과 world clock을 함께 보존한다', asyn
     projectiles: beforeHidden.projectiles,
   });
   await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(false));
+  await page.getByRole('button', { name: '계속하기' }).click();
   expect((await snapshot(page)).mode).toBe('countdown');
   await advance(page, 1999);
   expect((await snapshot(page)).mode).toBe('countdown');

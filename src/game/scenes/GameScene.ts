@@ -17,6 +17,8 @@ import { CombatEffectPool } from '../combat/CombatEffectPool';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
 import type { GameEvent } from '../events/GameEvents';
 import { WorldPauseController } from '../lifecycle/WorldPauseController';
+import { VisibilityController } from '../lifecycle/VisibilityController';
+import { WebGlRecoveryController } from '../lifecycle/WebGlRecoveryController';
 import type { MovementIntent } from '../player/InputVector';
 import { KeyboardInput } from '../player/KeyboardInput';
 import { PlayerController } from '../player/PlayerController';
@@ -27,6 +29,7 @@ import { VirtualJoystick } from '../player/VirtualJoystick';
 import { GameSession } from '../session/GameSession';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import { ShelterView } from '../shelter/ShelterView';
+import { shelterVisualState } from '../shelter/ShelterSystem';
 import type { SkillCard } from '../skills/SkillTypes';
 import {
   CountdownOverlay,
@@ -34,6 +37,7 @@ import {
 } from '../ui/CountdownOverlay';
 import { SkillSelectionModal } from '../ui/SkillSelectionModal';
 import { HudSystem, type HudSnapshot } from '../ui/HudSystem';
+import { RuntimeErrorOverlay } from '../ui/RuntimeErrorOverlay';
 import { DebugPathOverlay } from '../world/DebugPathOverlay';
 import { MapView } from '../world/MapView';
 import { SceneRuntimeLifecycle } from './SceneRuntimeLifecycle';
@@ -56,6 +60,10 @@ export class GameScene extends Phaser.Scene {
   private hud!: HudSystem;
   private combatEffects!: CombatEffectPool;
   private worldPauseController!: WorldPauseController;
+  private visibilityController!: VisibilityController;
+  private webGlRecoveryController!: WebGlRecoveryController;
+  private resumeOverlay!: RuntimeErrorOverlay;
+  private restoreOverlay!: RuntimeErrorOverlay;
   private enemyActors: EnemyActorPool | undefined;
   private projectileActors: ProjectileActorPool | undefined;
   private shelterView: ShelterView | undefined;
@@ -79,6 +87,9 @@ export class GameScene extends Phaser.Scene {
     const root = document.querySelector('#game-root');
     root?.setAttribute('data-scene', 'Game');
     root?.setAttribute('data-renderer', this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'other');
+    if (this.game.domContainer !== null) this.game.domContainer.style.zIndex = '1';
+    this.game.canvas.style.position = 'relative';
+    this.game.canvas.style.zIndex = '0';
 
     this.fixedClock.reset();
     this.session = GameSession.create({ seed: DEFAULT_RUN_SEED });
@@ -110,6 +121,62 @@ export class GameScene extends Phaser.Scene {
     );
     this.keyboardInput = new KeyboardInput(this);
     this.virtualJoystick = new VirtualJoystick(this);
+    this.resumeOverlay = new RuntimeErrorOverlay(this, 2500);
+    this.restoreOverlay = new RuntimeErrorOverlay(this, 2510);
+    this.webGlRecoveryController = new WebGlRecoveryController(
+      this.game.canvas,
+      this.session,
+      {
+        setWorldPaused: (paused) => this.setWorldPaused(paused),
+        setCanvasInputEnabled: (enabled) => {
+          this.game.canvas.style.pointerEvents = enabled ? '' : 'none';
+        },
+        setContextLostVisible: (visible) => {
+          if (visible) {
+            this.restoreOverlay.show('화면을 다시 준비하고 있어요');
+          } else {
+            this.restoreOverlay.hide();
+          }
+        },
+        setRestorePromptVisible: (visible) => {
+          if (visible) {
+            this.restoreOverlay.show(
+              '화면을 다시 준비했어요',
+              '버튼을 눌러 현재 상태부터 계속해 주세요',
+              {
+                label: '다시 그리기',
+                onSelect: () => this.webGlRecoveryController.confirmRestore(),
+              },
+            );
+          } else {
+            this.restoreOverlay.hide();
+          }
+        },
+        resyncView: () => this.resyncViewFromSnapshot(),
+      },
+    );
+    this.visibilityController = new VisibilityController(
+      this.session,
+      {
+        setWorldPaused: (paused) => this.setWorldPaused(paused),
+        setResumePromptVisible: (visible) => {
+          if (visible) {
+            this.resumeOverlay.show(
+              '게임이 잠시 멈췄어요',
+              '버튼을 눌러 숨기기 전 상태부터 계속해 주세요',
+              {
+                label: '계속하기',
+                onSelect: () => this.visibilityController.confirmResume(),
+              },
+            );
+          } else {
+            this.resumeOverlay.hide();
+          }
+        },
+      },
+      () => this.webGlRecoveryController.contextAvailable,
+    );
+    this.webGlRecoveryController.attach();
     this.renderPlayer();
     this.renderEnemies();
     this.renderProjectiles();
@@ -119,6 +186,13 @@ export class GameScene extends Phaser.Scene {
     document.addEventListener('visibilitychange', onVisibilityChange);
     this.runtimeLifecycle.attach(generation, () => {
       document.removeEventListener('visibilitychange', onVisibilityChange);
+    });
+    this.runtimeLifecycle.attach(generation, () => {
+      this.webGlRecoveryController.detach();
+      this.visibilityController.reset();
+      this.webGlRecoveryController.reset();
+      this.resumeOverlay.destroy();
+      this.restoreOverlay.destroy();
     });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.shutdownRuntime(generation));
@@ -173,6 +247,8 @@ export class GameScene extends Phaser.Scene {
     this.resetEnemyAttackEffect();
     this.playerView.resetCombatVisuals();
     this.combatEffects.releaseAll();
+    this.visibilityController.reset();
+    this.webGlRecoveryController.reset();
     this.session.reset(seed);
     this.worldPauseController.reset();
     this.fixedClock.reset();
@@ -325,9 +401,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   setVisibilityForTest(hidden: boolean): void {
-    if (hidden) this.session.requestVisibilityPause();
-    else this.session.requestVisibilityResume();
-    this.worldPauseController.sync();
+    if (hidden) this.visibilityController.hidden();
+    else this.visibilityController.visible();
   }
 
   forceModeForTest(mode: GameMode): void {
@@ -509,6 +584,16 @@ export class GameScene extends Phaser.Scene {
 
   private renderHud(): void {
     this.hud.render(this.session.snapshot(), this.session.skillStateSnapshot());
+  }
+
+  private resyncViewFromSnapshot(): void {
+    const snapshot = this.session.snapshot();
+    this.renderPlayer();
+    this.renderEnemies();
+    this.renderProjectiles();
+    this.shelterView?.render(shelterVisualState(snapshot.shelterHp, 100));
+    this.renderHud();
+    if (snapshot.mode === 'countdown') this.renderCountdown();
   }
 
   private setWorldPaused(paused: boolean): void {

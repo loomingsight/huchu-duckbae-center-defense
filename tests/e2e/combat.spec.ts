@@ -84,6 +84,7 @@ test('windup 중 이동은 계속되고 visibility pause wall time은 release를
     snacks: 0,
   });
   await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(false));
+  await page.getByRole('button', { name: '계속하기' }).click();
   await advance(page, 125);
 
   const released = await snapshot(page);

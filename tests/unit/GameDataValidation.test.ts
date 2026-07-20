@@ -9,6 +9,7 @@ vi.mock('phaser', () => ({
   default: {
     Scene: class {},
     WEBGL: 2,
+    Scenes: { Events: { SHUTDOWN: 'shutdown' } },
   },
 }));
 
@@ -553,23 +554,29 @@ describe('BootScene', () => {
       const { BootScene } = await import('../../src/game/scenes/BootScene');
       const scene = new BootScene();
       const start = vi.fn();
-      const setOrigin = vi.fn();
-      const text = vi.fn(() => ({ setOrigin }));
+      const element = {
+        setDepth: vi.fn().mockReturnThis(),
+        addListener: vi.fn(),
+        on: vi.fn(),
+        removeListener: vi.fn(),
+        removeAllListeners: vi.fn(),
+        destroy: vi.fn(),
+      };
+      const createFromHTML = vi.fn(() => element);
+      const dom = vi.fn(() => ({ createFromHTML }));
       Object.defineProperties(scene, {
         game: { value: { renderer: { type: 2 } } },
         scene: { value: { start } },
-        add: { value: { text } },
+        add: { value: { dom } },
+        events: { value: { once: vi.fn() } },
       });
 
       scene.create();
 
-      expect(text).toHaveBeenCalledWith(
-        270,
-        480,
-        expect.stringContaining('잘못된 게임 데이터: path P1'),
-        expect.any(Object),
-      );
-      expect(setOrigin).toHaveBeenCalledWith(0.5);
+      expect(dom).toHaveBeenCalledWith(270, 480);
+      expect(createFromHTML).toHaveBeenCalledWith(expect.stringContaining('게임 데이터를 확인하지 못했어요'));
+      expect(createFromHTML).toHaveBeenCalledWith(expect.stringContaining('path P1'));
+      expect(createFromHTML).toHaveBeenCalledWith(expect.stringContaining('다시 시도'));
       expect(start).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(PATH_DEFINITIONS, 'P1', {

@@ -75,11 +75,19 @@ export const requiredTextureKeys = [
 export function requiredAssetFailureCount(
   requiredKeys: readonly string[],
   textureExists: (key: string) => boolean,
-  loadFailures: number,
+  loadFailures: number | Iterable<string>,
 ): number {
-  const missingTextures = requiredKeys.reduce(
-    (count, key) => count + (textureExists(key) ? 0 : 1),
-    0,
-  );
-  return Math.max(loadFailures, missingTextures);
+  if (typeof loadFailures === 'number') {
+    const missingTextures = requiredKeys.reduce(
+      (count, key) => count + (textureExists(key) ? 0 : 1),
+      0,
+    );
+    return Math.max(loadFailures, missingTextures);
+  }
+  const required = new Set(requiredKeys);
+  const failures = new Set([...loadFailures].filter((key) => required.has(key)));
+  requiredKeys.forEach((key) => {
+    if (!textureExists(key)) failures.add(key);
+  });
+  return failures.size;
 }
