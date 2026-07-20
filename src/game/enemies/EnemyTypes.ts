@@ -18,6 +18,8 @@ export interface EnemySnapshot {
   readonly maxHp: number;
   readonly spawnSequence: number;
   readonly isBoss: boolean;
-  readonly stunnedMs: number;
+  readonly moveSpeedMultiplier: number;
+  readonly slowRemainingMs: number;
+  readonly dashCooldownRemainingMs: number;
   readonly animationElapsedMs: number;
 }

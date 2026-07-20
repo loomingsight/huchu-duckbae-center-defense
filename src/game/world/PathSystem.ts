@@ -71,6 +71,21 @@ export class PathSystem {
     );
   }
 
+  positionAtExtended(distancePx: number): Point {
+    rejectNaN(distancePx, 'distancePx');
+    if (distancePx >= 0 || !Number.isFinite(distancePx)) {
+      return this.positionAt(distancePx);
+    }
+
+    const start = this.points[0]!;
+    const next = this.points[1]!;
+    const firstSegmentLength = this.cumulative[1]!;
+    return {
+      x: start.x + (next.x - start.x) / firstSegmentLength * distancePx,
+      y: start.y + (next.y - start.y) / firstSegmentLength * distancePx,
+    };
+  }
+
   eta(progress: number, speedPerSecond: number): number {
     rejectNaN(progress, 'progress');
     rejectNaN(speedPerSecond, 'speedPerSecond');

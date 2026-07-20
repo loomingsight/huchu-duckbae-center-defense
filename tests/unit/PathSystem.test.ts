@@ -35,6 +35,15 @@ describe('PathSystem', () => {
     expect(path.eta(10, Number.NEGATIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);
   });
 
+  it('음수 진행도는 첫 segment 방향으로만 연장하고 나머지는 clamp한다', () => {
+    const path = new PathSystem([[10, 20], [10, 120], [110, 120]]);
+
+    expect(path.positionAtExtended(-70)).toEqual({ x: 10, y: -50 });
+    expect(path.positionAtExtended(0)).toEqual(path.positionAt(0));
+    expect(path.positionAtExtended(150)).toEqual(path.positionAt(150));
+    expect(path.positionAtExtended(1000)).toEqual({ x: 110, y: 120 });
+  });
+
   it('유효하지 않은 경로와 원을 거부한다', () => {
     expect(() => new PathSystem([[0, 0]])).toThrow('at least two waypoints');
     expect(() => new PathSystem([[0, 0], [0, 0]])).toThrow('non-zero length');

@@ -1,4 +1,4 @@
-import { subtractDuration, TIME_EPSILON_MS } from '../constants';
+import { TIME_EPSILON_MS } from '../constants';
 import { BALANCE } from '../data/balance';
 import { PATH_DEFINITIONS } from '../data/pathDefinitions';
 import type {
@@ -17,6 +17,12 @@ export type EnemyLifecycleEvent =
 
 export type EnemyAttackState = Extract<EnemyState, 'moving' | 'windup' | 'holding'>;
 
+export interface TailEffect {
+  readonly knockbackPx: number;
+  readonly multiplier: number;
+  readonly durationMs: number;
+}
+
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 export type MutableEnemy = Omit<Mutable<EnemySnapshot>, 'position' | 'etaMs'> & {
   readonly speed: number;
@@ -25,6 +31,20 @@ export type MutableEnemy = Omit<Mutable<EnemySnapshot>, 'position' | 'etaMs'> & 
   readonly attackProgress: number;
   readonly path: PathSystem;
 };
+
+interface MovementState {
+  kind: EnemyKind;
+  pathProgress: number;
+  speed: number;
+  attackProgress: number;
+  moveSpeedMultiplier: number;
+  slowRemainingMs: number;
+  dashCooldownRemainingMs: number;
+}
+
+const DOG_TRADER_ENTRY_PROGRESS = -70;
+const OFF_LEASH_DASH_DISTANCE = 64;
+const OFF_LEASH_DASH_INTERVAL_MS = 4000;
 
 const PATH_IDS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const;
 const PATH_ID_SET = new Set<string>(PATH_IDS);
@@ -66,15 +86,27 @@ export class EnemySystem {
     ) as Record<PathId, PathSystem>);
   }
 
-  static withSingleEnemy(input: { readonly kind: EnemyKind; readonly pathId: PathId }): EnemySystem {
+  static withSingleEnemy(input: {
+    readonly kind: EnemyKind;
+    readonly pathId: PathId;
+    readonly initialProgress?: number;
+  }): EnemySystem {
     const system = EnemySystem.createDefault();
-    system.spawn({
+    const enemyId = system.spawn({
       atMs: 0,
       kind: input.kind,
       pathId: input.pathId,
       variant: 'male',
       spawnSequence: 0,
     });
+    if (input.initialProgress !== undefined) {
+      assertFinite(input.initialProgress, 'Enemy initialProgress');
+      const enemy = system.enemies.get(enemyId)!;
+      enemy.pathProgress = Math.min(
+        enemy.path.length,
+        Math.max(minimumProgress(enemy.kind), input.initialProgress),
+      );
+    }
     return system;
   }
 
@@ -96,12 +128,14 @@ export class EnemySystem {
       variant: request.variant,
       state: 'moving',
       pathId: request.pathId,
-      pathProgress: 0,
+      pathProgress: minimumProgress(request.kind),
       currentHp: stats.hp,
       maxHp: stats.hp,
       spawnSequence: request.spawnSequence,
       isBoss: isBoss(request.kind),
-      stunnedMs: 0,
+      moveSpeedMultiplier: 1,
+      slowRemainingMs: 0,
+      dashCooldownRemainingMs: OFF_LEASH_DASH_INTERVAL_MS,
       animationElapsedMs: 0,
       speed: stats.speed,
       snack: stats.snack,
@@ -122,25 +156,12 @@ export class EnemySystem {
     if (stepMs === 0) return;
 
     for (const enemy of this.enemies.values()) {
-      let activeStepMs = stepMs;
-      if (enemy.state === 'stunned') {
-        const frozenMs = Math.min(enemy.stunnedMs, activeStepMs);
-        enemy.stunnedMs = subtractDuration(enemy.stunnedMs, frozenMs);
-        activeStepMs = Math.max(0, activeStepMs - frozenMs);
-        if (enemy.stunnedMs > 0) continue;
-        enemy.state = 'moving';
-        enemy.animationElapsedMs = 0;
-        if (activeStepMs <= TIME_EPSILON_MS) continue;
-      }
       if (enemy.state !== 'moving') {
-        enemy.animationElapsedMs += activeStepMs;
+        enemy.animationElapsedMs += stepMs;
         continue;
       }
-      enemy.pathProgress = Math.min(
-        enemy.attackProgress,
-        enemy.pathProgress + enemy.speed * activeStepMs / 1000,
-      );
-      enemy.animationElapsedMs += activeStepMs;
+      this.advanceMoving(enemy, stepMs);
+      enemy.animationElapsedMs += stepMs;
     }
   }
 
@@ -176,7 +197,6 @@ export class EnemySystem {
       && enemy.state === 'windup'
       && state === 'holding';
     enemy.state = state;
-    enemy.stunnedMs = 0;
     if (!preserveAttackElapsed) enemy.animationElapsedMs = animationElapsedMs ?? 0;
   }
 
@@ -187,9 +207,11 @@ export class EnemySystem {
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
 
-    enemy.pathProgress = enemy.path.knockBack(enemy.pathProgress, distance);
+    enemy.pathProgress = Math.max(
+      minimumProgress(enemy.kind),
+      enemy.pathProgress - distance,
+    );
     enemy.state = 'moving';
-    enemy.stunnedMs = 0;
     enemy.animationElapsedMs = 0;
   }
 
@@ -201,29 +223,37 @@ export class EnemySystem {
 
     enemy.pathProgress = Math.min(enemy.path.length, nextPathProgress);
     enemy.state = 'moving';
-    enemy.stunnedMs = 0;
     enemy.animationElapsedMs = 0;
   }
 
-  stun(enemyId: number, durationMs: number): void {
+  applyTailEffect(enemyId: number, effect: TailEffect): { readonly interruptedWindup: boolean } {
     assertEnemyId(enemyId);
-    assertFiniteNonNegative(durationMs, 'Enemy stun durationMs');
-    if (durationMs === 0) return;
+    assertFiniteNonNegative(effect.knockbackPx, 'Tail knockbackPx');
+    assertFiniteNonNegative(effect.durationMs, 'Tail durationMs');
+    if (!Number.isFinite(effect.multiplier) || effect.multiplier <= 0) {
+      throw new RangeError('Tail multiplier must be finite and positive');
+    }
     const enemy = this.enemies.get(enemyId);
-    if (enemy === undefined) return;
+    if (enemy === undefined) return { interruptedWindup: false };
 
-    const remainingStunMs = enemy.state === 'stunned' ? enemy.stunnedMs : 0;
-    enemy.state = 'stunned';
-    enemy.stunnedMs = Math.max(remainingStunMs, durationMs);
-    enemy.animationElapsedMs = 0;
+    const interruptedWindup = enemy.state === 'windup';
+    enemy.pathProgress = Math.max(
+      minimumProgress(enemy.kind),
+      enemy.pathProgress - effect.knockbackPx,
+    );
+    enemy.moveSpeedMultiplier = effect.durationMs > 0 ? effect.multiplier : 1;
+    enemy.slowRemainingMs = Math.max(enemy.slowRemainingMs, effect.durationMs);
+    if (interruptedWindup) {
+      enemy.state = 'moving';
+      enemy.animationElapsedMs = 0;
+    }
+    return { interruptedWindup };
   }
 
   snapshots(): readonly EnemySnapshot[] {
     return [...this.enemies.values()]
       .sort((left, right) => left.spawnSequence - right.spawnSequence || left.id - right.id)
       .map((enemy) => {
-        const movingEtaMs = Math.max(0, enemy.attackProgress - enemy.pathProgress)
-          / enemy.speed * 1000;
         return {
           id: enemy.id,
           kind: enemy.kind,
@@ -231,18 +261,78 @@ export class EnemySystem {
           state: enemy.state,
           pathId: enemy.pathId,
           pathProgress: enemy.pathProgress,
-          position: enemy.path.positionAt(enemy.pathProgress),
+          position: enemy.path.positionAtExtended(enemy.pathProgress),
           etaMs: enemy.state === 'windup' || enemy.state === 'holding'
             ? 0
-            : movingEtaMs + (enemy.state === 'stunned' ? enemy.stunnedMs : 0),
+            : this.estimateEtaMs(enemy),
           currentHp: enemy.currentHp,
           maxHp: enemy.maxHp,
           spawnSequence: enemy.spawnSequence,
           isBoss: enemy.isBoss,
-          stunnedMs: enemy.stunnedMs,
+          moveSpeedMultiplier: enemy.moveSpeedMultiplier,
+          slowRemainingMs: enemy.slowRemainingMs,
+          dashCooldownRemainingMs: enemy.dashCooldownRemainingMs,
           animationElapsedMs: enemy.animationElapsedMs,
         };
       });
+  }
+
+  private advanceMoving(enemy: MovementState, stepMs: number): void {
+    let remainingMs = stepMs;
+    while (remainingMs > TIME_EPSILON_MS) {
+      const slowBoundary = enemy.slowRemainingMs > 0
+        ? enemy.slowRemainingMs
+        : Number.POSITIVE_INFINITY;
+      const dashBoundary = enemy.kind === 'offLeashGuardian'
+        ? enemy.dashCooldownRemainingMs
+        : Number.POSITIVE_INFINITY;
+      const sliceMs = Math.min(remainingMs, slowBoundary, dashBoundary);
+      enemy.pathProgress = Math.min(
+        enemy.attackProgress,
+        enemy.pathProgress + enemy.speed * enemy.moveSpeedMultiplier * sliceMs / 1000,
+      );
+      enemy.slowRemainingMs = Math.max(0, enemy.slowRemainingMs - sliceMs);
+      enemy.dashCooldownRemainingMs = Math.max(0, enemy.dashCooldownRemainingMs - sliceMs);
+      remainingMs -= sliceMs;
+
+      if (enemy.slowRemainingMs === 0) enemy.moveSpeedMultiplier = 1;
+      if (enemy.kind === 'offLeashGuardian' && enemy.dashCooldownRemainingMs === 0) {
+        enemy.pathProgress = Math.min(
+          enemy.attackProgress,
+          enemy.pathProgress + OFF_LEASH_DASH_DISTANCE * enemy.moveSpeedMultiplier,
+        );
+        enemy.dashCooldownRemainingMs = OFF_LEASH_DASH_INTERVAL_MS;
+      }
+    }
+  }
+
+  private estimateEtaMs(enemy: MutableEnemy): number {
+    if (enemy.pathProgress >= enemy.attackProgress) return 0;
+    const estimate: MovementState = {
+      kind: enemy.kind,
+      pathProgress: enemy.pathProgress,
+      speed: enemy.speed,
+      attackProgress: enemy.attackProgress,
+      moveSpeedMultiplier: enemy.moveSpeedMultiplier,
+      slowRemainingMs: enemy.slowRemainingMs,
+      dashCooldownRemainingMs: enemy.dashCooldownRemainingMs,
+    };
+    let elapsedMs = 0;
+    while (estimate.pathProgress < estimate.attackProgress) {
+      const speedPerMs = estimate.speed * estimate.moveSpeedMultiplier / 1000;
+      if (speedPerMs <= 0) return Number.POSITIVE_INFINITY;
+      const untilArrivalMs = (estimate.attackProgress - estimate.pathProgress) / speedPerMs;
+      const untilSlowBoundaryMs = estimate.slowRemainingMs > 0
+        ? estimate.slowRemainingMs
+        : Number.POSITIVE_INFINITY;
+      const untilDashBoundaryMs = estimate.kind === 'offLeashGuardian'
+        ? estimate.dashCooldownRemainingMs
+        : Number.POSITIVE_INFINITY;
+      const sliceMs = Math.min(untilArrivalMs, untilSlowBoundaryMs, untilDashBoundaryMs);
+      this.advanceMoving(estimate, sliceMs);
+      elapsedMs += sliceMs;
+    }
+    return elapsedMs;
   }
 
   get activeCount(): number {
@@ -294,4 +384,8 @@ function assertFiniteNonNegative(value: number, label: string): void {
 
 function isBoss(kind: EnemyKind): boolean {
   return kind === 'dogTrader' || kind === 'illegalBreeder';
+}
+
+function minimumProgress(kind: EnemyKind): number {
+  return kind === 'dogTrader' ? DOG_TRADER_ENTRY_PROGRESS : 0;
 }

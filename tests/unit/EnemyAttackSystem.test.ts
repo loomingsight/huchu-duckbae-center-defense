@@ -1,16 +1,172 @@
-import { FIXED_STEP_MS } from '../../src/game/constants';
 import {
+  EnemyAttackSystem,
   distanceToShelterBoundary,
 } from '../../src/game/combat/EnemyAttackSystem';
+import { ProjectileSystem } from '../../src/game/combat/ProjectileSystem';
+import { BALANCE, attackImpactMs } from '../../src/game/data/balance';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
-import { enemyFrameAt } from '../../src/game/enemies/EnemyActor';
-import { E2eGameSession as GameSession } from '../../src/game/debug/E2eGameSession';
+import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
+import type { EnemyKind } from '../../src/game/types/GameTypes';
 import { attackFrameAt } from '../../src/game/world/AnimationFrameResolver';
-import {
-  attackSystemFor,
-  inRangeEnemy,
-  outOfRangeEnemy,
-} from './fixtures';
+
+const snapshot = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot => ({
+  id: 1,
+  kind: 'poopGuardian',
+  variant: 'male',
+  state: 'moving',
+  pathId: 'P1',
+  pathProgress: 77,
+  position: { x: 270, y: 550 },
+  etaMs: 0,
+  currentHp: 60,
+  maxHp: 60,
+  spawnSequence: 0,
+  isBoss: false,
+  moveSpeedMultiplier: 1,
+  slowRemainingMs: 0,
+  dashCooldownRemainingMs: 4000,
+  animationElapsedMs: 0,
+  ...overrides,
+});
+
+const inRangeEnemy = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot =>
+  snapshot(overrides);
+
+const outOfRangeEnemy = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot =>
+  snapshot({ position: { x: 270, y: 570 }, pathProgress: 76, ...overrides });
+
+const attackSystemFor = (kind: EnemyKind): EnemyAttackSystem => new EnemyAttackSystem({
+  kind,
+  balance: BALANCE.enemies[kind],
+  shelter: { center: { x: 270, y: 480 }, radius: 38 },
+});
+
+it('새 tail impact는 windup만 한 번 취소하고 holding/projectile은 지우지 않는다', () => {
+  const attack = attackSystemFor('poopGuardian');
+  const target = inRangeEnemy({ id: 3, state: 'windup' });
+  attack.step(0, target);
+
+  expect(attack.interruptWindup(3)).toBe(true);
+  expect(attack.interruptWindup(3)).toBe(false);
+  expect('stunnedMs' in target).toBe(false);
+
+  attack.step(0, target);
+  attack.step(250, target);
+  expect(attack.snapshot(3).state).toBe('holding');
+  expect(attack.interruptWindup(3)).toBe(false);
+  expect(attack.snapshot(3).state).toBe('holding');
+});
+
+it('일반 공격은 250ms, 두 보스 공격은 500ms event frame에 release한다', () => {
+  const regular = attackSystemFor('poopGuardian');
+  const dogTrader = attackSystemFor('dogTrader');
+  const illegalBreeder = attackSystemFor('illegalBreeder');
+  expect(regular.step(249, inRangeEnemy({ id: 1 })).some(
+    (event) => event.type === 'projectileRequested',
+  )).toBe(false);
+  expect(regular.step(1, inRangeEnemy({ id: 1 })).some(
+    (event) => event.type === 'projectileRequested',
+  )).toBe(true);
+  expect(dogTrader.step(499, inRangeEnemy({ id: 2, kind: 'dogTrader', isBoss: true })).some(
+    (event) => event.type === 'projectileRequested',
+  )).toBe(false);
+  expect(dogTrader.step(1, inRangeEnemy({ id: 2, kind: 'dogTrader', isBoss: true })).some(
+    (event) => event.type === 'projectileRequested',
+  )).toBe(true);
+  expect(illegalBreeder.step(
+    500,
+    inRangeEnemy({ id: 4, kind: 'illegalBreeder', isBoss: true }),
+  ).some((event) => event.type === 'projectileRequested')).toBe(true);
+  expect(attackImpactMs(BALANCE.enemies.illegalBreeder.attackTiming)).toBe(500);
+});
+
+it('enemy castId와 kind는 attack start부터 projectile hit까지 보존된다', () => {
+  const attack = attackSystemFor('poopGuardian');
+  const target = inRangeEnemy({ id: 7 });
+  const started = attack.step(0, target)[0];
+  const projectileRequest = attack.step(250, target)
+    .find((event) => event.type === 'projectileRequested')!;
+  const projectiles = new ProjectileSystem(1);
+  projectiles.spawn({ ...projectileRequest, id: 99 });
+  expect(attack.interruptWindup(7)).toBe(false);
+  const impactEvents = projectiles.step(500);
+
+  expect([
+    started,
+    projectileRequest,
+    impactEvents.find((event) => event.type === 'projectileHit'),
+    impactEvents.find((event) => event.type === 'shelterDamageRequested'),
+  ]).toEqual([
+    expect.objectContaining({ type: 'attackStarted', castId: 'enemy:7:1', kind: 'poopGuardian' }),
+    expect.objectContaining({
+      type: 'projectileRequested', castId: 'enemy:7:1', kind: 'poopGuardian',
+    }),
+    expect.objectContaining({ type: 'projectileHit', castId: 'enemy:7:1', projectileKind: 'poop' }),
+    expect.objectContaining({
+      type: 'shelterDamageRequested',
+      castId: 'enemy:7:1',
+      sourceEnemyId: 7,
+      sourceEnemyKind: 'poopGuardian',
+      amount: 25,
+      strength: 'medium',
+    }),
+  ]);
+});
+
+it('off-leash direct release도 250ms에 구조화된 보호소 요청을 낸다', () => {
+  const attack = attackSystemFor('offLeashGuardian');
+  const target = inRangeEnemy({ id: 8, kind: 'offLeashGuardian' });
+  attack.step(0, target);
+  expect(attack.step(250, target).find(
+    (event) => event.type === 'shelterDamageRequested',
+  )).toMatchObject({
+    castId: 'enemy:8:1',
+    sourceEnemyId: 8,
+    sourceEnemyKind: 'offLeashGuardian',
+    amount: 50,
+    strength: 'medium',
+    position: { x: 270, y: 480 },
+    impactDirection: { x: 0, y: -1 },
+  });
+});
+
+it('순수 projectile origin을 사용하고 0 방향은 위쪽 fallback으로 정규화한다', () => {
+  const origin = { x: 120, y: 300 };
+  const attack = new EnemyAttackSystem({
+    kind: 'dogTrader',
+    balance: BALANCE.enemies.dogTrader,
+    shelter: { center: { x: 270, y: 480 }, radius: 38 },
+    projectileOrigin: () => origin,
+  });
+  const target = inRangeEnemy({ id: 9, kind: 'dogTrader', isBoss: true });
+  const request = attack.step(500, target).find(
+    (event) => event.type === 'projectileRequested',
+  );
+  expect(request).toMatchObject({ from: origin, castId: 'enemy:9:1' });
+
+  const direct = new EnemyAttackSystem({
+    kind: 'offLeashGuardian',
+    balance: BALANCE.enemies.offLeashGuardian,
+    shelter: { center: { x: 270, y: 480 }, radius: 38 },
+    projectileOrigin: () => ({ x: 270, y: 480 }),
+  });
+  expect(direct.step(250, inRangeEnemy({ id: 10 })).find(
+    (event) => event.type === 'shelterDamageRequested',
+  )).toMatchObject({ impactDirection: { x: 0, y: -1 } });
+});
+
+it('보스 projectile은 보호소 hit에 heavy 요청을 낸다', () => {
+  const attack = attackSystemFor('dogTrader');
+  const target = inRangeEnemy({ id: 11, kind: 'dogTrader', isBoss: true });
+  const request = attack.step(500, target).find(
+    (event) => event.type === 'projectileRequested',
+  )!;
+  const projectiles = new ProjectileSystem(1);
+  projectiles.spawn({ ...request, id: 1 });
+  expect(projectiles.step(500).find(
+    (event) => event.type === 'shelterDamageRequested',
+  )).toMatchObject({ amount: 120, strength: 'heavy', sourceEnemyKind: 'dogTrader' });
+});
 
 it('발에서 보호소 원 경계까지의 거리를 사용한다', () => {
   expect(distanceToShelterBoundary(
@@ -20,273 +176,65 @@ it('발에서 보호소 원 경계까지의 거리를 사용한다', () => {
   )).toBe(48);
 });
 
-it('release 전 범위 밖이면 공격을 취소한다', () => {
+it('release 전 범위 밖이면 동일 castId로 공격을 취소한다', () => {
   const attack = attackSystemFor('poopGuardian');
   attack.step(249, inRangeEnemy());
-
-  expect(attack.step(1, outOfRangeEnemy())).toEqual([
-    { type: 'attackCancelled', enemyId: 1 },
-  ]);
+  expect(attack.step(1, outOfRangeEnemy())).toEqual([{
+    type: 'attackCancelled',
+    castId: 'enemy:1:1',
+    enemyId: 1,
+    kind: 'poopGuardian',
+  }]);
 });
 
-it('기절은 windup을 취소하고 interval을 처음부터 다시 센다', () => {
-  const attack = attackSystemFor('offLeashGuardian');
-  attack.step(200, inRangeEnemy());
-  attack.stun(1, 3000);
-
-  expect(attack.step(3000, inRangeEnemy())).toEqual([]);
-  expect(attack.snapshot(1)).toMatchObject({ state: 'moving', cooldownMs: 1600 });
-});
-
-it('attack track도 더 짧은 재기절로 기존 남은 duration을 줄이지 않는다', () => {
-  const attack = attackSystemFor('offLeashGuardian');
-  attack.stun(1, 9000);
-  attack.step(1000, inRangeEnemy({ state: 'stunned', stunnedMs: 8000 }));
-
-  attack.stun(1, 3000);
-
-  expect(attack.step(3000, inRangeEnemy({ state: 'stunned', stunnedMs: 5000 }))).toEqual([]);
-  expect(attack.snapshot(1).state).toBe('stunned');
-  expect(attack.step(4999, inRangeEnemy({ state: 'stunned', stunnedMs: 1 }))).toEqual([]);
-  expect(attack.snapshot(1).state).toBe('stunned');
-  expect(attack.step(1, inRangeEnemy())).toEqual([]);
-  expect(attack.snapshot(1).state).toBe('moving');
-  expect(attack.step(FIXED_STEP_MS, inRangeEnemy()).map(({ type }) => type)).toEqual([
-    'attackStarted',
-  ]);
-});
-
-it('release 뒤 holding 상태로 위치를 고정하고 시작 시각 기준 interval에 다음 windup을 연다', () => {
+it('release 뒤 holding에서 시작 시각 기준 interval로 다음 windup을 연다', () => {
   const attack = attackSystemFor('offLeashGuardian');
   const target = inRangeEnemy({ pathProgress: 77 });
-
   expect(attack.step(250, target).map((event) => event.type)).toEqual([
     'attackStarted',
     'shelterDamageRequested',
     'attackHolding',
   ]);
   expect(attack.snapshot(1)).toMatchObject({ state: 'holding', pathProgress: 77 });
-  expect(attack.step(1349, target)).toEqual([]);
-  expect(attack.step(1, target)).toEqual([{ type: 'attackStarted', enemyId: 1 }]);
-  expect(attack.snapshot(1).state).toBe('windup');
+  expect(attack.step(1549, target)).toEqual([]);
+  expect(attack.step(1, target)).toEqual([{
+    type: 'attackStarted',
+    castId: 'enemy:1:2',
+    enemyId: 1,
+    kind: 'offLeashGuardian',
+  }]);
 });
 
-it.each([
-  ['poopGuardian', 'projectileRequested', 'poop', 220, 3],
-  ['offLeashGuardian', 'shelterDamageRequested', undefined, undefined, 6],
-  ['dogTrader', 'projectileRequested', 'net', 240, 14],
-  ['illegalBreeder', 'projectileRequested', 'electric', 260, 18],
-] as const)(
-  '%s는 250ms release에 고유 공격을 한 번 만든다',
-  (kind, type, projectileKind, speed, damage) => {
-    const attack = attackSystemFor(kind);
-    const before = attack.step(249, inRangeEnemy());
-    expect(before.some((event) => event.type === type)).toBe(false);
-
-    const released = attack.step(1, inRangeEnemy()).find((event) => event.type === type)!;
-    if (projectileKind === undefined) expect(released).toMatchObject({ damage });
-    else expect(released).toMatchObject({ projectileKind, speed, damage, lifeMs: 1200 });
-  },
-);
-
-it('8fps 공격 frame은 0.25초 release에서 sheet frame 6이다', () => {
-  expect([0, 125, 250, 375].map(attackFrameAt)).toEqual([4, 5, 6, 7]);
-});
-
-it('windup에서 holding으로 바뀔 때 release frame의 elapsed를 보존한다', () => {
+it('windup에서 holding으로 바뀐 때 release frame elapsed를 보존한다', () => {
   const stepMs = 1000 / 60;
   const enemies = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P1' });
   const attack = attackSystemFor('offLeashGuardian');
-  let released = false;
-
   for (let tick = 0; tick < 15; tick += 1) {
     enemies.step(stepMs);
     for (const event of attack.step(stepMs, inRangeEnemy())) {
       if (event.type === 'attackStarted') enemies.setState(0, 'windup', stepMs);
       if (event.type === 'attackHolding') enemies.setState(0, 'holding');
-      if (event.type === 'shelterDamageRequested') released = true;
     }
   }
-
-  expect(released).toBe(true);
-  expect(enemies.snapshots().at(0)!.animationElapsedMs).toBeCloseTo(250, 8);
-  expect(attackFrameAt(enemies.snapshots().at(0)!.animationElapsedMs)).toBe(6);
+  expect(enemies.snapshots()[0]!.animationElapsedMs).toBeCloseTo(250, 8);
+  expect(attackFrameAt(enemies.snapshots()[0]!.animationElapsedMs)).toBe(6);
 });
 
 it('큰 step도 cadence 경계를 유실하지 않고 분할 step과 같은 event를 만든다', () => {
   const target = inRangeEnemy();
   const whole = attackSystemFor('offLeashGuardian');
   const split = attackSystemFor('offLeashGuardian');
-
   const wholeEvents = whole.step(3450, target);
   const splitEvents = Array.from({ length: 69 }, () => split.step(50, target)).flat();
-
   expect(wholeEvents).toEqual(splitEvents);
   expect(whole.snapshot(1)).toEqual(split.snapshot(1));
 });
 
-it('fractional 기절을 포함한 큰 step도 분할 step과 같은 event와 elapsed를 만든다', () => {
-  const target = inRangeEnemy();
-  const whole = attackSystemFor('offLeashGuardian');
-  const split = attackSystemFor('offLeashGuardian');
-  whole.step(200, target);
-  split.step(200, target);
-  whole.stun(1, 17);
-  split.stun(1, 17);
-
-  const wholeEvents = whole.step(3217, target);
-  const splitEvents = [
-    ...split.step(17, target),
-    ...Array.from({ length: 64 }, () => split.step(50, target)).flat(),
-  ];
-
-  expect(wholeEvents).toEqual(splitEvents);
-  expect(whole.snapshot(1)).toEqual(split.snapshot(1));
-});
-
-it('GameSession은 off-leash release command를 보호소 피해로 정확히 한 번 소비한다', () => {
-  const run = GameSession.create({ seed: 1 });
-  run.scenarioPortForE2e().suppressWaveSpawns();
-  run.scenarioPortForE2e().spawnEnemy({
-    kind: 'offLeashGuardian',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'attackBoundary' },
-  });
-  const events = Array.from({ length: 15 }, () => run.step(FIXED_STEP_MS, { x: 0, y: 0 })).flat();
-
-  expect(run.snapshot()).toMatchObject({
-    shelterHp: 94,
-    activeEnemyCount: 1,
-    enemies: [{ state: 'holding' }],
-  });
-  expect(run.snapshot().enemies.at(0)!.animationElapsedMs).toBeCloseTo(250, 8);
-  expect(events.filter(({ type }) => type === 'shelterDamageRequested')).toHaveLength(1);
-  expect(events.filter(({ type }) => type === 'shelterDamaged')).toHaveLength(1);
-
-  expect(run.step(FIXED_STEP_MS, { x: 0, y: 0 }).filter(
-    ({ type }) => type === 'shelterDamaged',
-  )).toHaveLength(0);
-  expect(run.snapshot().shelterHp).toBe(94);
-});
-
-it('holding cadence에서 다시 열린 windup animation은 경계 뒤 0ms부터 시작한다', () => {
-  const run = GameSession.create({ seed: 1 });
-  run.scenarioPortForE2e().suppressWaveSpawns();
-  run.scenarioPortForE2e().spawnEnemy({
-    kind: 'offLeashGuardian',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'attackBoundary' },
-  });
-
-  for (let tick = 0; tick < 96; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-
-  expect(run.snapshot().enemies.at(0)).toMatchObject({
-    state: 'windup',
-    animationElapsedMs: 0,
-  });
-});
-
-it('invalid attack step과 stun duration은 track 변경 전에 거부한다', () => {
+it('invalid attack step은 track 변경 전에 거부한다', () => {
   const attack = attackSystemFor('poopGuardian');
-
   for (const stepMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(() => attack.step(stepMs, inRangeEnemy())).toThrow(RangeError);
   }
-  for (const durationMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-    expect(() => attack.stun(1, durationMs)).toThrow(RangeError);
-  }
   expect(() => attack.snapshot(1)).toThrow('Unknown attack enemy 1');
-});
-
-it('GameSession stun은 이동·cooldown·animation을 함께 freeze하고 interval을 reset한다', () => {
-  const run = GameSession.create({ seed: 1 });
-  run.scenarioPortForE2e().suppressWaveSpawns();
-  const enemyId = run.scenarioPortForE2e().spawnEnemy({
-    kind: 'offLeashGuardian',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'attackBoundary' },
-  });
-  for (let tick = 0; tick < 12; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-  const before = run.snapshot().enemies.at(0)!;
-
-  run.scenarioPortForE2e().stunEnemy(enemyId, 3000);
-  for (let tick = 0; tick < 180; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-
-  expect(run.snapshot().enemies.at(0)).toMatchObject({
-    state: 'moving',
-    pathProgress: before.pathProgress,
-    animationElapsedMs: 0,
-  });
-  expect(run.snapshot().shelterHp).toBe(100);
-  const events = run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-  expect(events.filter(({ type }) => type === 'attackStarted')).toHaveLength(1);
-});
-
-it.each([1, 17])(
-  'GameSession fractional stun %sms 뒤 첫 frame 6과 release/damage는 같은 tick이다',
-  (stunMs) => {
-    const run = GameSession.create({ seed: 1 });
-    run.scenarioPortForE2e().suppressWaveSpawns();
-    const enemyId = run.scenarioPortForE2e().spawnEnemy({
-      kind: 'offLeashGuardian',
-      variant: 'male',
-      pathId: 'P6',
-      placement: { kind: 'attackBoundary' },
-    });
-    for (let tick = 0; tick < 12; tick += 1) {
-      run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-    }
-    run.scenarioPortForE2e().stunEnemy(enemyId, stunMs);
-
-    let firstFrame6Tick: number | undefined;
-    let damageRequestedTick: number | undefined;
-    let damageTick: number | undefined;
-    for (let tick = 1; tick <= 20; tick += 1) {
-      const tickEvents = run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-      const enemy = run.snapshot().enemies.at(0)!;
-      if (
-        firstFrame6Tick === undefined
-        && enemyFrameAt(enemy.state, enemy.animationElapsedMs) === 6
-      ) {
-        firstFrame6Tick = tick;
-      }
-      if (tickEvents.some(({ type }) => type === 'shelterDamageRequested')) {
-        damageRequestedTick = tick;
-      }
-      if (tickEvents.some(({ type }) => type === 'shelterDamaged')) damageTick = tick;
-    }
-
-    expect(damageTick).toBe(Math.ceil((250 + stunMs) / FIXED_STEP_MS));
-    expect(damageRequestedTick).toBe(damageTick);
-    expect(firstFrame6Tick).toBe(damageTick);
-    expect(run.snapshot().shelterHp).toBe(94);
-  },
-);
-
-it('GameSession knockback은 holding과 attack track을 함께 취소한다', () => {
-  const run = GameSession.create({ seed: 1 });
-  run.scenarioPortForE2e().suppressWaveSpawns();
-  const enemyId = run.scenarioPortForE2e().spawnEnemy({
-    kind: 'offLeashGuardian',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'attackBoundary' },
-  });
-  for (let tick = 0; tick < 15; tick += 1) run.step(FIXED_STEP_MS, { x: 0, y: 0 });
-  const atBoundary = run.snapshot().enemies.at(0)!;
-
-  run.scenarioPortForE2e().knockBackEnemy(enemyId, 20);
-
-  expect(run.snapshot().enemies.at(0)).toMatchObject({
-    state: 'moving',
-    animationElapsedMs: 0,
-  });
-  expect(run.snapshot().enemies.at(0)!.pathProgress).toBeLessThan(atBoundary.pathProgress);
-  expect(run.step(FIXED_STEP_MS, { x: 0, y: 0 }).filter(
-    ({ type }) => type === 'shelterDamaged',
-  )).toHaveLength(0);
-  expect(run.snapshot().shelterHp).toBe(94);
+  expect(attack.interruptWindup(99)).toBe(false);
 });

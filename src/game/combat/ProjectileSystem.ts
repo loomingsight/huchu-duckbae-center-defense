@@ -1,12 +1,20 @@
 import { reachedDuration } from '../constants';
 import { ObjectPool, type PoolSnapshot } from '../pooling/ObjectPool';
+import type { EnemyKind } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
+import {
+  normalizedImpactDirection,
+  type EnemyCombatEvent,
+} from './EnemyAttackSystem';
 
 export type ProjectileKind = 'poop' | 'net' | 'electric';
 
 export interface ProjectileSpawn {
   readonly id: number;
-  readonly kind: ProjectileKind;
+  readonly castId: string;
+  readonly enemyId: number;
+  readonly kind: EnemyKind;
+  readonly projectileKind: ProjectileKind;
   readonly from: Point;
   readonly to: Point;
   readonly speed: number;
@@ -36,21 +44,14 @@ export type ProjectileEvent =
     readonly kind: ProjectileKind;
     readonly reason: 'capacity';
   }
-  | {
-    readonly type: 'projectileHit';
-    readonly projectileId: number;
-    readonly kind: ProjectileKind;
-    readonly position: Point;
-  }
-  | {
-    readonly type: 'shelterDamageRequested';
-    readonly projectileId: number;
-    readonly damage: number;
-  };
+  | Extract<EnemyCombatEvent, { readonly type: 'projectileHit' | 'shelterDamageRequested' }>;
 
 interface MutableProjectile {
   id: number;
-  kind: ProjectileKind;
+  castId: string;
+  sourceEnemyId: number;
+  sourceEnemyKind: EnemyKind;
+  projectileKind: ProjectileKind;
   position: Point;
   velocity: Point;
   target: Point;
@@ -58,6 +59,7 @@ interface MutableProjectile {
   damage: number;
   ageMs: number;
   lifeMs: number;
+  impactDirection: Point;
 }
 
 function firstSegmentCircleIntersection(
@@ -112,7 +114,10 @@ export class ProjectileSystem {
     this.shelterRadius = shelterRadius;
     this.pool = new ObjectPool(capacity, () => ({
       id: -1,
-      kind: 'poop',
+      castId: '',
+      sourceEnemyId: -1,
+      sourceEnemyKind: 'poopGuardian',
+      projectileKind: 'poop',
       position: { x: 0, y: 0 },
       velocity: { x: 0, y: 0 },
       target: { x: 0, y: 0 },
@@ -120,6 +125,7 @@ export class ProjectileSystem {
       damage: 0,
       ageMs: 0,
       lifeMs: 0,
+      impactDirection: { x: 0, y: -1 },
     }));
   }
 
@@ -127,6 +133,9 @@ export class ProjectileSystem {
     if (
       !Number.isSafeInteger(input.id)
       || input.id < 0
+      || input.castId.length === 0
+      || !Number.isSafeInteger(input.enemyId)
+      || input.enemyId < 0
       || !Number.isFinite(input.from.x)
       || !Number.isFinite(input.from.y)
       || !Number.isFinite(input.to.x)
@@ -148,13 +157,16 @@ export class ProjectileSystem {
       return [{
         type: 'projectileDropped',
         projectileId: input.id,
-        kind: input.kind,
+        kind: input.projectileKind,
         reason: 'capacity',
       }];
     }
     Object.assign(projectile, {
       id: input.id,
-      kind: input.kind,
+      castId: input.castId,
+      sourceEnemyId: input.enemyId,
+      sourceEnemyKind: input.kind,
+      projectileKind: input.projectileKind,
       position: { ...input.from },
       velocity: { x: dx / length * input.speed, y: dy / length * input.speed },
       target: { ...input.to },
@@ -162,9 +174,10 @@ export class ProjectileSystem {
       damage: input.damage,
       ageMs: 0,
       lifeMs: input.lifeMs,
+      impactDirection: normalizedImpactDirection(input.from, input.to),
     });
     this.active.add(projectile);
-    return [{ type: 'projectileSpawned', projectileId: input.id, kind: input.kind }];
+    return [{ type: 'projectileSpawned', projectileId: input.id, kind: input.projectileKind }];
   }
 
   step(stepMs: number): readonly ProjectileEvent[] {
@@ -192,14 +205,20 @@ export class ProjectileSystem {
         events.push(
           {
             type: 'projectileHit',
+            castId: projectile.castId,
             projectileId: projectile.id,
-            kind: projectile.kind,
+            projectileKind: projectile.projectileKind,
             position: impactPosition,
           },
           {
             type: 'shelterDamageRequested',
-            projectileId: projectile.id,
-            damage: projectile.damage,
+            castId: projectile.castId,
+            sourceEnemyId: projectile.sourceEnemyId,
+            sourceEnemyKind: projectile.sourceEnemyKind,
+            amount: projectile.damage,
+            position: { ...projectile.target },
+            impactDirection: { ...projectile.impactDirection },
+            strength: isBoss(projectile.sourceEnemyKind) ? 'heavy' : 'medium',
           },
         );
       }
@@ -213,7 +232,7 @@ export class ProjectileSystem {
   snapshots(): readonly ProjectileSnapshot[] {
     return [...this.active].map((projectile) => ({
       id: projectile.id,
-      kind: projectile.kind,
+      kind: projectile.projectileKind,
       x: projectile.position.x,
       y: projectile.position.y,
       speed: projectile.speed,
@@ -238,4 +257,8 @@ export class ProjectileSystem {
     this.active.delete(projectile);
     this.pool.release(projectile);
   }
+}
+
+function isBoss(kind: EnemyKind): boolean {
+  return kind === 'dogTrader' || kind === 'illegalBreeder';
 }

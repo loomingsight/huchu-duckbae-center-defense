@@ -1,30 +1,8 @@
 import { EnemyAttackSystem } from '../../src/game/combat/EnemyAttackSystem';
 import { BALANCE } from '../../src/game/data/balance';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
-import { ProgressionSystem } from '../../src/game/progression/ProgressionSystem';
 import { SkillSystem, type SkillContext } from '../../src/game/skills/SkillSystem';
-import type { SkillLevels } from '../../src/game/skills/SkillTypes';
-import type { EnemyKind, SkillId } from '../../src/game/types/GameTypes';
-
-export const skillLevels = (overrides: Partial<SkillLevels> = {}): SkillLevels => ({
-  bark: 1,
-  scold: 0,
-  aquaBeam: 0,
-  deokbaeHowl: 0,
-  safetyReport: 0,
-  ...overrides,
-});
-
-export function pendingTwoSelections(): ProgressionSystem {
-  const progression = new ProgressionSystem([8, 22, 40, 62, 88], 5000);
-  progression.addSnacks(40);
-  progression.takeNextRequest();
-  progression.resolveSelection();
-  progression.step(5000, { mode: 'playing', activeEnemies: 1 });
-  progression.takeNextRequest();
-  progression.resolveSelection();
-  return progression;
-}
+import type { EnemyKind, PurchasableSkillId } from '../../src/game/types/GameTypes';
 
 export function enemy(overrides: Partial<EnemySnapshot> = {}): EnemySnapshot {
   return {
@@ -40,7 +18,9 @@ export function enemy(overrides: Partial<EnemySnapshot> = {}): EnemySnapshot {
     maxHp: 35,
     spawnSequence: 0,
     isBoss: false,
-    stunnedMs: 0,
+    moveSpeedMultiplier: 1,
+    slowRemainingMs: 0,
+    dashCooldownRemainingMs: 4000,
     animationElapsedMs: 0,
     ...overrides,
   };
@@ -61,8 +41,10 @@ export const attackSystemFor = (kind: EnemyKind): EnemyAttackSystem => new Enemy
   shelter: { center: { x: 270, y: 480 }, radius: 38 },
 });
 
-export function learnedSkillSystem(id: Exclude<SkillId, 'bark'>): SkillSystem {
-  return new SkillSystem(skillLevels({ [id]: 1 } as Partial<SkillLevels>));
+export function learnedSkillSystem(id: PurchasableSkillId, learnedAtMs = 0): SkillSystem {
+  const system = new SkillSystem();
+  system.learn(id, learnedAtMs);
+  return system;
 }
 
 export const emptySkillContext = (): SkillContext => ({

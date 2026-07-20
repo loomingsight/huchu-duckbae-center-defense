@@ -1,4 +1,5 @@
-import { TIME_EPSILON_MS, subtractDuration } from '../constants';
+import { TIME_EPSILON_MS } from '../constants';
+import { attackImpactMs } from '../data/balance';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { EnemyKind, EnemyState } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
@@ -9,6 +10,7 @@ interface AttackBalance {
   readonly damage: number;
   readonly attackIntervalMs: number;
   readonly range: number;
+  readonly attackTiming: Parameters<typeof attackImpactMs>[0];
 }
 
 interface ShelterCircle {
@@ -16,42 +18,73 @@ interface ShelterCircle {
   readonly radius: number;
 }
 
-export type EnemyAttackEvent =
+export interface ShelterDamageRequest {
+  readonly type: 'shelterDamageRequested';
+  readonly castId: string;
+  readonly sourceEnemyId: number;
+  readonly sourceEnemyKind: EnemyKind;
+  readonly amount: number;
+  readonly position: Point;
+  readonly impactDirection: Point;
+  readonly strength: 'medium' | 'heavy';
+}
+
+export type EnemyCombatEvent =
   | {
     readonly type: 'attackStarted' | 'attackCancelled' | 'attackHolding';
+    readonly castId: string;
     readonly enemyId: number;
-  }
-  | {
-    readonly type: 'shelterDamageRequested';
-    readonly enemyId: number;
-    readonly damage: number;
+    readonly kind: EnemyKind;
   }
   | {
     readonly type: 'projectileRequested';
+    readonly castId: string;
     readonly enemyId: number;
+    readonly kind: EnemyKind;
     readonly projectileKind: EnemyProjectileKind;
     readonly from: Point;
     readonly to: Point;
     readonly speed: number;
     readonly damage: number;
     readonly lifeMs: 1200;
-  };
+  }
+  | {
+    readonly type: 'projectileHit';
+    readonly castId: string;
+    readonly projectileId: number;
+    readonly projectileKind: EnemyProjectileKind;
+    readonly position: Point;
+  }
+  | ShelterDamageRequest;
+
+export type EnemyAttackEvent = Extract<
+  EnemyCombatEvent,
+  { readonly type: 'attackStarted' | 'attackCancelled' | 'attackHolding' | 'projectileRequested' }
+> | ShelterDamageRequest;
+
+export type AttackOriginResolver = (enemy: EnemySnapshot) => Point;
 
 interface AttackTrack {
-  phase: Extract<EnemyState, 'moving' | 'windup' | 'holding' | 'stunned'>;
+  phase: Extract<EnemyState, 'moving' | 'windup' | 'holding'>;
   cycleMs: number;
   windupMs: number;
-  stunMs: number;
   pathProgress: number;
+  castSequence: number;
+  castId: string | null;
 }
-
-const ATTACK_RELEASE_MS = 250;
 
 export const distanceToShelterBoundary = (
   feet: Point,
   center: Point,
   radius: number,
 ): number => Math.max(0, Math.hypot(feet.x - center.x, feet.y - center.y) - radius);
+
+export const normalizedImpactDirection = (from: Point, to: Point): Point => {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  return length === 0 ? { x: 0, y: -1 } : { x: dx / length, y: dy / length };
+};
 
 export class EnemyAttackSystem {
   private readonly tracks = new Map<number, AttackTrack>();
@@ -60,6 +93,7 @@ export class EnemyAttackSystem {
     readonly kind: EnemyKind;
     readonly balance: AttackBalance;
     readonly shelter: ShelterCircle;
+    readonly projectileOrigin?: AttackOriginResolver;
   }) {}
 
   step(stepMs: number, enemy: EnemySnapshot): readonly EnemyAttackEvent[] {
@@ -68,23 +102,12 @@ export class EnemyAttackSystem {
       phase: 'moving',
       cycleMs: 0,
       windupMs: 0,
-      stunMs: 0,
       pathProgress: enemy.pathProgress,
+      castSequence: 0,
+      castId: null,
     } satisfies AttackTrack;
     this.tracks.set(enemy.id, track);
     track.pathProgress = enemy.pathProgress;
-
-    let remainingMs = stepMs;
-    if (track.phase === 'stunned') {
-      const frozenMs = Math.min(track.stunMs, remainingMs);
-      track.stunMs = subtractDuration(track.stunMs, frozenMs);
-      remainingMs -= frozenMs;
-      if (track.stunMs > 0) return [];
-      track.phase = 'moving';
-      track.cycleMs = 0;
-      track.windupMs = 0;
-      if (remainingMs <= TIME_EPSILON_MS) return [];
-    }
 
     const inRange = distanceToShelterBoundary(
       enemy.position,
@@ -94,34 +117,45 @@ export class EnemyAttackSystem {
     const events: EnemyAttackEvent[] = [];
 
     if ((track.phase === 'windup' || track.phase === 'holding') && !inRange) {
+      const castId = requireCastId(track);
       track.phase = 'moving';
       track.cycleMs = 0;
       track.windupMs = 0;
-      return [{ type: 'attackCancelled', enemyId: enemy.id }];
+      track.castId = null;
+      return [{
+        type: 'attackCancelled',
+        castId,
+        enemyId: enemy.id,
+        kind: this.config.kind,
+      }];
     }
 
     if (track.phase === 'moving') {
       if (!inRange) return [];
-      track.phase = 'windup';
-      track.cycleMs = 0;
-      track.windupMs = 0;
-      events.push({ type: 'attackStarted', enemyId: enemy.id });
+      events.push(this.startWindup(track, enemy.id));
     }
 
+    let remainingMs = stepMs;
+    const releaseMs = attackImpactMs(this.config.balance.attackTiming);
     while (track.phase === 'windup' || track.phase === 'holding') {
       if (track.phase === 'windup') {
-        const untilRelease = Math.max(0, ATTACK_RELEASE_MS - track.windupMs);
+        const untilRelease = Math.max(0, releaseMs - track.windupMs);
         if (remainingMs + TIME_EPSILON_MS < untilRelease) {
           track.windupMs += remainingMs;
           track.cycleMs += remainingMs;
           break;
         }
-        track.windupMs = ATTACK_RELEASE_MS;
+        track.windupMs = releaseMs;
         track.cycleMs += untilRelease;
         remainingMs = Math.max(0, remainingMs - untilRelease);
-        events.push(this.releaseEvent(enemy));
+        events.push(this.releaseEvent(enemy, requireCastId(track)));
         track.phase = 'holding';
-        events.push({ type: 'attackHolding', enemyId: enemy.id });
+        events.push({
+          type: 'attackHolding',
+          castId: requireCastId(track),
+          enemyId: enemy.id,
+          kind: this.config.kind,
+        });
         continue;
       }
 
@@ -134,40 +168,20 @@ export class EnemyAttackSystem {
         break;
       }
       remainingMs = Math.max(0, remainingMs - untilNextAttack);
-      track.phase = 'windup';
-      track.cycleMs = 0;
-      track.windupMs = 0;
-      events.push({ type: 'attackStarted', enemyId: enemy.id });
+      events.push(this.startWindup(track, enemy.id));
       if (remainingMs <= TIME_EPSILON_MS) break;
     }
     return events;
   }
 
-  stun(enemyId: number, durationMs: number, pathProgress = 0): void {
-    assertFiniteNonNegative(durationMs, 'Enemy attack stun durationMs');
-    if (durationMs === 0) return;
-    const track = this.tracks.get(enemyId) ?? {
-      phase: 'moving',
-      cycleMs: 0,
-      windupMs: 0,
-      stunMs: 0,
-      pathProgress,
-    } satisfies AttackTrack;
-    this.tracks.set(enemyId, track);
-    const remainingStunMs = track.phase === 'stunned' ? track.stunMs : 0;
-    track.phase = 'stunned';
-    track.stunMs = Math.max(remainingStunMs, durationMs);
-    track.cycleMs = 0;
-    track.windupMs = 0;
-  }
-
-  interrupt(enemyId: number): void {
+  interruptWindup(enemyId: number): boolean {
     const track = this.tracks.get(enemyId);
-    if (track === undefined) return;
+    if (track?.phase !== 'windup') return false;
     track.phase = 'moving';
-    track.stunMs = 0;
     track.cycleMs = 0;
     track.windupMs = 0;
+    track.castId = null;
+    return true;
   }
 
   snapshot(enemyId: number): {
@@ -180,7 +194,7 @@ export class EnemyAttackSystem {
     if (track === undefined) throw new RangeError(`Unknown attack enemy ${enemyId}`);
     return {
       state: track.phase,
-      cooldownMs: track.phase === 'stunned' || track.phase === 'moving'
+      cooldownMs: track.phase === 'moving'
         ? this.config.balance.attackIntervalMs
         : Math.max(0, this.config.balance.attackIntervalMs - track.cycleMs),
       pathProgress: track.pathProgress,
@@ -200,6 +214,20 @@ export class EnemyAttackSystem {
     this.tracks.clear();
   }
 
+  private startWindup(track: AttackTrack, enemyId: number): EnemyAttackEvent {
+    track.phase = 'windup';
+    track.cycleMs = 0;
+    track.windupMs = 0;
+    track.castSequence += 1;
+    track.castId = `enemy:${enemyId}:${track.castSequence}`;
+    return {
+      type: 'attackStarted',
+      castId: track.castId,
+      enemyId,
+      kind: this.config.kind,
+    };
+  }
+
   private projectileFor(kind: EnemyKind): {
     readonly kind: EnemyProjectileKind;
     readonly speed: number;
@@ -210,25 +238,47 @@ export class EnemyAttackSystem {
     throw new Error('Off-leash attacks are immediate and have no projectile');
   }
 
-  private releaseEvent(enemy: EnemySnapshot): EnemyAttackEvent {
+  private releaseEvent(enemy: EnemySnapshot, castId: string): EnemyAttackEvent {
+    const origin = this.config.projectileOrigin?.(enemy) ?? enemy.position;
+    assertFinitePoint(origin, 'Enemy attack origin');
+    const impactDirection = normalizedImpactDirection(origin, this.config.shelter.center);
+    const strength = this.config.balance.attackTiming === 'boss' ? 'heavy' : 'medium';
     if (this.config.kind === 'offLeashGuardian') {
       return {
         type: 'shelterDamageRequested',
-        enemyId: enemy.id,
-        damage: this.config.balance.damage,
+        castId,
+        sourceEnemyId: enemy.id,
+        sourceEnemyKind: this.config.kind,
+        amount: this.config.balance.damage,
+        position: { ...this.config.shelter.center },
+        impactDirection,
+        strength,
       };
     }
     const projectile = this.projectileFor(this.config.kind);
     return {
       type: 'projectileRequested',
+      castId,
       enemyId: enemy.id,
+      kind: this.config.kind,
       projectileKind: projectile.kind,
-      from: enemy.position,
-      to: this.config.shelter.center,
+      from: { ...origin },
+      to: { ...this.config.shelter.center },
       speed: projectile.speed,
       damage: this.config.balance.damage,
       lifeMs: 1200,
     };
+  }
+}
+
+function requireCastId(track: AttackTrack): string {
+  if (track.castId === null) throw new Error('Enemy attack track is missing a castId');
+  return track.castId;
+}
+
+function assertFinitePoint(point: Point, label: string): void {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    throw new RangeError(`${label} must be finite`);
   }
 }
 
