@@ -1,4 +1,5 @@
 import type { GameMode } from '../core/GameMode';
+import { LifecyclePauseCoordinator } from './LifecyclePauseCoordinator';
 
 export interface VisibilitySessionPort {
   currentMode(): GameMode;
@@ -17,14 +18,17 @@ const NOOP_RUNTIME: VisibilityRuntimePort = {
 };
 
 export class VisibilityController {
-  private returnMode: GameMode | null = null;
   private awaitingConfirmation = false;
+  private readonly coordinator: LifecyclePauseCoordinator;
 
   constructor(
     private readonly session: VisibilitySessionPort,
     private readonly runtime: VisibilityRuntimePort = NOOP_RUNTIME,
-    private readonly resumeAllowed: () => boolean = () => true,
-  ) {}
+    _resumeAllowed: () => boolean = () => true,
+    coordinator?: LifecyclePauseCoordinator,
+  ) {
+    this.coordinator = coordinator ?? new LifecyclePauseCoordinator(session, runtime);
+  }
 
   get needsConfirmation(): boolean {
     return this.awaitingConfirmation;
@@ -32,18 +36,18 @@ export class VisibilityController {
 
   hidden(): void {
     const mode = this.session.currentMode();
-    if (mode === 'visibilityPause' || mode === 'won' || mode === 'lost') return;
-    this.returnMode = mode;
+    if (mode === 'won' || mode === 'lost') return;
+    if (!this.coordinator.acquire('visibility')) return;
     this.awaitingConfirmation = false;
     this.runtime.setResumePromptVisible(false);
-    this.runtime.setWorldPaused(true);
-    this.session.requestVisibilityPause();
   }
 
   visible(): void {
-    if (this.session.currentMode() !== 'visibilityPause' || this.returnMode === null) return;
-    if (this.returnMode === 'skillSelection') {
-      this.restoreMode('skillSelection');
+    if (!this.coordinator.has('visibility')) return;
+    if (this.coordinator.originalMode === 'skillSelection') {
+      this.awaitingConfirmation = false;
+      this.runtime.setResumePromptVisible(false);
+      this.coordinator.release('visibility');
       return;
     }
     this.awaitingConfirmation = true;
@@ -51,26 +55,15 @@ export class VisibilityController {
   }
 
   confirmResume(): void {
-    if (!this.awaitingConfirmation || this.returnMode === null) return;
-    if (!this.resumeAllowed()) return;
-    this.restoreMode(this.returnMode);
+    if (!this.awaitingConfirmation || !this.coordinator.has('visibility')) return;
+    this.awaitingConfirmation = false;
+    this.runtime.setResumePromptVisible(false);
+    this.coordinator.release('visibility');
   }
 
   reset(): void {
-    this.returnMode = null;
+    this.coordinator.abandon('visibility');
     this.awaitingConfirmation = false;
     this.runtime.setResumePromptVisible(false);
-  }
-
-  private restoreMode(expectedMode: GameMode): void {
-    this.returnMode = null;
-    this.awaitingConfirmation = false;
-    this.runtime.setResumePromptVisible(false);
-    this.session.requestVisibilityResume();
-    const resumedMode = this.session.currentMode();
-    if (resumedMode !== expectedMode) {
-      throw new Error(`Expected to resume ${expectedMode}, got ${resumedMode}`);
-    }
-    this.runtime.setWorldPaused(expectedMode !== 'playing');
   }
 }

@@ -17,6 +17,7 @@ import { CombatEffectPool } from '../combat/CombatEffectPool';
 import { EnemyActorPool } from '../enemies/EnemyActorPool';
 import type { GameEvent } from '../events/GameEvents';
 import { WorldPauseController } from '../lifecycle/WorldPauseController';
+import { LifecyclePauseCoordinator } from '../lifecycle/LifecyclePauseCoordinator';
 import { VisibilityController } from '../lifecycle/VisibilityController';
 import { WebGlRecoveryController } from '../lifecycle/WebGlRecoveryController';
 import type { MovementIntent } from '../player/InputVector';
@@ -60,6 +61,7 @@ export class GameScene extends Phaser.Scene {
   private hud!: HudSystem;
   private combatEffects!: CombatEffectPool;
   private worldPauseController!: WorldPauseController;
+  private lifecyclePauseCoordinator!: LifecyclePauseCoordinator;
   private visibilityController!: VisibilityController;
   private webGlRecoveryController!: WebGlRecoveryController;
   private resumeOverlay!: RuntimeErrorOverlay;
@@ -104,6 +106,10 @@ export class GameScene extends Phaser.Scene {
       this.session.modeStateForControllers(),
       { setPaused: (paused) => this.setWorldPaused(paused) },
     );
+    this.lifecyclePauseCoordinator = new LifecyclePauseCoordinator(
+      this.session,
+      { setWorldPaused: (paused) => this.setWorldPaused(paused) },
+    );
 
     new MapView(this);
     this.shelterView = new ShelterView(this);
@@ -140,12 +146,13 @@ export class GameScene extends Phaser.Scene {
         },
         setRestorePromptVisible: (visible) => {
           if (visible) {
+            const recoveryGeneration = this.webGlRecoveryController.confirmationGeneration;
             this.restoreOverlay.show(
               '화면을 다시 준비했어요',
               '버튼을 눌러 현재 상태부터 계속해 주세요',
               {
                 label: '다시 그리기',
-                onSelect: () => this.webGlRecoveryController.confirmRestore(),
+                onSelect: () => this.webGlRecoveryController.confirmRestore(recoveryGeneration),
               },
             );
           } else {
@@ -154,6 +161,7 @@ export class GameScene extends Phaser.Scene {
         },
         resyncView: () => this.resyncViewFromSnapshot(),
       },
+      this.lifecyclePauseCoordinator,
     );
     this.visibilityController = new VisibilityController(
       this.session,
@@ -175,6 +183,7 @@ export class GameScene extends Phaser.Scene {
         },
       },
       () => this.webGlRecoveryController.contextAvailable,
+      this.lifecyclePauseCoordinator,
     );
     this.webGlRecoveryController.attach();
     this.renderPlayer();
@@ -191,6 +200,7 @@ export class GameScene extends Phaser.Scene {
       this.webGlRecoveryController.detach();
       this.visibilityController.reset();
       this.webGlRecoveryController.reset();
+      this.lifecyclePauseCoordinator.reset();
       this.resumeOverlay.destroy();
       this.restoreOverlay.destroy();
     });
@@ -249,8 +259,10 @@ export class GameScene extends Phaser.Scene {
     this.combatEffects.releaseAll();
     this.visibilityController.reset();
     this.webGlRecoveryController.reset();
+    this.lifecyclePauseCoordinator.reset();
     this.session.reset(seed);
     this.worldPauseController.reset();
+    this.webGlRecoveryController.beginSession();
     this.fixedClock.reset();
     this.worldAnimationMs = 0;
     this.moving = false;

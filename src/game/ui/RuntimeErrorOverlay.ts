@@ -7,6 +7,8 @@ export interface RuntimeErrorAction {
 
 export class RuntimeErrorOverlay {
   private element: Phaser.GameObjects.DOMElement | undefined;
+  private actionButton: Element | undefined;
+  private actionHandler: (() => void) | undefined;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -26,18 +28,26 @@ export class RuntimeErrorOverlay {
     ).setDepth(this.depth);
     this.element = element;
     if (action === undefined) return;
-    element.addListener('click');
-    element.on('click', () => {
+    const actionButton = element.node.querySelector('button');
+    if (actionButton === null) return;
+    const actionHandler = (): void => {
       if (this.element !== element) return;
       action.onSelect();
-    });
+    };
+    this.actionButton = actionButton;
+    this.actionHandler = actionHandler;
+    actionButton.addEventListener('click', actionHandler, { once: true });
   }
 
   hide(): void {
     const element = this.element;
     if (element === undefined) return;
     this.element = undefined;
-    element.removeListener('click');
+    if (this.actionButton !== undefined && this.actionHandler !== undefined) {
+      this.actionButton.removeEventListener('click', this.actionHandler);
+    }
+    this.actionButton = undefined;
+    this.actionHandler = undefined;
     element.removeAllListeners();
     element.destroy();
   }

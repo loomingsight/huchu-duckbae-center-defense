@@ -15,6 +15,8 @@ test('탭 숨김 시간에는 적 cooldown과 visual clock이 진행되지 않�
   expect(hidden.worldClocks).toEqual({ ...before.worldClocks, worldPaused: true });
   await page.evaluate(() => window.__HUCHU_TEST__!.simulateVisibility(false));
   expect((await snapshot(page)).mode).toBe('visibilityPause');
+  await page.getByText('게임이 잠시 멈췄어요').click();
+  expect((await snapshot(page)).mode).toBe('visibilityPause');
   await page.getByRole('button', { name: '계속하기' }).click();
   expect((await snapshot(page)).mode).toBe('playing');
 });

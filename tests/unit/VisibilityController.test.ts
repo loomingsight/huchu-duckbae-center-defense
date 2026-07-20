@@ -1,5 +1,6 @@
 import { VisibilityController } from '../../src/game/lifecycle/VisibilityController';
 import { WebGlRecoveryController } from '../../src/game/lifecycle/WebGlRecoveryController';
+import { LifecyclePauseCoordinator } from '../../src/game/lifecycle/LifecyclePauseCoordinator';
 import { GameSession } from '../../src/game/session/GameSession';
 
 function createRuntime() {
@@ -65,15 +66,17 @@ it('visibility pause 중 잃은 WebGL context가 복구되기 전에는 확인�
   const target = new EventTarget();
   const session = GameSession.create({ seed: 1 });
   const { runtime, prompts } = createRuntime();
+  const coordinator = new LifecyclePauseCoordinator(session, runtime);
   const webgl = new WebGlRecoveryController(target, session, {
     setWorldPaused: runtime.setWorldPaused,
     setRestorePromptVisible: () => undefined,
     resyncView: () => undefined,
-  });
+  }, coordinator);
   const visibility = new VisibilityController(
     session,
     runtime,
     () => webgl.contextAvailable,
+    coordinator,
   );
   webgl.attach();
 
@@ -83,9 +86,81 @@ it('visibility pause 중 잃은 WebGL context가 복구되기 전에는 확인�
   visibility.confirmResume();
 
   expect(session.currentMode()).toBe('visibilityPause');
-  expect(prompts.at(-1)).toBe(true);
+  expect(prompts.at(-1)).toBe(false);
 
   target.dispatchEvent(new Event('webglcontextrestored'));
-  visibility.confirmResume();
+  webgl.confirmRestore();
   expect(session.currentMode()).toBe('playing');
 });
+
+type RecoverableMode = 'playing' | 'countdown' | 'skillSelection';
+
+function createCoordinatedHarness(mode: RecoverableMode) {
+  const target = new EventTarget();
+  const session = GameSession.create({ seed: 1 });
+  session.forceModeForTest(mode);
+  const worldPaused: boolean[] = [];
+  const resumePrompts: boolean[] = [];
+  const restorePrompts: boolean[] = [];
+  const coordinator = new LifecyclePauseCoordinator(session, {
+    setWorldPaused: (paused) => worldPaused.push(paused),
+  });
+  const visibility = new VisibilityController(session, {
+    setWorldPaused: (paused) => worldPaused.push(paused),
+    setResumePromptVisible: (visible) => resumePrompts.push(visible),
+  }, () => true, coordinator);
+  const webgl = new WebGlRecoveryController(target, session, {
+    setWorldPaused: (paused) => worldPaused.push(paused),
+    setRestorePromptVisible: (visible) => restorePrompts.push(visible),
+    resyncView: () => undefined,
+  }, coordinator);
+  webgl.attach();
+  return {
+    coordinator,
+    restorePrompts,
+    resumePrompts,
+    session,
+    target,
+    visibility,
+    webgl,
+    worldPaused,
+  };
+}
+
+it.each<RecoverableMode>(['playing', 'countdown', 'skillSelection'])(
+  'WebGL→visibility 순서에서 %s는 두 reason이 모두 해제된 뒤 복귀한다',
+  (mode) => {
+    const { session, target, visibility, webgl, worldPaused } = createCoordinatedHarness(mode);
+
+    target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    visibility.hidden();
+    target.dispatchEvent(new Event('webglcontextrestored'));
+    if (mode !== 'skillSelection') webgl.confirmRestore();
+
+    expect(session.currentMode()).toBe('visibilityPause');
+    visibility.visible();
+    if (mode !== 'skillSelection') visibility.confirmResume();
+
+    expect(session.currentMode()).toBe(mode);
+    expect(worldPaused.at(-1)).toBe(mode !== 'playing');
+  },
+);
+
+it.each<RecoverableMode>(['playing', 'countdown', 'skillSelection'])(
+  'visibility→WebGL 순서에서 %s는 두 reason이 모두 해제된 뒤 복귀한다',
+  (mode) => {
+    const { session, target, visibility, webgl, worldPaused } = createCoordinatedHarness(mode);
+
+    visibility.hidden();
+    target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+    visibility.visible();
+    if (mode !== 'skillSelection') visibility.confirmResume();
+
+    expect(session.currentMode()).toBe('visibilityPause');
+    target.dispatchEvent(new Event('webglcontextrestored'));
+    if (mode !== 'skillSelection') webgl.confirmRestore();
+
+    expect(session.currentMode()).toBe(mode);
+    expect(worldPaused.at(-1)).toBe(mode !== 'playing');
+  },
+);

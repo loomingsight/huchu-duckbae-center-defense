@@ -94,3 +94,51 @@ it('context가 아직 lost인 reset은 canvas input을 다시 켜지 않는다',
   expect(controller.contextAvailable).toBe(false);
   expect(canvasInput.at(-1)).toBe(false);
 });
+
+it('반복 loss 뒤 이전 restore 확인은 현재 recovery generation을 해제하지 않는다', () => {
+  const { canvasInput, controller, prompts, session, target } = createHarness();
+  controller.attach();
+
+  target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  target.dispatchEvent(new Event('webglcontextrestored'));
+  expect(controller.needsConfirmation).toBe(true);
+  const staleGeneration = controller.confirmationGeneration;
+
+  target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  expect(controller.needsConfirmation).toBe(false);
+  expect(prompts.at(-1)).toBe(false);
+
+  controller.confirmRestore(staleGeneration);
+  expect(controller.contextAvailable).toBe(false);
+  expect(session.currentMode()).toBe('visibilityPause');
+  expect(canvasInput.at(-1)).toBe(false);
+
+  target.dispatchEvent(new Event('webglcontextrestored'));
+  expect(controller.needsConfirmation).toBe(true);
+  controller.confirmRestore(staleGeneration);
+  expect(session.currentMode()).toBe('visibilityPause');
+  controller.confirmRestore();
+  expect(session.currentMode()).toBe('playing');
+});
+
+it('terminal mode에서 잃은 context는 새 session을 즉시 pause하고 복구 확인 뒤 시작한다', () => {
+  const { canvasInput, controller, session, target, worldPaused } = createHarness();
+  controller.attach();
+  session.forceModeForTest('lost');
+
+  target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  controller.reset();
+  session.reset(2);
+  controller.beginSession();
+
+  expect(controller.contextAvailable).toBe(false);
+  expect(session.currentMode()).toBe('visibilityPause');
+  expect(worldPaused.at(-1)).toBe(true);
+  expect(canvasInput.at(-1)).toBe(false);
+
+  target.dispatchEvent(new Event('webglcontextrestored'));
+  expect(controller.needsConfirmation).toBe(true);
+  controller.confirmRestore();
+  expect(session.currentMode()).toBe('playing');
+  expect(worldPaused.at(-1)).toBe(false);
+});

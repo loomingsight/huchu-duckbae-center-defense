@@ -555,6 +555,7 @@ describe('BootScene', () => {
       const scene = new BootScene();
       const start = vi.fn();
       const element = {
+        node: { querySelector: vi.fn(() => new EventTarget()) },
         setDepth: vi.fn().mockReturnThis(),
         addListener: vi.fn(),
         on: vi.fn(),

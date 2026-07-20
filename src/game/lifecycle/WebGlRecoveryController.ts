@@ -1,5 +1,5 @@
-import type { GameMode } from '../core/GameMode';
 import type { VisibilitySessionPort } from './VisibilityController';
+import { LifecyclePauseCoordinator } from './LifecyclePauseCoordinator';
 
 export interface WebGlRuntimePort {
   setWorldPaused(paused: boolean): void;
@@ -10,19 +10,28 @@ export interface WebGlRuntimePort {
 }
 
 export class WebGlRecoveryController {
-  private returnMode: GameMode | null = null;
   private attached = false;
   private available = true;
+  private recoveryGeneration = 0;
+  private promptGeneration: number | undefined;
+  private readonly coordinator: LifecyclePauseCoordinator;
   needsConfirmation = false;
 
   constructor(
     private readonly target: EventTarget,
     private readonly session: VisibilitySessionPort,
     private readonly runtime: WebGlRuntimePort,
-  ) {}
+    coordinator?: LifecyclePauseCoordinator,
+  ) {
+    this.coordinator = coordinator ?? new LifecyclePauseCoordinator(session, runtime);
+  }
 
   get contextAvailable(): boolean {
     return this.available;
+  }
+
+  get confirmationGeneration(): number | undefined {
+    return this.promptGeneration;
   }
 
   attach(): void {
@@ -39,13 +48,31 @@ export class WebGlRecoveryController {
     this.target.removeEventListener('webglcontextrestored', this.onRestored);
   }
 
-  confirmRestore(): void {
-    if (!this.needsConfirmation || this.returnMode === null) return;
-    this.restoreMode(this.returnMode);
+  confirmRestore(generation = this.promptGeneration): void {
+    if (
+      !this.available
+      || !this.needsConfirmation
+      || generation !== this.recoveryGeneration
+      || this.promptGeneration !== this.recoveryGeneration
+      || !this.coordinator.has('webgl')
+    ) return;
+    this.restoreMode();
+  }
+
+  beginSession(): void {
+    if (this.available) return;
+    this.needsConfirmation = false;
+    this.promptGeneration = undefined;
+    this.runtime.setRestorePromptVisible(false);
+    this.runtime.setContextLostVisible?.(true);
+    this.runtime.setCanvasInputEnabled?.(false);
+    this.coordinator.acquire('webgl');
   }
 
   reset(): void {
-    this.returnMode = null;
+    this.coordinator.abandon('webgl');
+    this.recoveryGeneration += 1;
+    this.promptGeneration = undefined;
     this.needsConfirmation = false;
     this.runtime.setRestorePromptVisible(false);
     this.runtime.setContextLostVisible?.(false);
@@ -55,40 +82,35 @@ export class WebGlRecoveryController {
   private readonly onLost = (event: Event): void => {
     event.preventDefault();
     this.available = false;
-    this.runtime.setCanvasInputEnabled?.(false);
-    const mode = this.session.currentMode();
-    if (mode === 'visibilityPause' || mode === 'won' || mode === 'lost') return;
-    this.returnMode = mode;
+    this.recoveryGeneration += 1;
+    this.promptGeneration = undefined;
     this.needsConfirmation = false;
+    this.runtime.setCanvasInputEnabled?.(false);
     this.runtime.setRestorePromptVisible(false);
     this.runtime.setContextLostVisible?.(true);
-    this.runtime.setWorldPaused(true);
-    this.session.requestVisibilityPause();
+    const alreadyOwned = this.coordinator.has('webgl');
+    if (!this.coordinator.acquire('webgl')) return;
+    if (alreadyOwned) return;
   };
 
   private readonly onRestored = (): void => {
     this.available = true;
     this.runtime.setCanvasInputEnabled?.(true);
     this.runtime.setContextLostVisible?.(false);
-    if (this.returnMode === null) return;
-    if (this.returnMode === 'skillSelection') {
-      this.restoreMode('skillSelection');
+    if (!this.coordinator.has('webgl')) return;
+    if (this.coordinator.originalMode === 'skillSelection') {
+      this.restoreMode();
       return;
     }
+    this.promptGeneration = this.recoveryGeneration;
     this.needsConfirmation = true;
     this.runtime.setRestorePromptVisible(true);
   };
 
-  private restoreMode(expectedMode: GameMode): void {
-    this.returnMode = null;
+  private restoreMode(): void {
     this.needsConfirmation = false;
+    this.promptGeneration = undefined;
     this.runtime.setRestorePromptVisible(false);
-    this.runtime.resyncView();
-    this.session.requestVisibilityResume();
-    const restoredMode = this.session.currentMode();
-    if (restoredMode !== expectedMode) {
-      throw new Error(`Expected to restore ${expectedMode}, got ${restoredMode}`);
-    }
-    this.runtime.setWorldPaused(expectedMode !== 'playing');
+    this.coordinator.release('webgl', () => this.runtime.resyncView());
   }
 }
