@@ -1,504 +1,408 @@
+import type { DamageCommand } from '../combat/CombatTypes';
+import { rankHighestHpTargets } from '../combat/TargetingSystem';
 import { TIME_EPSILON_MS } from '../constants';
-import { rankThreatTargets, selectThreatTarget } from '../combat/TargetingSystem';
+import { BALANCE } from '../data/balance';
+import type { TailEffect } from '../enemies/EnemySystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
-import type { SkillId, SkillLevel } from '../types/GameTypes';
-import { distance, type Point } from '../world/Geometry';
-import { chooseHowlCenter } from './SpatialBucketTargeting';
-import { SKILL_DEFINITIONS } from './skillDefinitions';
-import type { SkillLevels } from './SkillTypes';
+import type { PurchasableSkillId } from '../types/GameTypes';
+import type { Point } from '../world/Geometry';
+import { impactStrengthFor, SKILL_DEFINITIONS } from './skillDefinitions';
+import type {
+  SkillCastStartedEvent,
+  SkillImpactEvent,
+  SkillSnapshot,
+  SkillTargetChangedEvent,
+  SkillTargetSnapshot,
+  SkillTimelineEvent,
+} from './SkillTypes';
 
-export type AutoSkillId = Exclude<SkillId, 'bark'>;
+export type {
+  SkillCastStartedEvent,
+  SkillImpactEvent,
+  SkillSnapshot,
+  SkillTargetChangedEvent,
+  SkillTargetSnapshot,
+  SkillTimelineEvent,
+} from './SkillTypes';
 
-export const AUTO_SKILL_IDS: readonly AutoSkillId[] = [
-  'scold',
+export const AUTO_SKILL_IDS = [
+  'tailSwipe',
   'aquaBeam',
-  'deokbaeHowl',
   'safetyReport',
-];
+] as const satisfies readonly PurchasableSkillId[];
+
+export type AutoSkillId = PurchasableSkillId;
 
 export interface SkillContext {
   readonly player: Point;
   readonly enemies: readonly EnemySnapshot[];
 }
 
-export interface SkillSnapshot {
-  readonly level: SkillLevel;
-  readonly cooldownRemainingMs: number;
-  readonly ready: boolean;
-  readonly progress: number;
+interface PendingBase {
+  readonly castId: string;
+  readonly origin: Point;
+  readonly impactAtMs: number;
+  readonly startSequence: number;
 }
 
-export interface SkillHit {
-  readonly targetId: number;
-  readonly damage: number;
-  readonly nextPathProgress?: number;
-  readonly stunMs?: number;
+interface PendingTailSwipe extends PendingBase {
+  readonly skillId: 'tailSwipe';
 }
 
-export interface SkillTargetPosition {
-  readonly targetId: number;
-  readonly position: Point;
+interface PendingAquaBeam extends PendingBase {
+  readonly skillId: 'aquaBeam';
+  targetId: number;
+  retargeted: boolean;
 }
 
-export type SkillCastVisual =
-  | {
-    readonly kind: 'scold';
-    readonly origin: Point;
-    readonly direction: Point;
-    readonly length: number;
-    readonly angleDeg: number;
-    readonly targetPositions: readonly SkillTargetPosition[];
-  }
-  | {
-    readonly kind: 'aquaBeam';
-    readonly origin: Point;
-    readonly direction: Point;
-    readonly length: number;
-    readonly width: number;
-    readonly targetPositions: readonly SkillTargetPosition[];
-  }
-  | {
-    readonly kind: 'deokbaeHowl';
-    readonly center: Point;
-    readonly radius: number;
-    readonly targetPositions: readonly SkillTargetPosition[];
-  }
-  | {
-    readonly kind: 'safetyReport';
-    readonly origin: Point;
-    readonly targetPosition: Point;
-    readonly targetId: number;
-  };
-
-export interface SkillCastCommand {
-  readonly type: 'skillCast';
-  readonly skillId: AutoSkillId;
-  readonly targetIds: readonly number[];
-  readonly hits: readonly SkillHit[];
-  readonly visual: SkillCastVisual;
+interface PendingSafetyReport extends PendingBase {
+  readonly skillId: 'safetyReport';
+  readonly snapshotTargetIds: readonly number[];
 }
 
-export interface ResolvedSkillStats {
-  readonly damage: number;
-  readonly cooldownMs: number;
-  readonly angleDeg?: number;
-  readonly distance?: number;
-  readonly knockback?: number;
-  readonly length?: number;
-  readonly width?: number;
-  readonly radius?: number;
-  readonly bucketSize?: number;
-  readonly regularStunMs?: number;
-  readonly bossStunMs?: number;
+type PendingCast = PendingTailSwipe | PendingAquaBeam | PendingSafetyReport;
+
+interface StartedCast {
+  readonly pending: PendingCast;
+  readonly started: SkillCastStartedEvent;
 }
 
-export function resolveSkillStats(
-  id: AutoSkillId,
-  level: SkillLevel,
-): ResolvedSkillStats {
-  assertAutoSkillId(id);
-  if (!Number.isSafeInteger(level) || level < 1 || level > 3) {
-    throw new RangeError(`${id} level must be an integer from 1 to 3`);
-  }
-  const common = SKILL_DEFINITIONS[id];
-  const damage = Math.round(common.damage * (level >= 2 ? 1.25 : 1));
-  const cooldownMs = Math.round(common.cooldownMs * (level >= 3 ? 0.8 : 1));
-  if (id === 'scold') {
-    const base = SKILL_DEFINITIONS.scold;
-    return {
-      damage,
-      cooldownMs,
-      angleDeg: base.angleDeg,
-      distance: level >= 3 ? 138 : base.distance,
-      knockback: level >= 3 ? 34 : base.knockback,
-    };
-  }
-  if (id === 'aquaBeam') {
-    const base = SKILL_DEFINITIONS.aquaBeam;
-    return {
-      damage,
-      cooldownMs,
-      length: level >= 3 ? 300 : base.length,
-      width: level >= 3 ? 26.4 : base.width,
-    };
-  }
-  if (id === 'deokbaeHowl') {
-    const base = SKILL_DEFINITIONS.deokbaeHowl;
-    return {
-      damage,
-      cooldownMs,
-      radius: level >= 3 ? 96 : base.radius,
-      bucketSize: base.bucketSize,
-    };
-  }
-  const base = SKILL_DEFINITIONS.safetyReport;
-  return {
-    damage,
-    cooldownMs,
-    regularStunMs: level >= 3 ? 3600 : base.regularStunMs,
-    bossStunMs: level >= 3 ? 1800 : base.bossStunMs,
-  };
-}
-
-export function resolveScoldCommands(
-  origin: Point,
-  direction: Point,
-  enemies: readonly EnemySnapshot[],
-  level: SkillLevel,
-): readonly SkillHit[] {
-  const stats = resolveSkillStats('scold', level);
-  const unit = normalized(direction);
-  const minDot = Math.cos((stats.angleDeg! / 2) * Math.PI / 180);
-  validateGeometryInput(origin, enemies);
-  return aliveInStableOrder(enemies)
-    .filter((enemy) => {
-      const offset = {
-        x: enemy.position.x - origin.x,
-        y: enemy.position.y - origin.y,
-      };
-      const length = Math.hypot(offset.x, offset.y);
-      if (length > stats.distance! + GEOMETRY_EPSILON) return false;
-      if (length === 0) return true;
-      return (offset.x * unit.x + offset.y * unit.y) / length
-        >= minDot - GEOMETRY_EPSILON;
-    })
-    .map((enemy) => {
-      const knockback = enemy.isBoss
-        ? Math.round(stats.knockback! / 2)
-        : stats.knockback!;
-      return freezeHit({
-        targetId: enemy.id,
-        damage: stats.damage,
-        nextPathProgress: Math.max(0, enemy.pathProgress - knockback),
-      });
-    });
-}
-
-export function resolveBeamCommands(
-  origin: Point,
-  direction: Point,
-  enemies: readonly EnemySnapshot[],
-  level: SkillLevel,
-): readonly SkillHit[] {
-  const stats = resolveSkillStats('aquaBeam', level);
-  const unit = normalized(direction);
-  validateGeometryInput(origin, enemies);
-  return aliveInStableOrder(enemies)
-    .filter((enemy) => {
-      const dx = enemy.position.x - origin.x;
-      const dy = enemy.position.y - origin.y;
-      const along = dx * unit.x + dy * unit.y;
-      const perpendicular = Math.abs(dx * unit.y - dy * unit.x);
-      return along >= -GEOMETRY_EPSILON
-        && along <= stats.length! + GEOMETRY_EPSILON
-        && perpendicular <= stats.width! / 2 + GEOMETRY_EPSILON;
-    })
-    .map((enemy) => freezeHit({ targetId: enemy.id, damage: stats.damage }));
-}
-
-export function resolveHowlCommands(
-  center: Point,
-  enemies: readonly EnemySnapshot[],
-  level: SkillLevel,
-): readonly SkillHit[] {
-  const stats = resolveSkillStats('deokbaeHowl', level);
-  validateGeometryInput(center, enemies);
-  return aliveInStableOrder(enemies)
-    .filter((enemy) => distance(center, enemy.position) <= stats.radius! + GEOMETRY_EPSILON)
-    .map((enemy) => freezeHit({ targetId: enemy.id, damage: stats.damage }));
-}
-
-export function resolveSafetyCommand(
-  origin: Point,
-  enemies: readonly EnemySnapshot[],
-  level: SkillLevel,
-): SkillHit | undefined {
-  const target = rankThreatTargets(origin, enemies).at(0);
-  if (target === undefined) return undefined;
-  const stats = resolveSkillStats('safetyReport', level);
-  return freezeHit({
-    targetId: target.id,
-    damage: stats.damage,
-    stunMs: target.isBoss ? stats.bossStunMs! : stats.regularStunMs!,
-  });
-}
+const GLOBAL_CAST_LOCK_MS = 200;
+const TAIL_RADIUS = BALANCE.player.opaqueHeightLogical * 2.2;
+const GEOMETRY_EPSILON = 1e-9;
+const DEFAULT_DIRECTION: Point = { x: 0, y: -1 };
+const MAX_SCHEDULABLE_TIMESTAMP_MS = Number.MAX_SAFE_INTEGER
+  - SKILL_DEFINITIONS.safetyReport.cooldownMs;
 
 export class SkillSystem {
-  private readonly initialLevels: Record<SkillId, SkillLevel>;
-  private readonly levels: Record<SkillId, SkillLevel>;
-  private readonly remaining = new Map<AutoSkillId, number>();
-  private readonly learnedOrder: AutoSkillId[] = [];
+  private readonly learned = new Set<PurchasableSkillId>();
+  private readonly readyAt: Record<PurchasableSkillId, number> = {
+    tailSwipe: 0,
+    aquaBeam: 0,
+    safetyReport: 0,
+  };
+  private readonly castSequence: Record<PurchasableSkillId, number> = {
+    tailSwipe: 1,
+    aquaBeam: 1,
+    safetyReport: 1,
+  };
+  private pending: PendingCast[] = [];
+  private nextGlobalCastAtMs = 0;
+  private lastNowMs = 0;
+  private nextStartSequence = 1;
 
-  constructor(initialLevels: SkillLevels) {
-    validateLevels(initialLevels);
-    this.initialLevels = { ...initialLevels };
-    this.levels = { ...initialLevels };
-    this.initializeAutoSkillState();
+  learn(skillId: PurchasableSkillId, learnedAtMs: number): void {
+    assertSkillId(skillId);
+    assertTimestamp(learnedAtMs, 'Skill learnedAtMs');
+    if (this.learned.has(skillId)) return;
+    const readyAtMs = learnedAtMs + SKILL_DEFINITIONS[skillId].cooldownMs;
+    if (!Number.isFinite(readyAtMs)) {
+      throw new RangeError('Skill ready timestamp must be finite');
+    }
+    this.learned.add(skillId);
+    this.readyAt[skillId] = readyAtMs;
   }
 
-  step(stepMs: number, context: SkillContext): readonly SkillCastCommand[] {
-    assertFiniteNonNegative(stepMs, 'Skill stepMs');
-    validateGeometryInput(context.player, context.enemies);
-    const commands: SkillCastCommand[] = [];
-    const readyWithoutTarget = new Set<AutoSkillId>();
-    let unconsumedMs = stepMs;
+  step(nowMs: number, context: SkillContext): readonly SkillTimelineEvent[] {
+    assertTimestamp(nowMs, 'Skill nowMs');
+    validateContext(context);
+    if (nowMs + TIME_EPSILON_MS < this.lastNowMs) {
+      throw new RangeError('Skill nowMs must be monotonic');
+    }
 
-    while (true) {
-      for (const id of AUTO_SKILL_IDS) {
-        const level = this.levels[id];
-        if (
-          level === 0
-          || (this.remaining.get(id) ?? 0) > TIME_EPSILON_MS
-          || readyWithoutTarget.has(id)
-        ) {
-          continue;
-        }
-        const command = resolveCast(id, level, context);
-        if (command === undefined) {
-          readyWithoutTarget.add(id);
-          continue;
-        }
-        commands.push(command);
-        this.remaining.set(id, resolveSkillStats(id, level).cooldownMs);
-      }
+    this.lastNowMs = nowMs;
+    const events = this.advancePending(nowMs, context);
+    if (nowMs + TIME_EPSILON_MS < this.nextGlobalCastAtMs) return events;
 
-      if (unconsumedMs <= TIME_EPSILON_MS) return commands;
-      const charging = AUTO_SKILL_IDS.filter((id) => (
-        this.levels[id] > 0 && (this.remaining.get(id) ?? 0) > TIME_EPSILON_MS
+    const ready = AUTO_SKILL_IDS
+      .filter((skillId) => (
+        this.learned.has(skillId)
+        && this.readyAt[skillId] <= nowMs + TIME_EPSILON_MS
+      ))
+      .slice()
+      .sort((left, right) => (
+        this.readyAt[left] - this.readyAt[right]
+        || priorityOf(left) - priorityOf(right)
       ));
-      if (charging.length === 0) return commands;
-      const untilNextBoundaryMs = Math.min(
-        ...charging.map((id) => this.remaining.get(id)!),
-      );
-      const advanceMs = Math.min(unconsumedMs, untilNextBoundaryMs);
-      for (const id of charging) {
-        this.remaining.set(id, subtractBoundary(this.remaining.get(id)!, advanceMs));
-      }
-      unconsumedMs = subtractBoundary(unconsumedMs, advanceMs);
+
+    for (const skillId of ready) {
+      const cast = this.startIfTargetExists(skillId, nowMs, context);
+      if (cast === undefined) continue;
+      this.pending.push(cast.pending);
+      this.readyAt[skillId] = nowMs + SKILL_DEFINITIONS[skillId].cooldownMs;
+      this.nextGlobalCastAtMs = nowMs + GLOBAL_CAST_LOCK_MS;
+      events.push(cast.started);
+      break;
     }
+    return events;
   }
 
-  levelUp(id: SkillId): Exclude<SkillLevel, 0> {
-    assertSkillId(id);
-    const current = this.levels[id];
-    if (current >= 3) throw new RangeError(`${id} is already max level`);
-    const next = (current + 1) as Exclude<SkillLevel, 0>;
-    this.levels[id] = next;
-    if (id === 'bark') return next;
-
-    if (current === 0) {
-      this.learnedOrder.push(id);
-      this.remaining.set(id, resolveSkillStats(id, next).cooldownMs);
-      return next;
+  snapshot(skillId: PurchasableSkillId): SkillSnapshot {
+    assertSkillId(skillId);
+    const learned = this.learned.has(skillId);
+    if (!learned) {
+      return {
+        learned: false,
+        cooldownRemainingMs: 0,
+        ready: false,
+        progress: 0,
+        activeCastId: null,
+      };
     }
-    const oldFull = resolveSkillStats(id, current).cooldownMs;
-    const remainingRatio = (this.remaining.get(id) ?? 0) / oldFull;
-    this.remaining.set(id, resolveSkillStats(id, next).cooldownMs * remainingRatio);
-    return next;
-  }
-
-  snapshot(id: SkillId): SkillSnapshot {
-    assertSkillId(id);
-    const level = this.levels[id];
-    if (id === 'bark') {
-      return { level, cooldownRemainingMs: 0, ready: level > 0, progress: level > 0 ? 1 : 0 };
-    }
-    const cooldownRemainingMs = this.remaining.get(id) ?? 0;
-    const full = level === 0 ? 0 : resolveSkillStats(id, level).cooldownMs;
+    const cooldownMs = SKILL_DEFINITIONS[skillId].cooldownMs;
+    const cooldownRemainingMs = Math.max(0, this.readyAt[skillId] - this.lastNowMs);
     return {
-      level,
+      learned: true,
       cooldownRemainingMs,
-      ready: level > 0 && cooldownRemainingMs <= TIME_EPSILON_MS,
-      progress: level === 0 ? 0 : clampUnit(1 - cooldownRemainingMs / full),
+      ready: cooldownRemainingMs <= TIME_EPSILON_MS,
+      progress: clampUnit(1 - cooldownRemainingMs / cooldownMs),
+      activeCastId: this.pending.find((cast) => cast.skillId === skillId)?.castId ?? null,
     };
   }
 
-  levelsSnapshot(): SkillLevels {
-    return { ...this.levels };
-  }
-
-  learnedOrderSnapshot(): readonly AutoSkillId[] {
-    return [...this.learnedOrder];
-  }
-
-  cooldownProgressSnapshot(): Readonly<Record<SkillId, number>> {
+  learnedSnapshot(): Readonly<Record<PurchasableSkillId, boolean>> {
     return {
-      bark: 0,
-      scold: this.snapshot('scold').progress,
-      aquaBeam: this.snapshot('aquaBeam').progress,
-      deokbaeHowl: this.snapshot('deokbaeHowl').progress,
-      safetyReport: this.snapshot('safetyReport').progress,
+      tailSwipe: this.learned.has('tailSwipe'),
+      aquaBeam: this.learned.has('aquaBeam'),
+      safetyReport: this.learned.has('safetyReport'),
     };
   }
 
   reset(): void {
-    for (const id of Object.keys(this.initialLevels) as SkillId[]) {
-      this.levels[id] = this.initialLevels[id];
+    this.learned.clear();
+    for (const skillId of AUTO_SKILL_IDS) {
+      this.readyAt[skillId] = 0;
+      this.castSequence[skillId] = 1;
     }
-    this.initializeAutoSkillState();
+    this.pending = [];
+    this.nextGlobalCastAtMs = 0;
+    this.lastNowMs = 0;
+    this.nextStartSequence = 1;
   }
 
-  private initializeAutoSkillState(): void {
-    this.remaining.clear();
-    this.learnedOrder.length = 0;
-    for (const id of AUTO_SKILL_IDS) {
-      const level = this.levels[id];
-      if (level === 0) continue;
-      this.learnedOrder.push(id);
-      this.remaining.set(id, resolveSkillStats(id, level).cooldownMs);
+  private advancePending(nowMs: number, context: SkillContext): SkillTimelineEvent[] {
+    const events: SkillTimelineEvent[] = [];
+    const ordered = this.pending.slice().sort((left, right) => (
+      left.impactAtMs - right.impactAtMs || left.startSequence - right.startSequence
+    ));
+    const resolved = new Set<PendingCast>();
+
+    for (const cast of ordered) {
+      if (cast.skillId === 'aquaBeam') {
+        const currentTarget = activeEnemyById(context.enemies, cast.targetId);
+        if (currentTarget === undefined && !cast.retargeted) {
+          const replacement = rankHighestHpTargets(context.player, context.enemies).at(0)?.enemy;
+          if (replacement !== undefined) {
+            const previousTargetId = cast.targetId;
+            cast.targetId = replacement.id;
+            cast.retargeted = true;
+            events.push({
+              type: 'skillTargetChanged',
+              castId: cast.castId,
+              skillId: 'aquaBeam',
+              previousTargetId,
+              targetId: replacement.id,
+              targetPosition: copyPoint(replacement.position),
+            });
+          }
+        }
+      }
+
+      if (cast.impactAtMs > nowMs + TIME_EPSILON_MS) continue;
+      events.push(this.impact(cast, context));
+      resolved.add(cast);
     }
+
+    if (resolved.size > 0) {
+      this.pending = this.pending.filter((cast) => !resolved.has(cast));
+    }
+    return events;
   }
 
+  private impact(cast: PendingCast, context: SkillContext): SkillImpactEvent {
+    let targets: readonly SkillTargetSnapshot[];
+    if (cast.skillId === 'tailSwipe') {
+      targets = stableAlive(context.enemies)
+        .filter((enemy) => distanceBetween(cast.origin, enemy.position) <= TAIL_RADIUS + GEOMETRY_EPSILON)
+        .map(targetSnapshot);
+    } else if (cast.skillId === 'aquaBeam') {
+      const target = activeEnemyById(context.enemies, cast.targetId);
+      targets = target === undefined ? [] : [targetSnapshot(target)];
+    } else {
+      const activeById = new Map(
+        context.enemies
+          .filter(({ state }) => state !== 'dead')
+          .map((enemy) => [enemy.id, enemy]),
+      );
+      targets = cast.snapshotTargetIds.flatMap((targetId) => {
+        const target = activeById.get(targetId);
+        return target === undefined ? [] : [targetSnapshot(target)];
+      });
+    }
+    return {
+      type: 'skillImpact',
+      castId: cast.castId,
+      skillId: cast.skillId,
+      origin: copyPoint(cast.origin),
+      targets,
+    };
+  }
+
+  private startIfTargetExists(
+    skillId: PurchasableSkillId,
+    nowMs: number,
+    context: SkillContext,
+  ): StartedCast | undefined {
+    const castId = `${skillId}:${this.castSequence[skillId]}`;
+    const origin = copyPoint(context.player);
+    const startSequence = this.nextStartSequence;
+    let pending: PendingCast;
+    let targets: readonly SkillTargetSnapshot[];
+
+    if (skillId === 'tailSwipe') {
+      const candidates = stableAlive(context.enemies)
+        .filter((enemy) => distanceBetween(origin, enemy.position) <= TAIL_RADIUS + GEOMETRY_EPSILON);
+      if (candidates.length === 0) return undefined;
+      targets = candidates.map(targetSnapshot);
+      pending = {
+        castId,
+        skillId,
+        origin,
+        impactAtMs: nowMs + SKILL_DEFINITIONS.tailSwipe.impactMs,
+        startSequence,
+      };
+    } else if (skillId === 'aquaBeam') {
+      const target = rankHighestHpTargets(origin, context.enemies).at(0)?.enemy;
+      if (target === undefined) return undefined;
+      targets = [targetSnapshot(target)];
+      pending = {
+        castId,
+        skillId,
+        origin,
+        impactAtMs: nowMs + SKILL_DEFINITIONS.aquaBeam.impactMs,
+        startSequence,
+        targetId: target.id,
+        retargeted: false,
+      };
+    } else {
+      const candidates = stableAlive(context.enemies);
+      if (candidates.length === 0) return undefined;
+      targets = candidates.map(targetSnapshot);
+      pending = {
+        castId,
+        skillId,
+        origin,
+        impactAtMs: nowMs + SKILL_DEFINITIONS.safetyReport.impactMs,
+        startSequence,
+        snapshotTargetIds: candidates.map(({ id }) => id),
+      };
+    }
+
+    this.castSequence[skillId] += 1;
+    this.nextStartSequence += 1;
+    return {
+      pending,
+      started: {
+        type: 'skillCastStarted',
+        castId,
+        skillId,
+        origin: copyPoint(origin),
+        targets,
+        durationMs: impactMsFor(skillId),
+      },
+    };
+  }
 }
 
-function resolveCast(
-  id: AutoSkillId,
-  level: Exclude<SkillLevel, 0>,
-  context: SkillContext,
-): SkillCastCommand | undefined {
-  if (id === 'scold') {
-    const stats = resolveSkillStats(id, level);
-    const target = selectThreatTarget(context.player, context.enemies, stats.distance);
-    if (target === undefined) return undefined;
-    const direction = normalized(directionTo(context.player, target.position));
-    const hits = resolveScoldCommands(context.player, direction, context.enemies, level);
-    return commandFor(id, hits, {
-      kind: id,
-      origin: copyPoint(context.player),
-      direction: copyPoint(direction),
-      length: stats.distance!,
-      angleDeg: stats.angleDeg!,
-      targetPositions: targetPositions(hits, context.enemies),
-    });
-  }
-  if (id === 'aquaBeam') {
-    const stats = resolveSkillStats(id, level);
-    const target = selectThreatTarget(context.player, context.enemies, stats.length);
-    if (target === undefined) return undefined;
-    const direction = normalized(directionTo(context.player, target.position));
-    const hits = resolveBeamCommands(context.player, direction, context.enemies, level);
-    return commandFor(id, hits, {
-      kind: id,
-      origin: copyPoint(context.player),
-      direction: copyPoint(direction),
-      length: stats.length!,
-      width: stats.width!,
-      targetPositions: targetPositions(hits, context.enemies),
-    });
-  }
-  if (id === 'deokbaeHowl') {
-    const stats = resolveSkillStats(id, level);
-    const center = chooseHowlCenter(context.enemies, stats.bucketSize!, {
-      width: 540,
-      height: 960,
-    });
-    if (center === undefined) return undefined;
-    const hits = resolveHowlCommands(center, context.enemies, level);
-    if (hits.length === 0) return undefined;
-    return commandFor(id, hits, {
-      kind: id,
-      center: copyPoint(center),
-      radius: stats.radius!,
-      targetPositions: targetPositions(hits, context.enemies),
-    });
-  }
-  const hit = resolveSafetyCommand(context.player, context.enemies, level);
-  if (hit === undefined) return undefined;
-  const target = context.enemies.find(({ id: targetId }) => targetId === hit.targetId);
-  if (target === undefined) throw new Error('Safety target disappeared during resolution');
-  return commandFor(id, [hit], {
-    kind: id,
-    origin: copyPoint(context.player),
-    targetPosition: copyPoint(target.position),
-    targetId: target.id,
-  });
+export function tailEffectFor(isBoss: boolean): TailEffect {
+  return isBoss
+    ? { knockbackPx: 35, multiplier: 0.8, durationMs: 1000 }
+    : { knockbackPx: 35, multiplier: 0.6, durationMs: 1500 };
 }
 
-function commandFor(
-  skillId: AutoSkillId,
-  hits: readonly SkillHit[],
-  visual: SkillCastVisual,
-): SkillCastCommand {
-  const frozenHits = Object.freeze([...hits]);
-  return Object.freeze({
-    type: 'skillCast',
-    skillId,
-    targetIds: Object.freeze(frozenHits.map(({ targetId }) => targetId)),
-    hits: frozenHits,
-    visual: freezeVisual(visual),
-  });
-}
-
-function targetPositions(
-  hits: readonly SkillHit[],
+export function damageCommandsForSkillImpact(
+  impact: SkillImpactEvent,
   enemies: readonly EnemySnapshot[],
-): readonly SkillTargetPosition[] {
-  return Object.freeze(hits.map(({ targetId }) => {
-    const enemy = enemies.find(({ id }) => id === targetId);
-    if (enemy === undefined) throw new Error(`Skill target ${targetId} disappeared during resolution`);
-    return Object.freeze({ targetId, position: Object.freeze(copyPoint(enemy.position)) });
-  }));
-}
-
-function freezeVisual(visual: SkillCastVisual): SkillCastVisual {
-  if (visual.kind === 'scold' || visual.kind === 'aquaBeam') {
-    return Object.freeze({
-      ...visual,
-      origin: Object.freeze(copyPoint(visual.origin)),
-      direction: Object.freeze(copyPoint(visual.direction)),
-      targetPositions: visual.targetPositions,
-    });
-  }
-  if (visual.kind === 'deokbaeHowl') {
-    return Object.freeze({
-      ...visual,
-      center: Object.freeze(copyPoint(visual.center)),
-      targetPositions: visual.targetPositions,
-    });
-  }
-  return Object.freeze({
-    ...visual,
-    origin: Object.freeze(copyPoint(visual.origin)),
-    targetPosition: Object.freeze(copyPoint(visual.targetPosition)),
+): readonly DamageCommand[] {
+  const activeById = new Map(
+    enemies
+      .filter(({ state }) => state !== 'dead')
+      .map((enemy) => [enemy.id, enemy]),
+  );
+  const seen = new Set<number>();
+  return impact.targets.flatMap((target): readonly DamageCommand[] => {
+    if (seen.has(target.targetId)) return [];
+    const enemy = activeById.get(target.targetId);
+    if (enemy === undefined) return [];
+    seen.add(target.targetId);
+    return [{
+      castId: impact.castId,
+      targetId: target.targetId,
+      amount: damageFor(impact.skillId, enemy.isBoss),
+      impactDirection: normalizedDirection(impact.origin, target.position),
+      source: impact.skillId,
+      strength: impactStrengthFor(impact.skillId),
+    }];
   });
 }
 
-function freezeHit(hit: SkillHit): SkillHit {
-  return Object.freeze({ ...hit });
+function damageFor(skillId: PurchasableSkillId, isBoss: boolean): number {
+  if (skillId === 'tailSwipe') return SKILL_DEFINITIONS.tailSwipe.damage;
+  if (skillId === 'aquaBeam') return SKILL_DEFINITIONS.aquaBeam.damage;
+  return isBoss
+    ? SKILL_DEFINITIONS.safetyReport.bossDamage
+    : SKILL_DEFINITIONS.safetyReport.regularDamage;
 }
 
-function aliveInStableOrder(enemies: readonly EnemySnapshot[]): readonly EnemySnapshot[] {
+function impactMsFor(skillId: PurchasableSkillId): 250 | 300 | 600 {
+  if (skillId === 'tailSwipe') return SKILL_DEFINITIONS.tailSwipe.impactMs;
+  if (skillId === 'aquaBeam') return SKILL_DEFINITIONS.aquaBeam.impactMs;
+  return SKILL_DEFINITIONS.safetyReport.impactMs;
+}
+
+function normalizedDirection(origin: Point, target: Point): Point {
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const length = Math.hypot(dx, dy);
+  return length === 0 ? { ...DEFAULT_DIRECTION } : { x: dx / length, y: dy / length };
+}
+
+function activeEnemyById(
+  enemies: readonly EnemySnapshot[],
+  targetId: number,
+): EnemySnapshot | undefined {
+  return enemies.find((enemy) => enemy.id === targetId && enemy.state !== 'dead');
+}
+
+function stableAlive(enemies: readonly EnemySnapshot[]): readonly EnemySnapshot[] {
   return enemies
     .filter(({ state }) => state !== 'dead')
     .slice()
-    .sort((left, right) => (
-      left.spawnSequence - right.spawnSequence
-      || left.id - right.id
-    ));
+    .sort((left, right) => left.spawnSequence - right.spawnSequence || left.id - right.id);
 }
 
-function normalized(vector: Point): Point {
-  assertPoint(vector, 'Skill direction');
-  const length = Math.hypot(vector.x, vector.y);
-  if (length === 0) throw new RangeError('Skill direction must be non-zero');
-  return { x: vector.x / length, y: vector.y / length };
+function targetSnapshot(enemy: EnemySnapshot): SkillTargetSnapshot {
+  return { targetId: enemy.id, position: copyPoint(enemy.position) };
 }
 
-function directionTo(origin: Point, target: Point): Point {
-  const direction = { x: target.x - origin.x, y: target.y - origin.y };
-  return direction.x === 0 && direction.y === 0 ? { x: 0, y: -1 } : direction;
+function validateContext(context: SkillContext): void {
+  assertPoint(context.player, 'Skill player');
+  rankHighestHpTargets(context.player, context.enemies);
 }
 
-function validateGeometryInput(origin: Point, enemies: readonly EnemySnapshot[]): void {
-  rankThreatTargets(origin, enemies);
+function priorityOf(skillId: PurchasableSkillId): number {
+  return AUTO_SKILL_IDS.indexOf(skillId);
 }
 
-function validateLevels(levels: SkillLevels): void {
-  for (const id of SKILL_IDS) {
-    const level = levels[id];
-    if (!Number.isSafeInteger(level) || level < 0 || level > 3) {
-      throw new RangeError(`${id} level must be an integer from 0 to 3`);
-    }
+function assertSkillId(skillId: PurchasableSkillId): void {
+  if (!(AUTO_SKILL_IDS as readonly string[]).includes(skillId)) {
+    throw new RangeError(`Unknown auto skill ${String(skillId)}`);
+  }
+}
+
+function assertTimestamp(value: number, label: string): void {
+  if (!Number.isFinite(value) || value < 0 || value > MAX_SCHEDULABLE_TIMESTAMP_MS) {
+    throw new RangeError(`${label} must be finite, non-negative, and safely schedulable`);
   }
 }
 
@@ -508,36 +412,14 @@ function assertPoint(point: Point, label: string): void {
   }
 }
 
-function assertFiniteNonNegative(value: number, label: string): void {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError(`${label} must be finite and non-negative`);
-  }
-}
-
-function assertAutoSkillId(id: AutoSkillId): void {
-  if (!(AUTO_SKILL_IDS as readonly string[]).includes(id)) {
-    throw new RangeError(`Unknown auto skill ${String(id)}`);
-  }
-}
-
-function assertSkillId(id: SkillId): void {
-  if (!(SKILL_IDS as readonly string[]).includes(id)) {
-    throw new RangeError(`Unknown skill ${String(id)}`);
-  }
+function distanceBetween(left: Point, right: Point): number {
+  return Math.hypot(right.x - left.x, right.y - left.y);
 }
 
 function copyPoint(point: Point): Point {
   return { x: point.x, y: point.y };
 }
 
-function subtractBoundary(remainingMs: number, boundaryMs: number): number {
-  const next = remainingMs - boundaryMs;
-  return next <= TIME_EPSILON_MS ? 0 : next;
-}
-
 function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
-
-const GEOMETRY_EPSILON = 1e-9;
-const SKILL_IDS: readonly SkillId[] = ['bark', ...AUTO_SKILL_IDS];

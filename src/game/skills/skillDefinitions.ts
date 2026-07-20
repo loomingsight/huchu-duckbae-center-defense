@@ -1,27 +1,37 @@
+import { attackImpactMs } from '../data/balance';
+import type { DamageSource, ImpactStrength } from '../types/GameTypes';
+
 export const SKILL_DEFINITIONS = {
-  scold: {
+  tailSwipe: {
     cooldownMs: 8000,
-    damage: 20,
-    angleDeg: 70,
-    distance: 115,
-    knockback: 28,
+    impactMs: attackImpactMs('normal') as 250,
+    damage: 14,
   },
   aquaBeam: {
-    cooldownMs: 9000,
-    damage: 32,
-    length: 250,
-    width: 22,
-  },
-  deokbaeHowl: {
-    cooldownMs: 14000,
-    damage: 45,
-    radius: 80,
-    bucketSize: 80,
+    cooldownMs: 10_000,
+    impactMs: 600,
+    damage: 160,
   },
   safetyReport: {
-    cooldownMs: 20000,
-    damage: 90,
-    regularStunMs: 3000,
-    bossStunMs: 1500,
+    cooldownMs: 22_000,
+    impactMs: 300,
+    regularDamage: 90,
+    bossDamage: 45,
   },
 } as const;
+
+const IMPACT_STRENGTH_BY_SOURCE: Readonly<Record<DamageSource, ImpactStrength>> = {
+  bark: 'light',
+  deokbae: 'light',
+  tailSwipe: 'medium',
+  aquaBeam: 'heavy',
+  safetyReport: 'heavy',
+};
+
+export function impactStrengthFor(source: DamageSource): ImpactStrength {
+  const strength = IMPACT_STRENGTH_BY_SOURCE[source];
+  if (strength === undefined) {
+    throw new RangeError(`Unknown damage source ${String(source)}`);
+  }
+  return strength;
+}
