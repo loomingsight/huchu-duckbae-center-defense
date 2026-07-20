@@ -208,6 +208,8 @@ export class ProjectileSystem {
             castId: projectile.castId,
             projectileId: projectile.id,
             projectileKind: projectile.projectileKind,
+            sourceEnemyId: projectile.sourceEnemyId,
+            sourceEnemyKind: projectile.sourceEnemyKind,
             position: impactPosition,
           },
           {

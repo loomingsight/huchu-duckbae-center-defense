@@ -101,7 +101,13 @@ it('enemy castId와 kind는 attack start부터 projectile hit까지 보존된다
     expect.objectContaining({
       type: 'projectileRequested', castId: 'enemy:7:1', kind: 'poopGuardian',
     }),
-    expect.objectContaining({ type: 'projectileHit', castId: 'enemy:7:1', projectileKind: 'poop' }),
+    expect.objectContaining({
+      type: 'projectileHit',
+      castId: 'enemy:7:1',
+      projectileKind: 'poop',
+      sourceEnemyId: 7,
+      sourceEnemyKind: 'poopGuardian',
+    }),
     expect.objectContaining({
       type: 'shelterDamageRequested',
       castId: 'enemy:7:1',
@@ -163,9 +169,20 @@ it('보스 projectile은 보호소 hit에 heavy 요청을 낸다', () => {
   )!;
   const projectiles = new ProjectileSystem(1);
   projectiles.spawn({ ...request, id: 1 });
-  expect(projectiles.step(500).find(
-    (event) => event.type === 'shelterDamageRequested',
-  )).toMatchObject({ amount: 120, strength: 'heavy', sourceEnemyKind: 'dogTrader' });
+  const events = projectiles.step(500);
+  expect(events.find((event) => event.type === 'projectileHit')).toMatchObject({
+    castId: 'enemy:11:1',
+    projectileKind: 'net',
+    sourceEnemyId: 11,
+    sourceEnemyKind: 'dogTrader',
+  });
+  expect(events.find((event) => event.type === 'shelterDamageRequested')).toMatchObject({
+    castId: 'enemy:11:1',
+    amount: 120,
+    strength: 'heavy',
+    sourceEnemyId: 11,
+    sourceEnemyKind: 'dogTrader',
+  });
 });
 
 it('발에서 보호소 원 경계까지의 거리를 사용한다', () => {

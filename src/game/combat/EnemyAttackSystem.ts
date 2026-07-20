@@ -53,6 +53,8 @@ export type EnemyCombatEvent =
     readonly castId: string;
     readonly projectileId: number;
     readonly projectileKind: EnemyProjectileKind;
+    readonly sourceEnemyId: number;
+    readonly sourceEnemyKind: EnemyKind;
     readonly position: Point;
   }
   | ShelterDamageRequest;

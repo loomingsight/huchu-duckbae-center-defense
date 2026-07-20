@@ -77,6 +77,29 @@ it('slow/dash 경계를 포함한 큰 step은 같은 합계의 분할 step과 �
   expect(whole.snapshots()).toEqual(split.snapshots());
 });
 
+it('sub-epsilon dash 경계에서 snapshot ETA는 종료하고 finite하다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
+
+  system.step(3999.999_999_95);
+
+  expect(Number.isFinite(system.snapshots()[0]!.etaMs)).toBe(true);
+});
+
+it('slow와 dash가 같은 sub-epsilon 경계면 slow을 먼저 풀고 정상 배율 dash한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
+  system.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 4000 });
+
+  system.step(3999.999_999_95);
+
+  expect(system.snapshots()[0]).toMatchObject({
+    moveSpeedMultiplier: 1,
+    slowRemainingMs: 0,
+    dashCooldownRemainingMs: 4000,
+  });
+  expect(system.snapshots()[0]!.pathProgress)
+    .toBeCloseTo(42 * 0.6 * 3.999_999_999_95 + 64, 8);
+});
+
 it('dogTrader는 -70 pre-entry에서 시작하고 첫 segment 밖 위치와 ETA를 보존한다', () => {
   const path = new PathSystem([[0, 0], [100, 0]]);
   expect(path.positionAtExtended(-70)).toEqual({ x: -70, y: 0 });
@@ -97,6 +120,18 @@ it('dogTrader는 -70 pre-entry에서 시작하고 첫 segment 밖 위치와 ETA�
   expect(nearStart.snapshots()[0]!.pathProgress).toBe(-70);
 });
 
+it('dogTrader -70 pre-entry ETA는 0 시작보다 정확히 2800ms 길다', () => {
+  const beforeEntry = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
+  const atEntry = EnemySystem.withSingleEnemy({
+    kind: 'dogTrader',
+    pathId: 'P3',
+    initialProgress: 0,
+  });
+
+  expect(beforeEntry.snapshots()[0]!.etaMs - atEntry.snapshots()[0]!.etaMs)
+    .toBeCloseTo(70 / 25 * 1000, 9);
+});
+
 it('감속 중 snapshot ETA는 남은 slow을 복사 적분하고 실제 상태는 변경하지 않는다', () => {
   const normal = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
   const slowed = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
@@ -106,6 +141,28 @@ it('감속 중 snapshot ETA는 남은 slow을 복사 적분하고 실제 상태�
   expect(first.etaMs).toBeGreaterThan(normal.snapshots()[0]!.etaMs);
   expect(slowed.snapshots()[0]).toEqual(first);
   expect(Number.isFinite(first.etaMs)).toBe(true);
+});
+
+it('일반 적 slow ETA delta를 정확히 반영하고 초기 ETA만큼 step하면 0에 도달한다', () => {
+  const normal = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
+  const slowed = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
+  slowed.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 1500 });
+  const initialEtaMs = slowed.snapshots()[0]!.etaMs;
+
+  expect(initialEtaMs - normal.snapshots()[0]!.etaMs).toBeCloseTo(600, 9);
+  slowed.step(initialEtaMs);
+  expect(slowed.snapshots()[0]!.etaMs).toBe(0);
+});
+
+it('off-leash ETA는 남은 slow/dash를 동일하게 적분하고 그 시간만큼 step하면 0에 도달한다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
+  system.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 5000 });
+  system.step(1250);
+  const initialEtaMs = system.snapshots()[0]!.etaMs;
+
+  system.step(initialEtaMs);
+
+  expect(system.snapshots()[0]!.etaMs).toBe(0);
 });
 
 it('tail impact는 windup만 일회 이동으로 돌리고 holding은 유지한다', () => {

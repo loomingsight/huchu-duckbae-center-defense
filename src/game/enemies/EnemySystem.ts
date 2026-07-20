@@ -279,7 +279,8 @@ export class EnemySystem {
 
   private advanceMoving(enemy: MovementState, stepMs: number): void {
     let remainingMs = stepMs;
-    while (remainingMs > TIME_EPSILON_MS) {
+    while (remainingMs > 0) {
+      this.resolveMovementBoundaries(enemy);
       const slowBoundary = enemy.slowRemainingMs > 0
         ? enemy.slowRemainingMs
         : Number.POSITIVE_INFINITY;
@@ -293,17 +294,25 @@ export class EnemySystem {
       );
       enemy.slowRemainingMs = Math.max(0, enemy.slowRemainingMs - sliceMs);
       enemy.dashCooldownRemainingMs = Math.max(0, enemy.dashCooldownRemainingMs - sliceMs);
-      remainingMs -= sliceMs;
-
-      if (enemy.slowRemainingMs === 0) enemy.moveSpeedMultiplier = 1;
-      if (enemy.kind === 'offLeashGuardian' && enemy.dashCooldownRemainingMs === 0) {
-        enemy.pathProgress = Math.min(
-          enemy.attackProgress,
-          enemy.pathProgress + OFF_LEASH_DASH_DISTANCE * enemy.moveSpeedMultiplier,
-        );
-        enemy.dashCooldownRemainingMs = OFF_LEASH_DASH_INTERVAL_MS;
-      }
+      remainingMs = Math.max(0, remainingMs - sliceMs);
+      this.resolveMovementBoundaries(enemy);
     }
+  }
+
+  private resolveMovementBoundaries(enemy: MovementState): void {
+    if (enemy.slowRemainingMs <= TIME_EPSILON_MS) {
+      enemy.slowRemainingMs = 0;
+      enemy.moveSpeedMultiplier = 1;
+    }
+    if (enemy.dashCooldownRemainingMs > TIME_EPSILON_MS) return;
+
+    enemy.dashCooldownRemainingMs = 0;
+    if (enemy.kind !== 'offLeashGuardian') return;
+    enemy.pathProgress = Math.min(
+      enemy.attackProgress,
+      enemy.pathProgress + OFF_LEASH_DASH_DISTANCE * enemy.moveSpeedMultiplier,
+    );
+    enemy.dashCooldownRemainingMs = OFF_LEASH_DASH_INTERVAL_MS;
   }
 
   private estimateEtaMs(enemy: MutableEnemy): number {
@@ -319,9 +328,15 @@ export class EnemySystem {
     };
     let elapsedMs = 0;
     while (estimate.pathProgress < estimate.attackProgress) {
+      this.resolveMovementBoundaries(estimate);
+      const remainingDistance = estimate.attackProgress - estimate.pathProgress;
+      if (remainingDistance <= TIME_EPSILON_MS) {
+        estimate.pathProgress = estimate.attackProgress;
+        break;
+      }
       const speedPerMs = estimate.speed * estimate.moveSpeedMultiplier / 1000;
       if (speedPerMs <= 0) return Number.POSITIVE_INFINITY;
-      const untilArrivalMs = (estimate.attackProgress - estimate.pathProgress) / speedPerMs;
+      const untilArrivalMs = remainingDistance / speedPerMs;
       const untilSlowBoundaryMs = estimate.slowRemainingMs > 0
         ? estimate.slowRemainingMs
         : Number.POSITIVE_INFINITY;

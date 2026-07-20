@@ -28,6 +28,8 @@ it('보호소 원에 닿을 때 구조화된 피해를 한 번 요청하고 풀�
       castId: 'enemy:7:1',
       projectileId: 1,
       projectileKind: 'poop',
+      sourceEnemyId: 7,
+      sourceEnemyKind: 'poopGuardian',
       position: { x: 270, y: 518 },
     },
     {
@@ -116,6 +118,8 @@ it('정확히 lifetime 경계에서 보호소 원에 닿으면 heavy 피해를 �
       castId: 'enemy:7:1',
       projectileId: 1,
       projectileKind: 'electric',
+      sourceEnemyId: 7,
+      sourceEnemyKind: 'illegalBreeder',
       position: { x: 100, y: 0 },
     },
     {
