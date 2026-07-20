@@ -24,6 +24,42 @@ const summarize = (definitions: readonly WaveDefinition[]) => definitions.map((d
 });
 
 describe('PathDeck', () => {
+  it('첫 refill RNG 실패는 deck을 채우지 않고 retry에서 RNG를 다시 호출한다', () => {
+    const values = [1, 0.25];
+    let calls = 0;
+    const deck = new PathDeck(['P1', 'P2'], { next: () => values[calls++]! });
+    const control = new PathDeck(['P1', 'P2'], { next: () => 0.25 });
+
+    expect(() => deck.drawMany(2)).toThrow(RangeError);
+    expect(calls).toBe(1);
+    expect(deck.drawMany(2)).toEqual(control.drawMany(2));
+    expect(calls).toBe(2);
+  });
+
+  it('deck 경계 refill 실패는 기존 카드와 draft selection을 소비하지 않는다', () => {
+    const values = [0.2, 0.4, 1, 0.6, 0.8];
+    let calls = 0;
+    const deck = new PathDeck(
+      ['P1', 'P2', 'P3'],
+      { next: () => values[calls++]! },
+    );
+    const controlValues = [0.2, 0.4, 0.6, 0.8];
+    let controlCalls = 0;
+    const control = new PathDeck(
+      ['P1', 'P2', 'P3'],
+      { next: () => controlValues[controlCalls++]! },
+    );
+
+    expect(deck.drawMany(2)).toEqual(control.drawMany(2));
+    expect(() => deck.drawMany(3)).toThrow(RangeError);
+    const retried = deck.drawMany(3);
+    const clean = control.drawMany(3);
+
+    expect(retried).toEqual(clean);
+    expect(calls).toBe(5);
+    expect(controlCalls).toBe(4);
+  });
+
   it('한 event는 path를 중복하지 않고 deck 소진 뒤 seeded reshuffle한다', () => {
     const first = new PathDeck(['P1', 'P2'], new SeededRng(7));
     const second = new PathDeck(['P1', 'P2'], new SeededRng(7));
@@ -75,6 +111,82 @@ describe('PathDeck', () => {
 });
 
 describe('WaveSystem', () => {
+  it('W3 later refill 실패는 variant cursor와 materialized draft를 남기지 않는다', () => {
+    const values = [
+      ...Array.from({ length: 5 }, () => 0.25),
+      1,
+      ...Array.from({ length: 15 }, () => 0.25),
+    ];
+    let calls = 0;
+    const failedThenRetried = new WaveSystem(WAVE_DEFINITIONS, {
+      next: () => values[calls++]!,
+    });
+    const clean = new WaveSystem(WAVE_DEFINITIONS, { next: () => 0.25 });
+
+    expect(() => failedThenRetried.start(3)).toThrow(RangeError);
+    expect(() => failedThenRetried.step(0, 0)).toThrow(
+      'WaveSystem.start must be called first',
+    );
+
+    failedThenRetried.start(3);
+    clean.start(3);
+    expect(failedThenRetried.step(60_000, 0)).toEqual(clean.step(60_000, 0));
+    expect(calls).toBe(21);
+  });
+
+  it('W5 later refill 실패는 boss variant cache를 commit하지 않는다', () => {
+    const values = [
+      ...Array.from({ length: 10 }, () => 0.25),
+      0.1,
+      1,
+      ...Array.from({ length: 10 }, () => 0.25),
+      0.9,
+      ...Array.from({ length: 5 }, () => 0.25),
+    ];
+    let calls = 0;
+    const failedThenRetried = new WaveSystem(WAVE_DEFINITIONS, {
+      next: () => values[calls++]!,
+    });
+    const cleanValues = [
+      ...Array.from({ length: 10 }, () => 0.25),
+      0.9,
+      ...Array.from({ length: 5 }, () => 0.25),
+    ];
+    let cleanCalls = 0;
+    const clean = new WaveSystem(WAVE_DEFINITIONS, {
+      next: () => cleanValues[cleanCalls++]!,
+    });
+
+    expect(() => failedThenRetried.start(5)).toThrow(RangeError);
+    failedThenRetried.start(5);
+    clean.start(5);
+
+    const retried = failedThenRetried.step(60_000, 0);
+    const baseline = clean.step(60_000, 0);
+    expect(retried).toEqual(baseline);
+    expect(retried.find(({ kind }) => kind === 'illegalBreeder')).toMatchObject({
+      variant: 'female',
+    });
+  });
+
+  it('pending wave start 실패는 pending을 유지하고 retry 성공 뒤에만 지운다', () => {
+    const definitions: readonly WaveDefinition[] = [
+      { wave: 1, pathIds: ['P1'], groups: [[0, 1, 0]] },
+      { wave: 2, pathIds: ['P1', 'P2'], groups: [[0, 1, 0]] },
+    ];
+    const values = [1, 0.25];
+    let calls = 0;
+    const system = new WaveSystem(definitions, { next: () => values[calls++]! });
+    system.start(1);
+    system.setPendingNext(2);
+
+    expect(() => system.startPendingNext()).toThrow(RangeError);
+    expect(system.current).toBe(1);
+    expect(system.pendingNext).toBe(2);
+    expect(system.startPendingNext()).toBe(2);
+    expect(system.pendingNext).toBeNull();
+  });
+
   it('다섯 wave의 시간과 계열 총계를 exact하게 보존한다', () => {
     expect(summarize(WAVE_DEFINITIONS)).toEqual([
       { poopGuardian: 10, offLeashGuardian: 0, dogTrader: 0, illegalBreeder: 0, times: [0, 7, 14, 21, 28] },

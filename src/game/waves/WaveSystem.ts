@@ -11,6 +11,12 @@ import type {
 
 type RegularKind = 'poopGuardian' | 'offLeashGuardian';
 
+interface MaterializedWave {
+  readonly spawns: readonly ScheduledSpawn[];
+  readonly variantCursor: Record<RegularKind, number>;
+  readonly seededBossVariants: Map<number, EnemyVariant>;
+}
+
 const isBoss = (spawn: ScheduledSpawn): boolean => (
   spawn.kind === 'dogTrader' || spawn.kind === 'illegalBreeder'
 );
@@ -24,8 +30,8 @@ export class WaveSystem {
   private pendingNextWave: number | null = null;
   private scheduledSpawns: readonly ScheduledSpawn[] = [];
   private readonly materializedByWave = new Map<number, readonly ScheduledSpawn[]>();
-  private readonly seededBossVariants = new Map<number, EnemyVariant>();
-  private readonly variantCursor: Record<RegularKind, number> = {
+  private seededBossVariants = new Map<number, EnemyVariant>();
+  private variantCursor: Record<RegularKind, number> = {
     poopGuardian: 0,
     offLeashGuardian: 0,
   };
@@ -50,9 +56,8 @@ export class WaveSystem {
       throw new RangeError(`Unknown wave ${waveNumber}`);
     }
 
-    this.scheduledSpawns = this.materializedByWave.get(waveNumber)
-      ?? this.materialize(definition);
-    this.materializedByWave.set(waveNumber, this.scheduledSpawns);
+    const scheduledSpawns = this.scheduleFor(definition);
+    this.scheduledSpawns = scheduledSpawns;
     this.currentWaveIndex = index;
     this.elapsedMs = 0;
     this.cursor = 0;
@@ -67,8 +72,7 @@ export class WaveSystem {
     if (definition === undefined || !definition.groups.some(([, , , boss]) => boss !== undefined)) {
       throw new RangeError(`Wave ${waveNumber} has no boss`);
     }
-    const spawns = this.materializedByWave.get(waveNumber) ?? this.materialize(definition);
-    this.materializedByWave.set(waveNumber, spawns);
+    const spawns = this.scheduleFor(definition);
     const scheduled = spawns.find(isBoss);
     if (scheduled === undefined) throw new RangeError(`Wave ${waveNumber} has no boss`);
     return { ...scheduled, spawnSequence: 0 };
@@ -137,14 +141,27 @@ export class WaveSystem {
   startPendingNext(): number {
     if (this.pendingNextWave === null) throw new Error('No next wave is pending');
     const waveNumber = this.pendingNextWave;
-    this.pendingNextWave = null;
     this.start(waveNumber);
+    this.pendingNextWave = null;
     return waveNumber;
   }
 
-  private materialize(definition: WaveDefinition): readonly ScheduledSpawn[] {
+  private scheduleFor(definition: WaveDefinition): readonly ScheduledSpawn[] {
+    const cached = this.materializedByWave.get(definition.wave);
+    if (cached !== undefined) return cached;
+
+    const materialized = this.materialize(definition);
+    this.variantCursor = materialized.variantCursor;
+    this.seededBossVariants = materialized.seededBossVariants;
+    this.materializedByWave.set(definition.wave, materialized.spawns);
+    return materialized.spawns;
+  }
+
+  private materialize(definition: WaveDefinition): MaterializedWave {
     const deck = new PathDeck(definition.pathIds, this.rng);
     const spawns: ScheduledSpawn[] = [];
+    const variantCursor = { ...this.variantCursor };
+    const seededBossVariants = new Map(this.seededBossVariants);
 
     for (const [atSeconds, poopCount, offLeashCount, bossKind] of definition.groups) {
       const eventCount = poopCount + offLeashCount + (bossKind === undefined ? 0 : 1);
@@ -152,24 +169,41 @@ export class WaveSystem {
       let pathIndex = 0;
 
       for (let count = 0; count < poopCount; count += 1) {
-        spawns.push(this.regularSpawn(atSeconds, paths[pathIndex++]!, 'poopGuardian'));
+        spawns.push(this.regularSpawn(
+          atSeconds,
+          paths[pathIndex++]!,
+          'poopGuardian',
+          variantCursor,
+        ));
       }
       for (let count = 0; count < offLeashCount; count += 1) {
-        spawns.push(this.regularSpawn(atSeconds, paths[pathIndex++]!, 'offLeashGuardian'));
+        spawns.push(this.regularSpawn(
+          atSeconds,
+          paths[pathIndex++]!,
+          'offLeashGuardian',
+          variantCursor,
+        ));
       }
       if (bossKind !== undefined) {
-        spawns.push(this.bossSpawn(atSeconds, paths[pathIndex]!, bossKind, definition.wave));
+        spawns.push(this.bossSpawn(
+          atSeconds,
+          paths[pathIndex]!,
+          bossKind,
+          definition.wave,
+          seededBossVariants,
+        ));
       }
     }
-    return spawns;
+    return { spawns, variantCursor, seededBossVariants };
   }
 
   private regularSpawn(
     atSeconds: number,
     pathId: ScheduledSpawn['pathId'],
     kind: RegularKind,
+    variantCursor: Record<RegularKind, number>,
   ): ScheduledSpawn {
-    const variant: EnemyVariant = this.variantCursor[kind]++ % 2 === 0 ? 'male' : 'female';
+    const variant: EnemyVariant = variantCursor[kind]++ % 2 === 0 ? 'male' : 'female';
     return { atMs: atSeconds * 1000, pathId, kind, variant };
   }
 
@@ -178,12 +212,15 @@ export class WaveSystem {
     pathId: ScheduledSpawn['pathId'],
     kind: BossKind,
     waveNumber: number,
+    seededBossVariants: Map<number, EnemyVariant>,
   ): ScheduledSpawn {
     return {
       atMs: atSeconds * 1000,
       pathId,
       kind,
-      variant: kind === 'dogTrader' ? 'male' : this.ensureSeededBossVariant(waveNumber),
+      variant: kind === 'dogTrader'
+        ? 'male'
+        : this.ensureSeededBossVariant(waveNumber, seededBossVariants),
     };
   }
 
@@ -191,15 +228,18 @@ export class WaveSystem {
     return this.definitions.at(this.currentWaveIndex)!;
   }
 
-  private ensureSeededBossVariant(waveNumber: number): EnemyVariant {
-    const cached = this.seededBossVariants.get(waveNumber);
+  private ensureSeededBossVariant(
+    waveNumber: number,
+    seededBossVariants: Map<number, EnemyVariant>,
+  ): EnemyVariant {
+    const cached = seededBossVariants.get(waveNumber);
     if (cached !== undefined) return cached;
     const random = this.rng.next();
     if (!Number.isFinite(random) || random < 0 || random >= 1) {
       throw new RangeError('RandomSource.next() must return a value in [0, 1)');
     }
     const selected = random < 0.5 ? 'male' : 'female';
-    this.seededBossVariants.set(waveNumber, selected);
+    seededBossVariants.set(waveNumber, selected);
     return selected;
   }
 }

@@ -14,31 +14,34 @@ export class PathDeck {
       throw new RangeError('Invalid event path count');
     }
 
+    let draftDeck = [...this.deck];
     const selected: PathId[] = [];
     while (selected.length < count) {
-      if (this.deck.length === 0) this.refill();
-      const index = this.deck.findIndex((pathId) => !selected.includes(pathId));
+      if (draftDeck.length === 0) draftDeck = this.refill();
+      const index = draftDeck.findIndex((pathId) => !selected.includes(pathId));
       if (index < 0) {
-        this.refill();
+        draftDeck = this.refill();
         continue;
       }
-      selected.push(this.deck.splice(index, 1)[0]!);
+      selected.push(draftDeck.splice(index, 1)[0]!);
     }
+    this.deck = draftDeck;
     return selected;
   }
 
-  private refill(): void {
-    this.deck = [...this.paths];
-    for (let index = this.deck.length - 1; index > 0; index -= 1) {
+  private refill(): PathId[] {
+    const refilled = [...this.paths];
+    for (let index = refilled.length - 1; index > 0; index -= 1) {
       const random = this.rng.next();
       if (!Number.isFinite(random) || random < 0 || random >= 1) {
         throw new RangeError('RandomSource.next() must return a value in [0, 1)');
       }
       const swapIndex = Math.floor(random * (index + 1));
-      [this.deck[index], this.deck[swapIndex]] = [
-        this.deck[swapIndex]!,
-        this.deck[index]!,
+      [refilled[index], refilled[swapIndex]] = [
+        refilled[swapIndex]!,
+        refilled[index]!,
       ];
     }
+    return refilled;
   }
 }
