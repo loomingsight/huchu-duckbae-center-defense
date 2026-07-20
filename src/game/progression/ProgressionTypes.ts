@@ -1,19 +1,22 @@
-import type { GameMode } from '../core/GameMode';
+import type { PurchasableSkillId, SkillCost } from '../types/GameTypes';
 
-export interface ProgressionContext {
-  readonly mode: GameMode;
-  readonly activeEnemies: number;
-}
-
-export interface SkillSelectionRequest {
-  readonly threshold: number;
-  readonly index: number;
+export interface SkillPurchaseResult {
+  readonly status:
+    | 'queued'
+    | 'learned'
+    | 'alreadyLearned'
+    | 'insufficientSnacks'
+    | 'queueBusy';
+  readonly skillId: PurchasableSkillId;
+  readonly cost: SkillCost | null;
+  readonly spent: number;
+  readonly snacks: number;
+  readonly nextCost: SkillCost | null;
 }
 
 export interface ProgressionSnapshot {
   readonly snacks: number;
-  readonly nextThreshold: number | null;
-  readonly pendingCount: number;
-  readonly selectionOpen: boolean;
-  readonly combatDelayRemainingMs: number;
+  readonly learned: Readonly<Record<PurchasableSkillId, boolean>>;
+  readonly queuedSkillId: PurchasableSkillId | null;
+  readonly nextCost: SkillCost | null;
 }

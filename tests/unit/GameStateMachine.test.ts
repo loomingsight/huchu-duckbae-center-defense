@@ -1,7 +1,13 @@
-import { expect, it } from 'vitest';
+import { expect, expectTypeOf, it } from 'vitest';
 import { GameStateMachine } from '../../src/game/core/GameStateMachine';
+import type { GameMode } from '../../src/game/core/GameMode';
 
-it.each(['skillSelection', 'countdown', 'visibilityPause', 'won', 'lost'] as const)(
+it('GameMode에는 V2 다섯 상태만 존재한다', () => {
+  expectTypeOf<GameMode>()
+    .toEqualTypeOf<'playing' | 'countdown' | 'visibilityPause' | 'won' | 'lost'>();
+});
+
+it.each(['countdown', 'visibilityPause', 'won', 'lost'] as const)(
   '%s에서는 월드가 진행되지 않는다',
   (mode) => expect(new GameStateMachine(mode).canStepWorld()).toBe(false),
 );

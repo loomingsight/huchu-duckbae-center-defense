@@ -1,6 +1,8 @@
 export type PathId = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6';
 export type EnemyKind = 'poopGuardian' | 'offLeashGuardian' | 'dogTrader' | 'illegalBreeder';
 export type EnemyVariant = 'male' | 'female';
-export type EnemyState = 'moving' | 'windup' | 'holding' | 'stunned' | 'dead';
-export type SkillId = 'bark' | 'scold' | 'aquaBeam' | 'deokbaeHowl' | 'safetyReport';
-export type SkillLevel = 0 | 1 | 2 | 3;
+export type EnemyState = 'moving' | 'windup' | 'holding' | 'dead';
+export type PurchasableSkillId = 'tailSwipe' | 'aquaBeam' | 'safetyReport';
+export type SkillCost = 15 | 25 | 40;
+export type DamageSource = 'bark' | 'deokbae' | PurchasableSkillId;
+export type ImpactStrength = 'light' | 'medium' | 'heavy';

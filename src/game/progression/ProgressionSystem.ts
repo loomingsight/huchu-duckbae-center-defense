@@ -1,103 +1,82 @@
-import { reachedDuration } from '../constants';
-import type {
-  ProgressionContext,
-  ProgressionSnapshot,
-  SkillSelectionRequest,
-} from './ProgressionTypes';
+import type { PurchasableSkillId, SkillCost } from '../types/GameTypes';
+import type { ProgressionSnapshot, SkillPurchaseResult } from './ProgressionTypes';
+
+const COSTS = [15, 25, 40] as const;
+const PURCHASABLE_SKILL_IDS = ['tailSwipe', 'aquaBeam', 'safetyReport'] as const;
 
 export class ProgressionSystem {
-  private readonly thresholds: readonly number[];
   private snacks = 0;
-  private thresholdCursor = 0;
-  private combatSinceSelectionMs: number;
-  private selectionOpen = false;
-
-  constructor(
-    thresholds: readonly number[],
-    private readonly delayMs: number,
-  ) {
-    if (
-      thresholds.length === 0
-      || thresholds.some((value, index) => (
-        !Number.isSafeInteger(value)
-        || value <= 0
-        || (index > 0 && value <= thresholds[index - 1]!)
-      ))
-    ) {
-      throw new RangeError('Skill thresholds must be positive and strictly ascending');
-    }
-    if (!Number.isFinite(delayMs) || delayMs < 0) {
-      throw new RangeError('Skill delay must be finite and non-negative');
-    }
-    this.thresholds = [...thresholds];
-    this.combatSinceSelectionMs = delayMs;
-  }
+  private readonly learned = new Set<PurchasableSkillId>();
+  private queued: PurchasableSkillId | null = null;
 
   addSnacks(amount: number): void {
-    if (!Number.isSafeInteger(amount) || amount < 0) {
-      throw new RangeError('Snacks must be a non-negative integer');
-    }
-    if (!Number.isSafeInteger(this.snacks + amount)) {
-      throw new RangeError('Snack total must be a safe integer');
+    if (
+      !Number.isSafeInteger(amount)
+      || amount < 0
+      || !Number.isSafeInteger(this.snacks + amount)
+    ) {
+      throw new RangeError('Invalid snacks');
     }
     this.snacks += amount;
   }
 
-  step(stepMs: number, context: ProgressionContext): void {
-    if (!Number.isFinite(stepMs) || stepMs < 0) {
-      throw new RangeError('Progression step must be finite and non-negative');
+  queuePurchase(skillId: PurchasableSkillId): SkillPurchaseResult {
+    const cost = COSTS[this.learned.size] ?? null;
+    if (this.learned.has(skillId)) {
+      return this.result('alreadyLearned', skillId, cost, 0);
     }
-    if (!Number.isSafeInteger(context.activeEnemies) || context.activeEnemies < 0) {
-      throw new RangeError('Progression activeEnemies must be a non-negative safe integer');
+    if (this.queued !== null) {
+      return this.result('queueBusy', skillId, cost, 0);
     }
-    if (context.mode === 'playing' && context.activeEnemies > 0) {
-      this.combatSinceSelectionMs = Math.min(
-        this.delayMs,
-        this.combatSinceSelectionMs + stepMs,
-      );
+    if (cost === null || this.snacks < cost) {
+      return this.result('insufficientSnacks', skillId, cost, 0);
     }
+
+    this.queued = skillId;
+    return this.result('queued', skillId, cost, 0);
+  }
+
+  consumeQueuedPurchase(): SkillPurchaseResult | undefined {
+    if (this.queued === null) return undefined;
+
+    const skillId = this.queued;
+    const cost = COSTS[this.learned.size]!;
+    this.queued = null;
+    this.snacks -= cost;
+    this.learned.add(skillId);
+    return this.result('learned', skillId, cost, cost);
+  }
+
+  snapshot(): ProgressionSnapshot {
+    return {
+      snacks: this.snacks,
+      learned: Object.fromEntries(
+        PURCHASABLE_SKILL_IDS.map((id) => [id, this.learned.has(id)]),
+      ) as Record<PurchasableSkillId, boolean>,
+      queuedSkillId: this.queued,
+      nextCost: COSTS[this.learned.size] ?? null,
+    };
   }
 
   reset(): void {
     this.snacks = 0;
-    this.thresholdCursor = 0;
-    this.combatSinceSelectionMs = this.delayMs;
-    this.selectionOpen = false;
+    this.learned.clear();
+    this.queued = null;
   }
 
-  canOpen(): boolean {
-    const threshold = this.thresholds.at(this.thresholdCursor);
-    return !this.selectionOpen
-      && threshold !== undefined
-      && this.snacks >= threshold
-      && reachedDuration(this.combatSinceSelectionMs, this.delayMs);
-  }
-
-  takeNextRequest(): SkillSelectionRequest | undefined {
-    if (!this.canOpen()) return undefined;
-    const threshold = this.thresholds.at(this.thresholdCursor)!;
-    this.selectionOpen = true;
-    return { threshold, index: this.thresholdCursor };
-  }
-
-  resolveSelection(): void {
-    if (!this.selectionOpen) throw new Error('No skill selection is open');
-    this.selectionOpen = false;
-    this.thresholdCursor += 1;
-    this.combatSinceSelectionMs = 0;
-  }
-
-  snapshot(): ProgressionSnapshot {
-    const dueFromCursor = this.thresholds
-      .slice(this.thresholdCursor)
-      .filter((value) => value <= this.snacks)
-      .length;
+  private result(
+    status: SkillPurchaseResult['status'],
+    skillId: PurchasableSkillId,
+    cost: SkillCost | null,
+    spent: number,
+  ): SkillPurchaseResult {
     return {
+      status,
+      skillId,
+      cost,
+      spent,
       snacks: this.snacks,
-      nextThreshold: this.thresholds.at(this.thresholdCursor) ?? null,
-      pendingCount: Math.max(0, dueFromCursor - Number(this.selectionOpen)),
-      selectionOpen: this.selectionOpen,
-      combatDelayRemainingMs: Math.max(0, this.delayMs - this.combatSinceSelectionMs),
+      nextCost: COSTS[this.learned.size] ?? null,
     };
   }
 }

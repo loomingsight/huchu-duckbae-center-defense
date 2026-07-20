@@ -1,43 +1,62 @@
 export const BALANCE = {
-  shelter: { maxHp: 100, x: 270, y: 480, hitRadius: 38 },
-  player: { speed: 150, height: 72 },
-  snackThresholds: [8, 22, 40, 62, 88],
-  pendingSkillCombatDelayMs: 5000,
+  shelter: { maxHp: 1000, x: 270, y: 480, hitRadius: 38 },
+  player: { speed: 150, opaqueHeightLogical: 72 },
   waveCountdownMs: 3000,
-  attackReleaseMs: 250,
   enemies: {
     poopGuardian: {
-      hp: 35,
+      displayName: '똥 방치 보호자',
+      hp: 60,
       speed: 44,
-      damage: 3,
+      damage: 25,
       attackIntervalMs: 1800,
       range: 48,
-      snack: 1,
+      snack: 2,
+      isBoss: false,
+      attackTiming: 'normal',
     },
     offLeashGuardian: {
-      hp: 65,
-      speed: 38,
-      damage: 6,
-      attackIntervalMs: 1600,
+      displayName: '오프리시 보호자',
+      hp: 110,
+      speed: 42,
+      damage: 50,
+      attackIntervalMs: 1800,
       range: 32,
-      snack: 2,
+      snack: 4,
+      isBoss: false,
+      attackTiming: 'normal',
     },
     dogTrader: {
-      hp: 600,
+      displayName: '개장수',
+      hp: 900,
       speed: 25,
-      damage: 14,
-      attackIntervalMs: 2200,
+      damage: 120,
+      attackIntervalMs: 2400,
       range: 64,
-      snack: 12,
+      snack: 20,
+      isBoss: true,
+      attackTiming: 'boss',
     },
     illegalBreeder: {
-      hp: 1000,
+      displayName: '불법번식업자',
+      hp: 1500,
       speed: 23,
-      damage: 18,
-      attackIntervalMs: 2000,
+      damage: 160,
+      attackIntervalMs: 2100,
       range: 88,
-      snack: 20,
+      snack: 35,
+      isBoss: true,
+      attackTiming: 'boss',
     },
   },
   caps: { enemies: 60, projectiles: 80, particles: 120 },
 } as const;
+
+export const ACTION_TIMINGS = {
+  normal: { frameCount: 6, eventFrame: 3, fps: 12 },
+  boss: { frameCount: 8, eventFrame: 5, fps: 10 },
+} as const;
+
+export function attackImpactMs(kind: keyof typeof ACTION_TIMINGS): number {
+  const timing = ACTION_TIMINGS[kind];
+  return timing.eventFrame / timing.fps * 1000;
+}

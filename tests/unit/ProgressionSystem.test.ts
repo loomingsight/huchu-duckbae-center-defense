@@ -1,116 +1,127 @@
 import { ProgressionSystem } from '../../src/game/progression/ProgressionSystem';
-import { pendingTwoSelections } from './fixtures';
 
 describe('ProgressionSystem', () => {
-  it('여러 기준을 넘겨도 한 번에 하나만 열고 초과분을 보존한다', () => {
-    const progression = new ProgressionSystem([8, 22, 40, 62, 88], 5000);
+  it('첫 command만 queue하고 다음 step에 15를 원자적으로 차감한다', () => {
+    const progression = new ProgressionSystem();
     progression.addSnacks(40);
 
-    expect(progression.takeNextRequest()).toMatchObject({ threshold: 8 });
-    progression.resolveSelection();
-    progression.step(4999, { mode: 'playing', activeEnemies: 1 });
-    expect(progression.takeNextRequest()).toBeUndefined();
-    progression.step(1, { mode: 'playing', activeEnemies: 1 });
-
-    expect(progression.takeNextRequest()).toMatchObject({ threshold: 22 });
-    expect(progression.snapshot()).toMatchObject({ snacks: 40, pendingCount: 1 });
-  });
-
-  it('적 없는 웨이브 간 countdown은 전투 5초에 포함하지 않는다', () => {
-    const progression = pendingTwoSelections();
-
-    progression.step(5000, { mode: 'countdown', activeEnemies: 0 });
-
-    expect(progression.canOpen()).toBe(false);
-  });
-
-  it.each(['skillSelection', 'countdown', 'visibilityPause', 'won', 'lost'] as const)(
-    '%s 시간은 다음 threshold combat delay에 누적하지 않는다',
-    (mode) => {
-      const progression = new ProgressionSystem([8, 22], 5000);
-      progression.addSnacks(22);
-      progression.takeNextRequest();
-      progression.resolveSelection();
-
-      progression.step(5000, { mode, activeEnemies: 1 });
-
-      expect(progression.canOpen()).toBe(false);
-      expect(progression.snapshot().combatDelayRemainingMs).toBe(5000);
-    },
-  );
-
-  it('playing이어도 active enemy가 없으면 delay를 누적하지 않는다', () => {
-    const progression = new ProgressionSystem([8, 22], 5000);
-    progression.addSnacks(22);
-    progression.takeNextRequest();
-    progression.resolveSelection();
-
-    progression.step(5000, { mode: 'playing', activeEnemies: 0 });
-
-    expect(progression.canOpen()).toBe(false);
-  });
-
-  it('reset은 snacks, cursor, open request, delay를 run 시작 상태로 되돌린다', () => {
-    const progression = new ProgressionSystem([8, 22], 5000);
-    progression.addSnacks(22);
-    progression.takeNextRequest();
-    progression.resolveSelection();
-    progression.step(2500, { mode: 'playing', activeEnemies: 1 });
-
-    progression.reset();
-    progression.addSnacks(8);
-
-    expect(progression.snapshot()).toMatchObject({
-      snacks: 8,
-      nextThreshold: 8,
-      pendingCount: 1,
-      selectionOpen: false,
-      combatDelayRemainingMs: 0,
+    expect(progression.queuePurchase('tailSwipe')).toEqual({
+      status: 'queued',
+      skillId: 'tailSwipe',
+      cost: 15,
+      spent: 0,
+      snacks: 40,
+      nextCost: 15,
     });
-    expect(progression.takeNextRequest()).toEqual({ threshold: 8, index: 0 });
+    expect(progression.queuePurchase('aquaBeam')).toEqual({
+      status: 'queueBusy',
+      skillId: 'aquaBeam',
+      cost: 15,
+      spent: 0,
+      snacks: 40,
+      nextCost: 15,
+    });
+    expect(progression.consumeQueuedPurchase()).toEqual({
+      status: 'learned',
+      skillId: 'tailSwipe',
+      cost: 15,
+      spent: 15,
+      snacks: 25,
+      nextCost: 25,
+    });
+    expect(progression.snapshot()).toEqual({
+      snacks: 25,
+      learned: { tailSwipe: true, aquaBeam: false, safetyReport: false },
+      queuedSkillId: null,
+      nextCost: 25,
+    });
   });
 
-  it.each([
-    [[0], 5000],
-    [[8, 8], 5000],
-    [[8, Number.NaN], 5000],
-    [[8], -1],
-    [[8], Number.POSITIVE_INFINITY],
-  ] as const)('invalid thresholds/delay를 거부한다', (thresholds, delayMs) => {
-    expect(() => new ProgressionSystem(thresholds, delayMs)).toThrow(RangeError);
+  it('습득 순서와 무관하게 비용을 15, 25, 40 순서로 적용하고 모두 배우면 null을 반환한다', () => {
+    const progression = new ProgressionSystem();
+    progression.addSnacks(80);
+
+    expect(progression.queuePurchase('safetyReport').cost).toBe(15);
+    expect(progression.consumeQueuedPurchase()).toMatchObject({
+      status: 'learned', skillId: 'safetyReport', spent: 15, nextCost: 25,
+    });
+    expect(progression.queuePurchase('tailSwipe').cost).toBe(25);
+    expect(progression.consumeQueuedPurchase()).toMatchObject({
+      status: 'learned', skillId: 'tailSwipe', spent: 25, nextCost: 40,
+    });
+    expect(progression.queuePurchase('aquaBeam').cost).toBe(40);
+    expect(progression.consumeQueuedPurchase()).toMatchObject({
+      status: 'learned', skillId: 'aquaBeam', spent: 40, snacks: 0, nextCost: null,
+    });
+    expect(progression.snapshot()).toEqual({
+      snacks: 0,
+      learned: { tailSwipe: true, aquaBeam: true, safetyReport: true },
+      queuedSkillId: null,
+      nextCost: null,
+    });
   });
 
-  it('invalid snack/step/context는 기존 상태를 바꾸지 않는다', () => {
-    const progression = new ProgressionSystem([8, 22], 5000);
-    const before = progression.snapshot();
+  it('비용 부족과 이미 배운 기술 요청은 상태를 바꾸지 않는다', () => {
+    const progression = new ProgressionSystem();
+    progression.addSnacks(14);
+    const beforeInsufficient = progression.snapshot();
+
+    expect(progression.queuePurchase('aquaBeam')).toEqual({
+      status: 'insufficientSnacks',
+      skillId: 'aquaBeam',
+      cost: 15,
+      spent: 0,
+      snacks: 14,
+      nextCost: 15,
+    });
+    expect(progression.snapshot()).toEqual(beforeInsufficient);
+
+    progression.addSnacks(1);
+    progression.queuePurchase('aquaBeam');
+    progression.consumeQueuedPurchase();
+    const beforeDuplicate = progression.snapshot();
+
+    expect(progression.queuePurchase('aquaBeam')).toEqual({
+      status: 'alreadyLearned',
+      skillId: 'aquaBeam',
+      cost: 25,
+      spent: 0,
+      snacks: 0,
+      nextCost: 25,
+    });
+    expect(progression.snapshot()).toEqual(beforeDuplicate);
+  });
+
+  it('빈 queue 소비는 undefined이고 reset은 간식, 습득, queue를 초기화한다', () => {
+    const progression = new ProgressionSystem();
+    expect(progression.consumeQueuedPurchase()).toBeUndefined();
+
+    progression.addSnacks(40);
+    progression.queuePurchase('tailSwipe');
+    progression.consumeQueuedPurchase();
+    progression.queuePurchase('aquaBeam');
+    progression.reset();
+
+    expect(progression.snapshot()).toEqual({
+      snacks: 0,
+      learned: { tailSwipe: false, aquaBeam: false, safetyReport: false },
+      queuedSkillId: null,
+      nextCost: 15,
+    });
+    expect(progression.consumeQueuedPurchase()).toBeUndefined();
+  });
+
+  it('유효하지 않은 간식과 unsafe 합계는 기존 상태를 바꾸지 않는다', () => {
+    const progression = new ProgressionSystem();
+    progression.addSnacks(1);
 
     for (const amount of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => progression.addSnacks(amount)).toThrow(RangeError);
     }
-    for (const stepMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => progression.step(stepMs, { mode: 'playing', activeEnemies: 1 }))
-        .toThrow(RangeError);
-    }
-    for (const activeEnemies of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => progression.step(1, { mode: 'playing', activeEnemies }))
-        .toThrow(RangeError);
-    }
 
-    expect(progression.snapshot()).toEqual(before);
-  });
-
-  it('threshold 입력 배열의 이후 mutation과 unsafe snack 합계를 차단한다', () => {
-    const thresholds = [8, 22];
-    const progression = new ProgressionSystem(thresholds, 5000);
-    thresholds[0] = 1;
-
-    progression.addSnacks(8);
-    expect(progression.takeNextRequest()).toEqual({ threshold: 8, index: 0 });
-    progression.resolveSelection();
-    progression.addSnacks(Number.MAX_SAFE_INTEGER - 8);
-    const before = progression.snapshot();
-
+    progression.addSnacks(Number.MAX_SAFE_INTEGER - 1);
+    const beforeUnsafeTotal = progression.snapshot();
     expect(() => progression.addSnacks(1)).toThrow(RangeError);
-    expect(progression.snapshot()).toEqual(before);
+    expect(progression.snapshot()).toEqual(beforeUnsafeTotal);
   });
 });
