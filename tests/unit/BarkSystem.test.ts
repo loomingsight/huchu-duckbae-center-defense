@@ -7,213 +7,128 @@ import {
   PlayerView,
 } from '../../src/game/player/PlayerView';
 import { CombatEffectPool } from '../../src/game/combat/CombatEffectPool';
-import { candidate } from './fixtures';
+import { enemy } from './fixtures';
 
 describe('BarkSystem', () => {
-  it('target이 있을 때 250ms에 한 번 피해를 내고 650ms cadence를 지킨다', () => {
-    const bark = new BarkSystem(1);
+  it('3H와 120도 경계를 포함해 모든 대상을 같은 impact에 담는다', () => {
+    const bark = new BarkSystem();
+    bark.step(0, {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, position: { x: 216, y: 0 } })],
+    });
 
-    expect(bark.step(0, candidate())).toEqual([{ type: 'barkStarted', targetId: 7 }]);
-    expect(bark.step(249, candidate())).toEqual([]);
-    expect(bark.step(1, candidate())).toEqual([
-      { type: 'barkReleased', targetId: 7 },
-      { type: 'damageRequested', targetId: 7, amount: 10, source: 'bark' },
-    ]);
-    expect(bark.step(399, candidate())).toEqual([]);
-    expect(bark.step(1, candidate())).toEqual([{ type: 'barkStarted', targetId: 7 }]);
-    expect(bark.step(249, candidate())).toEqual([]);
-    expect(bark.step(1, candidate()).find((event) => event.type === 'damageRequested'))
-      .toMatchObject({ targetId: 7, amount: 10 });
-  });
+    const events = bark.step(250, {
+      origin: { x: 10, y: 0 },
+      enemies: [
+        enemy({ id: 1, position: { x: 226, y: 0 }, spawnSequence: 0 }),
+        enemy({ id: 2, position: { x: 118, y: 187.061487 }, spawnSequence: 1 }),
+        enemy({ id: 3, position: { x: 118, y: -187.061487 }, spawnSequence: 2 }),
+        enemy({ id: 4, position: { x: 226.001, y: 0 }, spawnSequence: 3 }),
+      ],
+    });
 
-  it('ready에서 target이 없으면 경과 시간을 쌓지 않고 cooldown 완료 뒤에도 ready다', () => {
-    const bark = new BarkSystem(1);
-
-    expect(bark.step(650, undefined)).toEqual([]);
-    expect(bark.snapshot()).toEqual({
-      ready: true,
-      phase: 'ready',
-      elapsedMs: 0,
-      lockedTargetId: null,
+    expect(events.find((event) => event.type === 'barkImpact')).toMatchObject({
+      type: 'barkImpact', castId: 'bark:1', origin: { x: 10, y: 0 },
+      direction: { x: 1, y: 0 }, targetIds: [1, 2, 3],
     });
   });
 
-  it('windup 중 후보가 바뀌어도 최초 target lock을 release까지 유지한다', () => {
-    const bark = new BarkSystem(1);
-    bark.step(0, candidate({ id: 7 }));
+  it('locked target 사망 뒤 current origin과 last direction으로 release한다', () => {
+    const bark = new BarkSystem();
+    bark.step(0, {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, position: { x: 100, y: 0 } })],
+    });
 
-    expect(bark.step(125, candidate({ id: 8 }))).toEqual([]);
-    expect(bark.step(125, candidate({ id: 8 }), (enemyId) => enemyId === 7)).toEqual([
-      { type: 'barkReleased', targetId: 7 },
-      { type: 'damageRequested', targetId: 7, amount: 10, source: 'bark' },
-    ]);
-    expect(bark.step(400, candidate({ id: 8 }))).toEqual([
-      { type: 'barkStarted', targetId: 8 },
-    ]);
-  });
-
-  it('locked target이 release 전에 죽으면 visual release만 내고 피해는 요청하지 않는다', () => {
-    const bark = new BarkSystem(1);
-    bark.step(0, candidate({ id: 7 }));
-
-    expect(bark.step(250, candidate({ id: 8 }), () => false)).toEqual([
-      { type: 'barkReleased', targetId: 7 },
-    ]);
-  });
-
-  it('isAlive가 거부한 stale target은 ready와 큰 step의 cadence 경계에서 다시 lock하지 않는다', () => {
-    const atReady = new BarkSystem(1);
-    expect(atReady.step(650, candidate(), () => false)).toEqual([]);
-    expect(atReady.snapshot().ready).toBe(true);
-
-    const acrossCadence = new BarkSystem(1);
-    acrossCadence.step(0, candidate());
-    expect(acrossCadence.step(650, candidate(), () => false)).toEqual([
-      { type: 'barkReleased', targetId: 7 },
-    ]);
-    expect(acrossCadence.snapshot()).toEqual({
-      ready: true,
-      phase: 'ready',
-      elapsedMs: 0,
-      lockedTargetId: null,
+    expect(bark.step(250, {
+      origin: { x: 20, y: 30 },
+      enemies: [enemy({ id: 2, position: { x: 120, y: 30 } })],
+    }).at(-1)).toMatchObject({
+      type: 'barkImpact', origin: { x: 20, y: 30 },
+      direction: { x: 1, y: 0 }, targetIds: [2],
     });
   });
 
-  it('dead target은 ready와 cadence 경계에서 lock하지 않는다', () => {
-    const bark = new BarkSystem(1);
-    const dead = candidate({ state: 'dead', currentHp: 0 });
-
-    expect(bark.step(650, dead)).toEqual([]);
-    expect(bark.snapshot().ready).toBe(true);
-  });
-
-  it('level 2는 피해 13, level 3은 시작 간격 520ms를 사용한다', () => {
-    const levelTwo = new BarkSystem(1);
-    levelTwo.setLevel(2);
-    levelTwo.step(0, candidate());
-    expect(levelTwo.step(250, candidate()).find((event) => event.type === 'damageRequested'))
-      .toMatchObject({ amount: 13 });
-
-    const levelThree = new BarkSystem(3);
-    levelThree.step(0, candidate());
-    levelThree.step(250, candidate());
-    expect(levelThree.step(269, candidate())).toEqual([]);
-    expect(levelThree.step(1, candidate())).toEqual([{ type: 'barkStarted', targetId: 7 }]);
-  });
-
-  it('cadence 단일값 accessor는 현재 level 변경을 즉시 반영한다', () => {
-    const bark = new BarkSystem(1);
-
-    expect(bark.cadenceDurationMs()).toBe(650);
-    bark.setLevel(3);
-    expect(bark.cadenceDurationMs()).toBe(520);
-  });
-
-  it('큰 step은 여러 release/cadence 경계를 순서대로 모두 통과하고 overshoot를 보존한다', () => {
-    const bark = new BarkSystem(1);
-
-    expect(bark.step(1301, candidate())).toEqual([
-      { type: 'barkStarted', targetId: 7 },
-      { type: 'barkReleased', targetId: 7 },
-      { type: 'damageRequested', targetId: 7, amount: 10, source: 'bark' },
-      { type: 'barkStarted', targetId: 7 },
-      { type: 'barkReleased', targetId: 7 },
-      { type: 'damageRequested', targetId: 7, amount: 10, source: 'bark' },
-      { type: 'barkStarted', targetId: 7 },
-    ]);
-    expect(bark.snapshot()).toEqual({
-      ready: false,
-      phase: 'windup',
-      elapsedMs: 1,
-      lockedTargetId: 7,
+  it('locked target이 살아 있으면 impact 시점 위치로 direction을 갱신한다', () => {
+    const bark = new BarkSystem();
+    bark.step(0, {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, position: { x: 100, y: 0 } })],
     });
-    expect(bark.step(248, candidate())).toEqual([]);
-    expect(bark.step(1, candidate())).toEqual([
-      { type: 'barkReleased', targetId: 7 },
-      { type: 'damageRequested', targetId: 7, amount: 10, source: 'bark' },
-    ]);
+
+    expect(bark.step(250, {
+      origin: { x: 10, y: 20 },
+      enemies: [enemy({ id: 1, position: { x: 10, y: 120 } })],
+    }).at(-1)).toMatchObject({
+      type: 'barkImpact', origin: { x: 10, y: 20 },
+      direction: { x: 0, y: 1 }, targetIds: [1],
+    });
+  });
+
+  it('대상이 없으면 cadence를 소비하지 않고 250ms impact와 800ms cadence를 지킨다', () => {
+    const bark = new BarkSystem();
+    const context = {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
+    };
+
+    expect(bark.step(5000, { origin: context.origin, enemies: [] })).toEqual([]);
+    expect(bark.step(0, context)).toEqual([{
+      type: 'barkStarted', castId: 'bark:1', targetId: 7,
+    }]);
+    expect(bark.step(249, context)).toEqual([]);
+    expect(bark.step(1, context).at(-1)).toMatchObject({ type: 'barkImpact', targetIds: [7] });
+    expect(bark.step(549, context)).toEqual([]);
+    expect(bark.step(1, context)).toEqual([{
+      type: 'barkStarted', castId: 'bark:2', targetId: 7,
+    }]);
   });
 
   it('한 큰 step과 같은 duration의 분할 step은 같은 event와 snapshot을 만든다', () => {
-    const single = new BarkSystem(3);
-    const split = new BarkSystem(3);
+    const single = new BarkSystem();
+    const split = new BarkSystem();
+    const context = {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
+    };
 
-    const singleEvents = single.step(1041, candidate());
+    const singleEvents = single.step(1601, context);
     const splitEvents: BarkEvent[] = [];
-    for (const duration of [0, 200, 50, 269, 1, 250, 271]) {
-      splitEvents.push(...split.step(duration, candidate()));
+    for (const duration of [0, 200, 50, 549, 1, 250, 550, 1]) {
+      splitEvents.push(...split.step(duration, context));
     }
 
     expect(splitEvents).toEqual(singleEvents);
     expect(split.snapshot()).toEqual(single.snapshot());
   });
 
-  it('reset은 level을 보존하면서 phase와 lock을 초기화해 같은 입력을 재현한다', () => {
-    const bark = new BarkSystem(2);
-    const first = [
-      ...bark.step(0, candidate()),
-      ...bark.step(250, candidate()),
-      ...bark.step(400, candidate()),
-    ];
+  it('reset은 phase, direction, lock과 cast sequence를 초기화한다', () => {
+    const bark = new BarkSystem();
+    const context = {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
+    };
+    bark.step(250, context);
 
     bark.reset();
-    const second = [
-      ...bark.step(0, candidate()),
-      ...bark.step(250, candidate()),
-      ...bark.step(400, candidate()),
-    ];
 
-    expect(second).toEqual(first);
-    expect(bark.snapshot()).toMatchObject({ phase: 'windup', elapsedMs: 0, lockedTargetId: 7 });
-  });
-
-  it.each([0, 4, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
-    'constructor는 invalid bark level %s을 거부한다',
-    (level) => {
-      expect(() => new BarkSystem(level as never)).toThrow(RangeError);
-    },
-  );
-
-  it('setLevel은 invalid level에서 현재 cycle과 damage를 변경하지 않는다', () => {
-    const bark = new BarkSystem(2);
-    bark.step(0, candidate());
-    const before = bark.snapshot();
-
-    expect(() => bark.setLevel(0)).toThrow(RangeError);
-    expect(bark.snapshot()).toEqual(before);
-    expect(bark.step(250, candidate()).find((event) => event.type === 'damageRequested'))
-      .toMatchObject({ amount: 13 });
+    expect(bark.snapshot()).toEqual({
+      ready: true, phase: 'ready', elapsedMs: 0, lockedTargetId: null,
+    });
+    expect(bark.step(0, context).at(0)).toMatchObject({ castId: 'bark:1' });
   });
 
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
     'invalid stepMs %s를 state 변경 전에 거부한다',
     (stepMs) => {
-      const bark = new BarkSystem(1);
+      const bark = new BarkSystem();
       const before = bark.snapshot();
 
-      expect(() => bark.step(stepMs, candidate())).toThrow(RangeError);
+      expect(() => bark.step(stepMs, { origin: { x: 0, y: 0 }, enemies: [] }))
+        .toThrow(RangeError);
       expect(bark.snapshot()).toEqual(before);
     },
   );
-
-  it.each([
-    candidate({ id: -1 }),
-    candidate({ id: 1.5 }),
-    candidate({ state: 'unknown' as never }),
-  ])('invalid target id/state를 state 변경 전에 거부한다', (target) => {
-    const bark = new BarkSystem(1);
-
-    expect(() => bark.step(0, target)).toThrow(RangeError);
-    expect(bark.snapshot().ready).toBe(true);
-  });
-
-  it('target snapshot object를 변경하지 않는다', () => {
-    const target = Object.freeze(candidate({ position: Object.freeze({ x: 10, y: 20 }) }));
-    const bark = new BarkSystem(1);
-
-    expect(() => bark.step(250, target)).not.toThrow();
-    expect(target).toEqual(candidate({ position: { x: 10, y: 20 } }));
-  });
 });
 
 describe('PlayerView bark presentation', () => {

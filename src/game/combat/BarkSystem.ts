@@ -1,29 +1,37 @@
 import { TIME_EPSILON_MS } from '../constants';
+import { BALANCE, attackImpactMs } from '../data/balance';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
-import type { SkillLevel } from '../types/GameTypes';
+import type { Point } from '../world/Geometry';
+import { inCone, selectThreatTarget } from './TargetingSystem';
 
-const RELEASE_MS = 250;
-const LEVEL_ONE_CADENCE_MS = 650;
-const LEVEL_THREE_CADENCE_MS = 520;
-const ENEMY_STATES = new Set<string>([
-  'moving',
-  'windup',
-  'holding',
-  'stunned',
-  'dead',
-]);
+const WINDUP_MS = attackImpactMs('normal');
+const CADENCE_MS = 800;
+const BARK_RADIUS = BALANCE.player.opaqueHeightLogical * 3;
+const BARK_CONE_DEGREES = 120;
+const DEFAULT_DIRECTION: Point = { x: 0, y: -1 };
 
 type BarkPhase = 'ready' | 'windup' | 'cooldown';
 
-export type BarkEvent =
-  | { readonly type: 'barkStarted'; readonly targetId: number }
-  | { readonly type: 'barkReleased'; readonly targetId: number }
-  | {
-    readonly type: 'damageRequested';
-    readonly targetId: number;
-    readonly amount: number;
-    readonly source: 'bark';
-  };
+export interface BarkContext {
+  readonly origin: Point;
+  readonly enemies: readonly EnemySnapshot[];
+}
+
+export interface BarkStartedEvent {
+  readonly type: 'barkStarted';
+  readonly castId: string;
+  readonly targetId: number;
+}
+
+export interface BarkImpactEvent {
+  readonly type: 'barkImpact';
+  readonly castId: string;
+  readonly origin: Point;
+  readonly direction: Point;
+  readonly targetIds: readonly number[];
+}
+
+export type BarkEvent = BarkStartedEvent | BarkImpactEvent;
 
 export interface BarkSnapshot {
   readonly ready: boolean;
@@ -32,61 +40,38 @@ export interface BarkSnapshot {
   readonly lockedTargetId: number | null;
 }
 
-export function barkCadenceMs(level: SkillLevel): number {
-  assertBarkLevel(level);
-  return level >= 3 ? LEVEL_THREE_CADENCE_MS : LEVEL_ONE_CADENCE_MS;
-}
-
 export class BarkSystem {
   private phase: BarkPhase = 'ready';
   private cycleElapsedMs = 0;
   private lockedTargetId: number | null = null;
+  private castId: string | null = null;
+  private lastDirection: Point = DEFAULT_DIRECTION;
+  private sequence = 1;
 
-  constructor(private level: SkillLevel) {
-    assertBarkLevel(level);
-  }
-
-  step(
-    stepMs: number,
-    target: EnemySnapshot | undefined,
-    isAlive: (enemyId: number) => boolean = (enemyId) => (
-      target?.id === enemyId && target.state !== 'dead'
-    ),
-  ): readonly BarkEvent[] {
+  step(stepMs: number, context: BarkContext): readonly BarkEvent[] {
     assertFiniteNonNegative(stepMs, 'Bark stepMs');
-    if (target !== undefined) assertTarget(target);
-    if (typeof isAlive !== 'function') throw new RangeError('Bark isAlive must be a function');
+    const firstTarget = selectThreatTarget(context.origin, context.enemies, BARK_RADIUS);
 
     const events: BarkEvent[] = [];
-    if (this.phase === 'ready' && !this.start(target, isAlive, events)) return events;
+    if (this.phase === 'ready' && !this.start(firstTarget, context.origin, events)) return events;
 
     let remainingMs = stepMs;
     while (this.phase !== 'ready') {
       if (this.phase === 'windup') {
-        const untilReleaseMs = RELEASE_MS - this.cycleElapsedMs;
-        if (!crossesBoundary(remainingMs, untilReleaseMs)) {
+        const untilImpactMs = WINDUP_MS - this.cycleElapsedMs;
+        if (!crossesBoundary(remainingMs, untilImpactMs)) {
           this.cycleElapsedMs += remainingMs;
           break;
         }
 
-        this.cycleElapsedMs = RELEASE_MS;
-        remainingMs = subtractBoundary(remainingMs, untilReleaseMs);
-        const releasedTargetId = this.lockedTargetId;
-        if (releasedTargetId === null) throw new Error('Bark windup requires a locked target');
-        events.push({ type: 'barkReleased', targetId: releasedTargetId });
-        if (isAlive(releasedTargetId)) {
-          events.push({
-            type: 'damageRequested',
-            targetId: releasedTargetId,
-            amount: this.damage,
-            source: 'bark',
-          });
-        }
+        this.cycleElapsedMs = WINDUP_MS;
+        remainingMs = subtractBoundary(remainingMs, untilImpactMs);
+        events.push(this.impact(context));
         this.phase = 'cooldown';
       }
 
       if (this.phase === 'cooldown') {
-        const untilCadenceMs = Math.max(0, this.cadenceMs - this.cycleElapsedMs);
+        const untilCadenceMs = Math.max(0, CADENCE_MS - this.cycleElapsedMs);
         if (!crossesBoundary(remainingMs, untilCadenceMs)) {
           this.cycleElapsedMs += remainingMs;
           break;
@@ -96,26 +81,22 @@ export class BarkSystem {
         this.phase = 'ready';
         this.cycleElapsedMs = 0;
         this.lockedTargetId = null;
-        if (!this.start(target, isAlive, events)) break;
+        this.castId = null;
+        const target = selectThreatTarget(context.origin, context.enemies, BARK_RADIUS);
+        if (!this.start(target, context.origin, events)) break;
         if (remainingMs === 0) break;
       }
     }
     return events;
   }
 
-  setLevel(level: SkillLevel): void {
-    assertBarkLevel(level);
-    this.level = level;
-  }
-
-  cadenceDurationMs(): number {
-    return barkCadenceMs(this.level);
-  }
-
   reset(): void {
     this.phase = 'ready';
     this.cycleElapsedMs = 0;
     this.lockedTargetId = null;
+    this.castId = null;
+    this.lastDirection = DEFAULT_DIRECTION;
+    this.sequence = 1;
   }
 
   snapshot(): BarkSnapshot {
@@ -129,24 +110,65 @@ export class BarkSystem {
 
   private start(
     target: EnemySnapshot | undefined,
-    isAlive: (enemyId: number) => boolean,
+    origin: Point,
     events: BarkEvent[],
   ): boolean {
-    if (target === undefined || target.state === 'dead' || !isAlive(target.id)) return false;
+    if (target === undefined) return false;
     this.phase = 'windup';
     this.cycleElapsedMs = 0;
     this.lockedTargetId = target.id;
-    events.push({ type: 'barkStarted', targetId: target.id });
+    this.castId = `bark:${this.sequence}`;
+    this.sequence += 1;
+    this.lastDirection = normalizedDirection(origin, target.position, this.lastDirection);
+    events.push({ type: 'barkStarted', castId: this.castId, targetId: target.id });
     return true;
   }
 
-  private get damage(): number {
-    return this.level >= 2 ? 13 : 10;
+  private impact(context: BarkContext): BarkImpactEvent {
+    if (this.castId === null || this.lockedTargetId === null) {
+      throw new Error('Bark impact requires an active cast');
+    }
+    const locked = context.enemies.find((enemy) => (
+      enemy.id === this.lockedTargetId && enemy.state !== 'dead'
+    ));
+    if (locked !== undefined) {
+      this.lastDirection = normalizedDirection(
+        context.origin,
+        locked.position,
+        this.lastDirection,
+      );
+    }
+    const targetIds = context.enemies
+      .filter((enemy) => (
+        enemy.state !== 'dead'
+        && inCone(
+          context.origin,
+          this.lastDirection,
+          enemy.position,
+          BARK_RADIUS,
+          BARK_CONE_DEGREES,
+        )
+      ))
+      .slice()
+      .sort((left, right) => (
+        left.spawnSequence - right.spawnSequence || left.id - right.id
+      ))
+      .map(({ id }) => id);
+    return {
+      type: 'barkImpact',
+      castId: this.castId,
+      origin: { ...context.origin },
+      direction: { ...this.lastDirection },
+      targetIds,
+    };
   }
+}
 
-  private get cadenceMs(): number {
-    return this.cadenceDurationMs();
-  }
+function normalizedDirection(origin: Point, target: Point, fallback: Point): Point {
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const length = Math.hypot(dx, dy);
+  return length === 0 ? fallback : { x: dx / length, y: dy / length };
 }
 
 function crossesBoundary(remainingMs: number, untilBoundaryMs: number): boolean {
@@ -156,21 +178,6 @@ function crossesBoundary(remainingMs: number, untilBoundaryMs: number): boolean 
 function subtractBoundary(remainingMs: number, boundaryMs: number): number {
   const next = remainingMs - boundaryMs;
   return next <= TIME_EPSILON_MS ? 0 : next;
-}
-
-function assertBarkLevel(level: SkillLevel): void {
-  if (!Number.isSafeInteger(level) || level < 1 || level > 3) {
-    throw new RangeError('Bark level must be an integer from 1 to 3');
-  }
-}
-
-function assertTarget(target: EnemySnapshot): void {
-  if (!Number.isSafeInteger(target.id) || target.id < 0) {
-    throw new RangeError('Bark target id must be a non-negative safe integer');
-  }
-  if (!ENEMY_STATES.has(target.state)) {
-    throw new RangeError(`Unknown bark target state ${String(target.state)}`);
-  }
 }
 
 function assertFiniteNonNegative(value: number, label: string): void {

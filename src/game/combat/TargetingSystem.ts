@@ -1,55 +1,96 @@
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import { distance, type Point } from '../world/Geometry';
 
-interface RankedTarget {
+export interface RankedTarget {
   readonly enemy: EnemySnapshot;
-  readonly distanceToPlayer: number;
+  readonly distanceToOrigin: number;
 }
 
-const ENEMY_STATES = new Set<string>([
-  'moving',
-  'windup',
-  'holding',
-  'stunned',
-  'dead',
-]);
+const ENEMY_STATES = new Set<string>(['moving', 'windup', 'holding', 'dead']);
 
 export function compareThreat(left: RankedTarget, right: RankedTarget): number {
   return left.enemy.etaMs - right.enemy.etaMs
-    || left.distanceToPlayer - right.distanceToPlayer
+    || Number(isAttacking(right.enemy)) - Number(isAttacking(left.enemy))
     || Number(right.enemy.isBoss) - Number(left.enemy.isBoss)
+    || left.distanceToOrigin - right.distanceToOrigin
     || left.enemy.spawnSequence - right.enemy.spawnSequence;
 }
 
 export function selectThreatTarget(
-  player: Point,
+  origin: Point,
   enemies: readonly EnemySnapshot[],
   range = Number.POSITIVE_INFINITY,
 ): EnemySnapshot | undefined {
-  return rankThreatTargets(player, enemies, range).at(0);
+  return rankThreatTargets(origin, enemies, range).at(0)?.enemy;
 }
 
 export function rankThreatTargets(
-  player: Point,
+  origin: Point,
   enemies: readonly EnemySnapshot[],
   range = Number.POSITIVE_INFINITY,
-): readonly EnemySnapshot[] {
-  assertPoint(player, 'Targeting player');
+): readonly RankedTarget[] {
+  const ranked = rankedCandidates(origin, enemies);
   assertRange(range);
+  return ranked
+    .filter(({ enemy, distanceToOrigin }) => enemy.state !== 'dead' && distanceToOrigin <= range)
+    .sort(compareThreat);
+}
 
-  const ranked = enemies.map((enemy): RankedTarget => {
+export function rankHighestHpTargets(
+  origin: Point,
+  enemies: readonly EnemySnapshot[],
+): readonly RankedTarget[] {
+  return rankedCandidates(origin, enemies)
+    .filter(({ enemy }) => enemy.state !== 'dead')
+    .sort((left, right) => (
+      right.enemy.currentHp - left.enemy.currentHp
+      || Number(right.enemy.isBoss) - Number(left.enemy.isBoss)
+      || compareThreat(left, right)
+    ));
+}
+
+export function inCone(
+  origin: Point,
+  direction: Point,
+  target: Point,
+  radius: number,
+  angleDeg: number,
+): boolean {
+  assertPoint(origin, 'Cone origin');
+  assertPoint(direction, 'Cone direction');
+  assertPoint(target, 'Cone target');
+  assertFiniteNonNegative(radius, 'Cone radius');
+  if (!Number.isFinite(angleDeg) || angleDeg < 0 || angleDeg > 360) {
+    throw new RangeError('Cone angleDeg must be finite from 0 to 360');
+  }
+  const directionLength = Math.hypot(direction.x, direction.y);
+  if (directionLength === 0) throw new RangeError('Cone direction must be non-zero');
+
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const length = Math.hypot(dx, dy);
+  const cosine = (dx * direction.x + dy * direction.y) / (length * directionLength);
+  return length <= radius + 1e-9
+    && (length === 0 || cosine >= Math.cos(angleDeg * Math.PI / 360) - 1e-9);
+}
+
+function rankedCandidates(
+  origin: Point,
+  enemies: readonly EnemySnapshot[],
+): RankedTarget[] {
+  assertPoint(origin, 'Targeting origin');
+  return enemies.map((enemy): RankedTarget => {
     assertCandidate(enemy);
-    const distanceToPlayer = distance(player, enemy.position);
-    if (!Number.isFinite(distanceToPlayer)) {
+    const distanceToOrigin = distance(origin, enemy.position);
+    if (!Number.isFinite(distanceToOrigin)) {
       throw new RangeError('Targeting distance must be finite');
     }
-    return { enemy, distanceToPlayer };
+    return { enemy, distanceToOrigin };
   });
+}
 
-  return ranked
-    .filter(({ enemy, distanceToPlayer }) => enemy.state !== 'dead' && distanceToPlayer <= range)
-    .sort(compareThreat)
-    .map(({ enemy }) => enemy);
+function isAttacking(enemy: EnemySnapshot): boolean {
+  return enemy.state === 'windup' || enemy.state === 'holding';
 }
 
 function assertCandidate(enemy: EnemySnapshot): void {
@@ -58,6 +99,7 @@ function assertCandidate(enemy: EnemySnapshot): void {
   }
   assertPoint(enemy.position, 'Targeting enemy position');
   assertFiniteNonNegative(enemy.etaMs, 'Targeting enemy etaMs');
+  assertFiniteNonNegative(enemy.currentHp, 'Targeting enemy currentHp');
   if (!Number.isSafeInteger(enemy.spawnSequence) || enemy.spawnSequence < 0) {
     throw new RangeError('Targeting enemy spawnSequence must be a non-negative safe integer');
   }
