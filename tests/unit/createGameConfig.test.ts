@@ -1,16 +1,38 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GAME_CONFIG_SPEC } from '../../src/game/GameConfigSpec';
+import { createGameConfig } from '../../src/game/createGame';
 import { TitleScene } from '../../src/game/scenes/TitleScene';
 import { MapView } from '../../src/game/world/MapView';
 
 vi.mock('phaser', () => ({
-  default: { Scene: class {} },
+  default: {
+    Scene: class {},
+    Game: class {},
+    WEBGL: 2,
+    Scale: { FIT: 'FIT', CENTER_BOTH: 'CENTER_BOTH' },
+    Scenes: { Events: { SHUTDOWN: 'shutdown' } },
+  },
 }));
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('GAME_CONFIG_SPEC', () => {
+  it('actual createGameConfig가 지원되는 Phaser viewport/render 계약을 반환한다', () => {
+    class FakeScene {}
+
+    const config = createGameConfig(FakeScene as never);
+
+    expect(config).toMatchObject({
+      type: 2,
+      width: 540,
+      height: 960,
+      render: { antialias: true, roundPixels: false, powerPreference: 'high-performance' },
+      scale: { mode: 'FIT', autoCenter: 'CENTER_BOTH' },
+    });
+    expect(config).not.toHaveProperty('resolution');
+  });
+
   it('고정 backing-store WebGL/FIT 계약과 smooth render 설정을 고정한다', () => {
     expect(GAME_CONFIG_SPEC).toEqual({
       width: 540, height: 960, renderer: 'WEBGL', scaleMode: 'FIT', autoCenter: 'CENTER_BOTH',
