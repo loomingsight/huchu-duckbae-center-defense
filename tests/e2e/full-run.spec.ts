@@ -7,6 +7,15 @@ import {
   snapshot,
 } from './helpers';
 
+const INTEGRATION_RUN_TIMEOUT_MS = 180_000;
+const CANONICAL_CARD_PATH = [
+  'safetyReport:1',
+  'scold:1',
+  'bark:2',
+  'aquaBeam:1',
+  'bark:3',
+] as const;
+
 test('W3 개장수 보스 bar와 900ms notice를 fixed UI time으로 표시한다', async ({ page }) => {
   await openScenario(page, 'boss');
 
@@ -164,6 +173,199 @@ test('actual WaveSystem이 W1부터 W5까지 64 spawn과 네 3초 전환으로 �
   });
 });
 
+test('완화된 integration schedule에서 canonical 전투·성장·보스·재시작을 연결한다', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', '완화된 integration schedule은 desktop에서 대표 검증한다');
+  test.setTimeout(INTEGRATION_RUN_TIMEOUT_MS);
+
+  await openScenario(page, 'canonical-combat-progression');
+
+  const initial = await snapshot(page);
+  const observedBosses = new Set<string>();
+  const observedBossIds = new Map<string, number>();
+  const observedBossWaves = new Map<string, number>();
+  const selectedCardIds: string[] = [];
+  let finalBossSpawn: { shelterHp: number; bossHp: number } | undefined;
+  let finalBossFirstDamage: { shelterHp: number; bossHp: number } | undefined;
+  let previousShelterHp = initial.shelterHp;
+  let selections = 0;
+  let selectionResumes = 0;
+
+  for (let turn = 0; turn < 2_000; turn += 1) {
+    const state = await snapshot(page);
+    state.enemies.filter(({ isBoss }) => isBoss).forEach(({ id, kind }) => {
+      observedBosses.add(kind);
+      observedBossIds.set(kind, id);
+      observedBossWaves.set(kind, state.wave);
+    });
+    const finalBoss = state.enemies.find(({ kind }) => kind === 'illegalBreeder');
+    if (finalBoss !== undefined && finalBossSpawn === undefined) {
+      finalBossSpawn = { shelterHp: state.shelterHp, bossHp: finalBoss.currentHp };
+    }
+    if (
+      finalBoss !== undefined
+      && finalBossFirstDamage === undefined
+      && state.shelterHp < previousShelterHp
+    ) {
+      finalBossFirstDamage = { shelterHp: state.shelterHp, bossHp: finalBoss.currentHp };
+    }
+    previousShelterHp = state.shelterHp;
+    if (state.mode === 'won') break;
+    expect(
+      state.mode,
+      `canonical combat progression ended before victory at turn ${turn}: ${JSON.stringify({
+        wave: state.wave,
+        shelterHp: state.shelterHp,
+        snacks: state.snacks,
+        player: state.player,
+        enemies: state.enemies.map(({ kind, currentHp, state: enemyState }) => ({
+          kind,
+          currentHp,
+          state: enemyState,
+        })),
+        selectedCardIds,
+        finalBossSpawn,
+        finalBossFirstDamage,
+      })}`,
+    ).not.toBe('lost');
+
+    if (state.mode === 'skillSelection') {
+      expect(state.cards).toHaveLength(3);
+      const expectedCardId = CANONICAL_CARD_PATH.at(selections);
+      const preferred = state.cards.find(({ id }) => id === expectedCardId);
+      expect(preferred, `expected canonical card ${String(expectedCardId)}`).toBeDefined();
+      await page.getByRole('button', { name: preferred!.title }).click();
+      selectedCardIds.push(preferred!.id);
+      selections += 1;
+      const selected = await snapshot(page);
+      expect(selected).toMatchObject({
+        mode: 'countdown',
+        cards: [],
+        skills: { [preferred!.skillId]: preferred!.nextLevel },
+        countdown: { remainingMs: 3000 },
+      });
+      await advance(page, selected.countdown.remainingMs);
+      expect(await snapshot(page)).toMatchObject({ mode: 'playing' });
+      selectionResumes += 1;
+      continue;
+    }
+    if (state.mode === 'countdown') {
+      await advance(page, state.countdown.remainingMs);
+      continue;
+    }
+
+    const bossIsNext = state.pendingSpawns === 1 && (
+      (state.wave === 3 && state.snacks === 44)
+      || (state.wave === 5 && state.snacks === 106)
+    );
+    if (state.enemies.length === 0 && bossIsNext) {
+      await moveTowardEnemy(page, state.player, { x: 270, y: 0 }, 100);
+      continue;
+    }
+
+    const target = [...state.enemies].sort((left, right) => left.etaMs - right.etaMs)[0];
+    if (target === undefined) {
+      await advance(page, 2000);
+      continue;
+    }
+    await moveTowardEnemy(page, state.player, target.position);
+  }
+
+  const won = await snapshot(page);
+  const runEvents = await events(page);
+  const spawned = runEvents.filter((event) => event.type === 'enemySpawned');
+  const requested = runEvents.filter((event) => event.type === 'enemySpawnRequested');
+  const deaths = runEvents.filter((event) => event.type === 'enemyDied');
+  const rewards = runEvents.filter((event) => event.type === 'snackEarned');
+  expect(won.mode).toBe('won');
+  expect(won.wave).toBe(5);
+  expect(won.snacks).toBe(126);
+  expect(won.activeEnemyCount).toBe(0);
+  expect(won.shelterHp).toBeGreaterThan(0);
+  expect(won.shelterHp).toBeLessThan(100);
+  expect(observedBosses).toEqual(new Set(['dogTrader', 'illegalBreeder']));
+  expect(Object.fromEntries(observedBossWaves)).toEqual({ dogTrader: 3, illegalBreeder: 5 });
+  expect(selections).toBe(5);
+  expect(selectionResumes).toBe(5);
+  expect(selectedCardIds).toEqual(CANONICAL_CARD_PATH);
+  expect(runEvents.flatMap((event) => (
+    event.type === 'skillSelectionOpened'
+      ? [event.request.threshold]
+      : []
+  ))).toEqual([8, 22, 40, 62, 88]);
+  expect(runEvents.filter(({ type }) => type === 'playerMoved').length).toBeGreaterThan(0);
+  expect(runEvents.filter(({ type }) => type === 'barkStarted').length).toBeGreaterThan(0);
+  expect(runEvents.filter(({ type }) => type === 'barkReleased').length).toBeGreaterThan(0);
+  const learnedAutoSkills = Object.entries(won.skills)
+    .filter(([skillId, level]) => skillId !== 'bark' && level > 0)
+    .map(([skillId]) => skillId);
+  const castAutoSkills = new Set(runEvents.flatMap((event) => (
+    event.type === 'skillCast' ? [event.skillId] : []
+  )));
+  expect(castAutoSkills).toEqual(new Set(learnedAutoSkills));
+  expect(runEvents.filter(({ type }) => type === 'shelterDamaged').length).toBeGreaterThan(0);
+  expect(spawned).toHaveLength(64);
+  expect(deaths).toHaveLength(64);
+  expect(rewards).toHaveLength(64);
+  const spawnedIds = sortedUniqueIds(spawned.map(({ enemyId }) => enemyId));
+  const diedIds = sortedUniqueIds(deaths.map(({ enemyId }) => enemyId));
+  const rewardedIds = sortedUniqueIds(rewards.map(({ enemyId }) => enemyId));
+  expect(spawnedIds).toHaveLength(64);
+  expect(diedIds).toEqual(spawnedIds);
+  expect(rewardedIds).toEqual(spawnedIds);
+  const kindCounts = requested.reduce<Record<string, number>>((counts, { request }) => ({
+    ...counts,
+    [request.kind]: (counts[request.kind] ?? 0) + 1,
+  }), {});
+  expect(kindCounts).toEqual({
+    poopGuardian: 30,
+    offLeashGuardian: 32,
+    dogTrader: 1,
+    illegalBreeder: 1,
+  });
+  expect(deaths.at(-1)?.enemyId).toBe(observedBossIds.get('illegalBreeder'));
+  expect(runEvents.filter((event) => event.type === 'modeChanged' && event.mode === 'won'))
+    .toHaveLength(1);
+  expect(runEvents.filter((event) => event.type === 'runEnded' && event.outcome === 'won'))
+    .toHaveLength(1);
+  expect(runEvents.filter((event) => event.type === 'resultReady' && event.outcome === 'won'))
+    .toHaveLength(1);
+
+  await expect(page.getByText('보호소를 지켰어요!')).toBeVisible();
+  await page.getByRole('button', { name: '다시 시작' }).click();
+  await page.waitForFunction(() => window.__HUCHU_TEST__?.snapshot().mode === 'playing');
+  const restarted = await snapshot(page);
+  expect(restarted).toMatchObject({
+    mode: 'playing',
+    wave: 1,
+    shelterHp: 100,
+    snacks: 0,
+    skills: { bark: 1, scold: 0, aquaBeam: 0, deokbaeHowl: 0, safetyReport: 0 },
+    activeEnemyCount: 0,
+    activeProjectileCount: 0,
+  });
+  expect(restarted.runtime.sessionInstanceId).toBe(initial.runtime.sessionInstanceId);
+  expect({
+    enemies: restarted.pools.enemies.instanceId,
+    projectiles: restarted.pools.projectiles.instanceId,
+    effects: restarted.pools.effects.instanceId,
+  }).toEqual({
+    enemies: initial.pools.enemies.instanceId,
+    projectiles: initial.pools.projectiles.instanceId,
+    effects: initial.pools.effects.instanceId,
+  });
+  const restartSequence = runEvents.at(-1)?.sequence ?? 0;
+  await advance(page, 1000 / 60);
+  const firstProductionTick = await events(page, restartSequence);
+  expect(firstProductionTick.filter(({ type }) => type === 'enemySpawned')).toHaveLength(1);
+  expect((await snapshot(page)).pendingSpawns).toBe(9);
+  await advance(page, 1000);
+  const productionAfterOneSecond = await events(page, restartSequence);
+  expect(productionAfterOneSecond.filter(({ type }) => type === 'enemySpawned')).toHaveLength(2);
+  expect((await snapshot(page)).pendingSpawns).toBe(8);
+});
+
 test('wave-schedule 승리 재시작은 auto-clear maintainer를 제거하고 첫 적을 유지한다', async ({ page }) => {
   await openScenario(page, 'wave-schedule');
   await advance(page, 120_000);
@@ -208,3 +410,24 @@ test('clear tick은 countdown을 차감하지 않고 완료 tick에도 다음 wa
   expect((await events(page, lastSequence)).filter(({ type }) => type === 'enemySpawned'))
     .toHaveLength(1);
 });
+
+async function moveTowardEnemy(
+  page: import('@playwright/test').Page,
+  player: { readonly x: number; readonly y: number },
+  target: { readonly x: number; readonly y: number },
+  stepMs?: number,
+): Promise<void> {
+  const horizontal = target.x - player.x;
+  const vertical = target.y - player.y;
+  const keys = [
+    ...(horizontal < -24 ? ['ArrowLeft'] : horizontal > 24 ? ['ArrowRight'] : []),
+    ...(vertical < -24 ? ['ArrowUp'] : vertical > 24 ? ['ArrowDown'] : []),
+  ];
+  for (const key of keys) await page.keyboard.down(key);
+  await advance(page, stepMs ?? (keys.length === 0 ? 650 : 400));
+  for (const key of keys) await page.keyboard.up(key);
+}
+
+function sortedUniqueIds(ids: readonly number[]): number[] {
+  return [...new Set(ids)].sort((left, right) => left - right);
+}

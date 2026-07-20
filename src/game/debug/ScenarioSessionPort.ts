@@ -21,7 +21,7 @@ export interface ScenarioEnemySeed {
   readonly stunnedMs?: number;
 }
 
-export type ScenarioWaveSchedule = 'real' | 'held' | 'exhausted';
+export type ScenarioWaveSchedule = 'real' | 'held' | 'exhausted' | 'relaxedCombat';
 
 export interface ScenarioSessionPort {
   spawnEnemy(seed: ScenarioEnemySeed): number;

@@ -360,7 +360,7 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
         });
         return;
       case 'skillSelectionOpened':
-        this.appendEvent({ type: event.type, cards: event.cards });
+        this.appendEvent({ type: event.type, request: event.request, cards: event.cards });
         return;
       case 'skillLearned':
         this.appendEvent({

@@ -12,6 +12,19 @@ import type {
 } from './ScenarioSessionPort';
 
 const EMPTY_WAVE_DEFINITIONS = WAVE_DEFINITIONS.map(({ wave }) => ({ wave, spawns: [] }));
+const COMBAT_SPAWN_INTERVAL_MS = 15_000;
+const BOSS_PREPARATION_GAP_MS = 20_000;
+const COMBAT_WAVE_DEFINITIONS = WAVE_DEFINITIONS.map(({ wave, spawns }) => ({
+  wave,
+  spawns: spawns.map((spawn, index) => ({
+    ...spawn,
+    atMs: index * COMBAT_SPAWN_INTERVAL_MS + (
+      spawn.kind === 'dogTrader' || spawn.kind === 'illegalBreeder'
+        ? BOSS_PREPARATION_GAP_MS
+        : 0
+    ),
+  })),
+}));
 
 export class E2eGameSession extends GameSession {
   private constructor(seed: number) {
@@ -26,17 +39,19 @@ export class E2eGameSession extends GameSession {
     const useWaveSchedule = (wave: number, schedule: ScenarioWaveSchedule): void => {
       const definitions = schedule === 'real'
         ? WAVE_DEFINITIONS
-        : schedule === 'exhausted'
-          ? EMPTY_WAVE_DEFINITIONS
-          : WAVE_DEFINITIONS.map(({ wave: waveNumber }) => ({
-            wave: waveNumber,
-            spawns: [{
-              atMs: 86_400_000,
-              pathId: 'P6' as const,
-              kind: 'poopGuardian' as const,
-              variant: 'male' as const,
-            }],
-          }));
+        : schedule === 'relaxedCombat'
+          ? COMBAT_WAVE_DEFINITIONS
+          : schedule === 'exhausted'
+            ? EMPTY_WAVE_DEFINITIONS
+            : WAVE_DEFINITIONS.map(({ wave: waveNumber }) => ({
+              wave: waveNumber,
+              spawns: [{
+                atMs: 86_400_000,
+                pathId: 'P6' as const,
+                kind: 'poopGuardian' as const,
+                variant: 'male' as const,
+              }],
+            }));
       this.waves = new WaveSystem(definitions, this.rng, BALANCE.caps.enemies);
       this.waves.start(wave);
       this.waveStartEventPending = true;

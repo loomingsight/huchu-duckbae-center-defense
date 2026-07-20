@@ -34,6 +34,9 @@ export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId
       runtime.useWaveSchedule(1, 'real');
       runtime.enableWaveAutoClear();
       break;
+    case 'canonical-combat-progression':
+      runtime.useWaveSchedule(1, 'relaxedCombat');
+      break;
     case 'health-bar-colors':
       seedHealthBarColors(runtime);
       break;

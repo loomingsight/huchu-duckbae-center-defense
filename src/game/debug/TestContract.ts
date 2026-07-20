@@ -8,12 +8,14 @@ import type { SkillCard } from '../skills/SkillTypes';
 import type { SkillId, SkillLevel } from '../types/GameTypes';
 import type { CountdownKind } from '../ui/CountdownOverlay';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
+import type { SkillSelectionRequest } from '../progression/ProgressionTypes';
 import type { ShelterVisualState } from '../shelter/ShelterTypes';
 import type { HudSnapshot } from '../ui/HudSystem';
 
 export type TestScenarioId =
   | 'empty-run'
   | 'wave-schedule'
+  | 'canonical-combat-progression'
   | 'health-bar-colors'
   | 'bark-targeting'
   | 'skill-selection'
@@ -126,7 +128,11 @@ export type GameDebugEvent = GameDebugEventMetadata & (
   | { readonly type: 'enemyDied'; readonly enemyId: number }
   | { readonly type: 'snackEarned'; readonly enemyId: number; readonly amount: number }
   | { readonly type: 'waveCountdownChanged'; readonly remainingMs: number }
-  | { readonly type: 'skillSelectionOpened'; readonly cards: readonly SkillCard[] }
+  | {
+    readonly type: 'skillSelectionOpened';
+    readonly request: SkillSelectionRequest;
+    readonly cards: readonly SkillCard[];
+  }
   | { readonly type: 'skillLearned'; readonly skillId: SkillId; readonly level: SkillLevel }
   | { readonly type: 'skillCast'; readonly skillId: Exclude<SkillId, 'bark'>; readonly targetIds: readonly number[] }
 );
