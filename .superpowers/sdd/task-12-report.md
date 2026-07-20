@@ -2,7 +2,7 @@
 
 - 작업일: 2026-07-20
 - 브랜치: `codex/huchu-defense-mvp`
-- 기준 커밋: `8ca9b58d2c1918626a7c68016b838c88b48e0e2b`
+- 기준 커밋: `8ca9b58b4a812cc26845577f10f19f5516e67884`
 - 커밋 제목: `feat: complete waves and run results`
 
 ## 구현 결과
