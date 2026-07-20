@@ -46,6 +46,20 @@ async function joystickDragWithoutRelease(page: Page): Promise<void> {
   await page.mouse.move(start.x + box.width * 48 / 540, start.y);
 }
 
+async function restartSceneAndWait(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as Window & { __TASK13_WEBGL_BRIDGE__?: unknown }).__TASK13_WEBGL_BRIDGE__
+      = window.__HUCHU_TEST__;
+    window.__HUCHU_TEST__!.restartScene();
+  });
+  await page.waitForFunction(() => (
+    window.__HUCHU_TEST__ !== undefined
+    && window.__HUCHU_TEST__ !== (window as Window & { __TASK13_WEBGL_BRIDGE__?: unknown })
+      .__TASK13_WEBGL_BRIDGE__
+  ));
+  await page.evaluate(() => window.__HUCHU_TEST__!.ready);
+}
+
 test('필수 에셋 실패는 unique 파일 수와 retry를 표시한다', async ({ page }) => {
   await page.route('**/map-background.webp', (route) => route.abort());
   await page.goto('/');
@@ -131,17 +145,7 @@ test('restore 확인 전 joystick gesture는 confirm 뒤 입력으로 남지 않
 test('scene restart는 lost context truth를 유지하고 최신 restore 확인까지 새 run을 멈춘다', async ({ page }) => {
   await openScenario(page, 'empty-run');
   await loseContext(page);
-  await page.evaluate(() => {
-    (window as Window & { __TASK13_WEBGL_BRIDGE__?: unknown }).__TASK13_WEBGL_BRIDGE__
-      = window.__HUCHU_TEST__;
-    window.__HUCHU_TEST__!.restartScene();
-  });
-  await page.waitForFunction(() => (
-    window.__HUCHU_TEST__ !== undefined
-    && window.__HUCHU_TEST__ !== (window as Window & { __TASK13_WEBGL_BRIDGE__?: unknown })
-      .__TASK13_WEBGL_BRIDGE__
-  ));
-  await page.evaluate(() => window.__HUCHU_TEST__!.ready);
+  await restartSceneAndWait(page);
 
   expect((await snapshot(page)).mode).toBe('visibilityPause');
   const frozen = await snapshot(page);
@@ -153,6 +157,51 @@ test('scene restart는 lost context truth를 유지하고 최신 restore 확인�
   await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(1);
   await advance(page, 1000);
   expect((await snapshot(page)).simulationMs).toBe(frozen.simulationMs);
+  await page.getByRole('button', { name: '다시 그리기' }).click();
+  expect((await snapshot(page)).mode).toBe('playing');
+});
+
+test('restore confirmation 대기는 scene restart 뒤에도 prompt와 pause를 복원한다', async ({ page }) => {
+  await openScenario(page, 'empty-run');
+  await loseContext(page);
+  await restoreContext(page);
+  await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(1);
+  await restartSceneAndWait(page);
+
+  expect((await snapshot(page)).mode).toBe('visibilityPause');
+  const frozen = await snapshot(page);
+  await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(1);
+  await expect(page.locator('canvas')).toHaveCSS('pointer-events', 'none');
+  await advance(page, 1000);
+  expect((await snapshot(page)).simulationMs).toBe(frozen.simulationMs);
+
+  await page.getByRole('button', { name: '다시 그리기' }).click();
+  expect((await snapshot(page)).mode).toBe('playing');
+  await expect(page.locator('canvas')).not.toHaveCSS('pointer-events', 'none');
+});
+
+test('confirmed recovery는 scene restart 뒤 prompt 없이 playing을 유지한다', async ({ page }) => {
+  await openScenario(page, 'empty-run');
+  await loseContext(page);
+  await restoreContext(page);
+  await page.getByRole('button', { name: '다시 그리기' }).click();
+  await restartSceneAndWait(page);
+
+  expect((await snapshot(page)).mode).toBe('playing');
+  await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(0);
+  await expect(page.locator('canvas')).not.toHaveCSS('pointer-events', 'none');
+});
+
+test('반복 loss의 최신 restore confirmation만 scene restart 뒤 prompt로 복원한다', async ({ page }) => {
+  await openScenario(page, 'empty-run');
+  await loseContext(page);
+  await restoreContext(page);
+  await loseContext(page);
+  await restoreContext(page);
+  await restartSceneAndWait(page);
+
+  expect((await snapshot(page)).mode).toBe('visibilityPause');
+  await expect(page.getByRole('button', { name: '다시 그리기' })).toHaveCount(1);
   await page.getByRole('button', { name: '다시 그리기' }).click();
   expect((await snapshot(page)).mode).toBe('playing');
 });

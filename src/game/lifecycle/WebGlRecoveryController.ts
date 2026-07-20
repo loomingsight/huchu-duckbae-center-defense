@@ -2,8 +2,9 @@ import type { VisibilitySessionPort } from './VisibilityController';
 import { LifecyclePauseCoordinator } from './LifecyclePauseCoordinator';
 
 interface WebGlRecoveryState {
-  available: boolean;
-  generation: number;
+  phase: 'lost' | 'restoredAwaitingConfirmation' | 'confirmed';
+  recoveryGeneration: number;
+  confirmationToken: number;
 }
 
 const recoveryStates = new WeakMap<EventTarget, WebGlRecoveryState>();
@@ -11,10 +12,18 @@ const recoveryStates = new WeakMap<EventTarget, WebGlRecoveryState>();
 function recoveryStateFor(target: EventTarget, initialAvailable: boolean): WebGlRecoveryState {
   const existing = recoveryStates.get(target);
   if (existing !== undefined) {
-    if (!initialAvailable) existing.available = false;
+    if (!initialAvailable && existing.phase !== 'lost') {
+      existing.phase = 'lost';
+      existing.recoveryGeneration += 1;
+      existing.confirmationToken += 1;
+    }
     return existing;
   }
-  const state = { available: initialAvailable, generation: 0 };
+  const state: WebGlRecoveryState = {
+    phase: initialAvailable ? 'confirmed' : 'lost',
+    recoveryGeneration: initialAvailable ? 0 : 1,
+    confirmationToken: 0,
+  };
   recoveryStates.set(target, state);
   return state;
 }
@@ -46,7 +55,7 @@ export class WebGlRecoveryController {
   }
 
   get contextAvailable(): boolean {
-    return this.recoveryState.available;
+    return this.recoveryState.phase !== 'lost';
   }
 
   get confirmationGeneration(): number | undefined {
@@ -69,39 +78,44 @@ export class WebGlRecoveryController {
 
   confirmRestore(generation = this.promptGeneration): void {
     if (
-      !this.recoveryState.available
+      this.recoveryState.phase !== 'restoredAwaitingConfirmation'
       || !this.needsConfirmation
-      || generation !== this.recoveryState.generation
-      || this.promptGeneration !== this.recoveryState.generation
+      || generation !== this.recoveryState.confirmationToken
+      || this.promptGeneration !== this.recoveryState.confirmationToken
       || !this.coordinator.has('webgl')
     ) return;
     this.restoreMode();
   }
 
   beginSession(): void {
-    if (this.recoveryState.available) return;
+    if (this.recoveryState.phase === 'confirmed') return;
     this.needsConfirmation = false;
     this.promptGeneration = undefined;
-    this.runtime.setRestorePromptVisible(false);
-    this.runtime.setContextLostVisible?.(true);
     this.runtime.setCanvasInputEnabled?.(false);
-    this.coordinator.acquire('webgl');
+    if (!this.coordinator.acquire('webgl')) return;
+    if (this.recoveryState.phase === 'lost') {
+      this.runtime.setRestorePromptVisible(false);
+      this.runtime.setContextLostVisible?.(true);
+      return;
+    }
+    this.runtime.setContextLostVisible?.(false);
+    this.showRestorePrompt();
   }
 
   reset(): void {
     this.coordinator.abandon('webgl');
-    this.recoveryState.generation += 1;
     this.promptGeneration = undefined;
     this.needsConfirmation = false;
     this.runtime.setRestorePromptVisible(false);
     this.runtime.setContextLostVisible?.(false);
-    this.runtime.setCanvasInputEnabled?.(this.recoveryState.available);
+    this.runtime.setCanvasInputEnabled?.(this.recoveryState.phase === 'confirmed');
   }
 
   private readonly onLost = (event: Event): void => {
     event.preventDefault();
-    this.recoveryState.available = false;
-    this.recoveryState.generation += 1;
+    this.recoveryState.phase = 'lost';
+    this.recoveryState.recoveryGeneration += 1;
+    this.recoveryState.confirmationToken += 1;
     this.promptGeneration = undefined;
     this.needsConfirmation = false;
     this.runtime.setCanvasInputEnabled?.(false);
@@ -113,19 +127,25 @@ export class WebGlRecoveryController {
   };
 
   private readonly onRestored = (): void => {
-    this.recoveryState.available = true;
+    this.recoveryState.phase = 'restoredAwaitingConfirmation';
     this.runtime.setContextLostVisible?.(false);
     if (!this.coordinator.has('webgl')) return;
     if (this.coordinator.originalMode === 'skillSelection') {
       this.restoreMode();
       return;
     }
-    this.promptGeneration = this.recoveryState.generation;
-    this.needsConfirmation = true;
-    this.runtime.setRestorePromptVisible(true);
+    this.showRestorePrompt();
   };
 
+  private showRestorePrompt(): void {
+    this.recoveryState.confirmationToken += 1;
+    this.promptGeneration = this.recoveryState.confirmationToken;
+    this.needsConfirmation = true;
+    this.runtime.setRestorePromptVisible(true);
+  }
+
   private restoreMode(): void {
+    this.recoveryState.phase = 'confirmed';
     this.needsConfirmation = false;
     this.promptGeneration = undefined;
     this.runtime.setRestorePromptVisible(false);

@@ -169,3 +169,87 @@ it('같은 canvas의 context availability는 controller 재생성 뒤에도 유�
   second.confirmRestore();
   expect(session.currentMode()).toBe('playing');
 });
+
+it('restore confirmation 대기는 controller 재생성 뒤 prompt와 pause를 복원한다', () => {
+  const first = createHarness();
+  first.controller.attach();
+  first.target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  first.target.dispatchEvent(new Event('webglcontextrestored'));
+  const staleGeneration = first.controller.confirmationGeneration;
+  first.controller.detach();
+  first.controller.reset();
+
+  const session = GameSession.create({ seed: 2 });
+  const prompts: boolean[] = [];
+  const canvasInput: boolean[] = [];
+  const second = new WebGlRecoveryController(first.target, session, {
+    setWorldPaused: () => undefined,
+    setRestorePromptVisible: (visible) => prompts.push(visible),
+    setCanvasInputEnabled: (enabled) => canvasInput.push(enabled),
+    resyncView: () => undefined,
+  });
+  second.attach();
+  second.beginSession();
+
+  expect(second.contextAvailable).toBe(true);
+  expect(second.needsConfirmation).toBe(true);
+  expect(session.currentMode()).toBe('visibilityPause');
+  expect(prompts.at(-1)).toBe(true);
+  expect(canvasInput.at(-1)).toBe(false);
+
+  second.confirmRestore(staleGeneration);
+  expect(session.currentMode()).toBe('visibilityPause');
+  second.confirmRestore();
+  expect(session.currentMode()).toBe('playing');
+});
+
+it('confirmed recovery는 controller 재생성 뒤 prompt 없이 playing을 유지한다', () => {
+  const first = createHarness();
+  first.controller.attach();
+  first.target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  first.target.dispatchEvent(new Event('webglcontextrestored'));
+  first.controller.confirmRestore();
+  first.controller.detach();
+  first.controller.reset();
+
+  const session = GameSession.create({ seed: 3 });
+  const prompts: boolean[] = [];
+  const second = new WebGlRecoveryController(first.target, session, {
+    setWorldPaused: () => undefined,
+    setRestorePromptVisible: (visible) => prompts.push(visible),
+    setCanvasInputEnabled: () => undefined,
+    resyncView: () => undefined,
+  });
+  second.beginSession();
+
+  expect(session.currentMode()).toBe('playing');
+  expect(second.needsConfirmation).toBe(false);
+  expect(prompts).toEqual([]);
+});
+
+it('반복 loss의 최신 restore confirmation만 controller 재생성 뒤 유효하다', () => {
+  const first = createHarness();
+  first.controller.attach();
+  first.target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  first.target.dispatchEvent(new Event('webglcontextrestored'));
+  const firstGeneration = first.controller.confirmationGeneration;
+  first.target.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
+  first.target.dispatchEvent(new Event('webglcontextrestored'));
+  first.controller.detach();
+  first.controller.reset();
+
+  const session = GameSession.create({ seed: 4 });
+  const second = new WebGlRecoveryController(first.target, session, {
+    setWorldPaused: () => undefined,
+    setRestorePromptVisible: () => undefined,
+    setCanvasInputEnabled: () => undefined,
+    resyncView: () => undefined,
+  });
+  second.beginSession();
+
+  expect(session.currentMode()).toBe('visibilityPause');
+  second.confirmRestore(firstGeneration);
+  expect(session.currentMode()).toBe('visibilityPause');
+  second.confirmRestore();
+  expect(session.currentMode()).toBe('playing');
+});
