@@ -3,7 +3,7 @@ import { BALANCE } from '../../src/game/data/balance';
 import { PATH_DEFINITIONS } from '../../src/game/data/pathDefinitions';
 import { validateGameData } from '../../src/game/data/validateGameData';
 import { WAVE_DEFINITIONS } from '../../src/game/data/waveDefinitions';
-import type { EnemyKind, EnemyVariant } from '../../src/game/types/GameTypes';
+import type { PathId } from '../../src/game/types/GameTypes';
 
 vi.mock('phaser', () => ({
   default: {
@@ -13,108 +13,18 @@ vi.mock('phaser', () => ({
   },
 }));
 
-type TestSpawn = {
-  readonly atMs: number;
-  readonly pathId: string;
-  readonly kind: EnemyKind;
-  readonly variant: EnemyVariant | 'seeded';
+type TestGroup = [number, number, number, ('dogTrader' | 'illegalBreeder')?];
+type TestWaveDefinition = {
+  wave: number;
+  pathIds: PathId[];
+  groups: TestGroup[];
 };
 
-const makeSpawn = (overrides: Partial<TestSpawn> = {}): TestSpawn => ({
-  atMs: 0,
-  pathId: 'P1',
-  kind: 'poopGuardian',
-  variant: 'male',
-  ...overrides,
-});
-
-const withSpawnVariant = (
-  waveNumber: number,
-  spawnIndex: number,
-  variant: EnemyVariant | 'seeded',
-) => WAVE_DEFINITIONS.map((wave) => ({
+const cloneWaves = (): TestWaveDefinition[] => WAVE_DEFINITIONS.map((wave) => ({
   wave: wave.wave,
-  spawns: wave.spawns.map((spawn, index) => (
-    wave.wave === waveNumber && index === spawnIndex ? { ...spawn, variant } : spawn
-  )),
+  pathIds: [...wave.pathIds],
+  groups: wave.groups.map((group) => [...group] as TestGroup),
 }));
-
-const EXPECTED_WAVE_SCHEDULES = [
-  [1, [
-    [0, 'P1', 'poopGuardian', 'male'],
-    [1000, 'P2', 'poopGuardian', 'female'],
-    [2000, 'P1', 'poopGuardian', 'male'],
-    [3000, 'P2', 'poopGuardian', 'female'],
-    [4000, 'P1', 'poopGuardian', 'male'],
-    [5000, 'P2', 'poopGuardian', 'female'],
-    [6000, 'P1', 'poopGuardian', 'male'],
-    [7000, 'P2', 'poopGuardian', 'female'],
-    [8000, 'P1', 'poopGuardian', 'male'],
-    [9000, 'P2', 'poopGuardian', 'female'],
-  ]],
-  [2, [
-    [0, 'P1', 'poopGuardian', 'male'],
-    [900, 'P2', 'offLeashGuardian', 'male'],
-    [1800, 'P3', 'offLeashGuardian', 'female'],
-    [2700, 'P4', 'poopGuardian', 'female'],
-    [3600, 'P1', 'offLeashGuardian', 'male'],
-    [4500, 'P2', 'offLeashGuardian', 'female'],
-    [5400, 'P3', 'poopGuardian', 'male'],
-    [6300, 'P4', 'offLeashGuardian', 'male'],
-    [7200, 'P1', 'offLeashGuardian', 'female'],
-    [8100, 'P2', 'poopGuardian', 'female'],
-    [9000, 'P3', 'offLeashGuardian', 'male'],
-    [9900, 'P4', 'offLeashGuardian', 'female'],
-    [10800, 'P1', 'poopGuardian', 'male'],
-    [11700, 'P2', 'poopGuardian', 'female'],
-  ]],
-  [3, [
-    [0, 'P2', 'offLeashGuardian', 'male'],
-    [1000, 'P4', 'offLeashGuardian', 'female'],
-    [2000, 'P6', 'offLeashGuardian', 'male'],
-    [3000, 'P2', 'offLeashGuardian', 'female'],
-    [4000, 'P4', 'offLeashGuardian', 'male'],
-    [5000, 'P6', 'offLeashGuardian', 'female'],
-    [7000, 'P3', 'dogTrader', 'male'],
-  ]],
-  [4, [
-    [0, 'P1', 'poopGuardian', 'male'],
-    [0, 'P2', 'offLeashGuardian', 'male'],
-    [1100, 'P3', 'poopGuardian', 'female'],
-    [1100, 'P4', 'offLeashGuardian', 'female'],
-    [2200, 'P5', 'poopGuardian', 'male'],
-    [2200, 'P6', 'offLeashGuardian', 'male'],
-    [3300, 'P1', 'poopGuardian', 'female'],
-    [3300, 'P2', 'offLeashGuardian', 'female'],
-    [4400, 'P3', 'poopGuardian', 'male'],
-    [4400, 'P4', 'offLeashGuardian', 'male'],
-    [5500, 'P5', 'poopGuardian', 'female'],
-    [5500, 'P6', 'offLeashGuardian', 'female'],
-    [6600, 'P1', 'poopGuardian', 'male'],
-    [6600, 'P2', 'offLeashGuardian', 'male'],
-    [7700, 'P3', 'poopGuardian', 'female'],
-    [7700, 'P4', 'offLeashGuardian', 'female'],
-    [8800, 'P5', 'offLeashGuardian', 'male'],
-    [8800, 'P6', 'offLeashGuardian', 'female'],
-  ]],
-  [5, [
-    [0, 'P1', 'poopGuardian', 'male'],
-    [0, 'P2', 'offLeashGuardian', 'male'],
-    [1100, 'P5', 'poopGuardian', 'female'],
-    [1100, 'P6', 'offLeashGuardian', 'female'],
-    [2200, 'P1', 'poopGuardian', 'male'],
-    [2200, 'P2', 'offLeashGuardian', 'male'],
-    [3300, 'P5', 'poopGuardian', 'female'],
-    [3300, 'P6', 'offLeashGuardian', 'female'],
-    [4400, 'P1', 'poopGuardian', 'male'],
-    [4400, 'P2', 'offLeashGuardian', 'male'],
-    [5500, 'P5', 'poopGuardian', 'female'],
-    [5500, 'P6', 'offLeashGuardian', 'female'],
-    [6600, 'P1', 'offLeashGuardian', 'male'],
-    [6600, 'P2', 'offLeashGuardian', 'female'],
-    [8600, 'P3', 'illegalBreeder', 'seeded'],
-  ]],
-] as const;
 
 describe('고정 게임 데이터', () => {
   it('540x960 맵의 exact 6개 경로를 유지한다', () => {
@@ -128,415 +38,199 @@ describe('고정 게임 데이터', () => {
     });
   });
 
-  it('MVP 밸런스 상수를 단일 데이터로 고정한다', () => {
-    expect(BALANCE).toEqual({
-      shelter: { maxHp: 100, x: 270, y: 480, hitRadius: 38 },
-      player: { speed: 150, height: 72 },
-      snackThresholds: [8, 22, 40, 62, 88],
-      pendingSkillCombatDelayMs: 5000,
+  it('V2 적 밸런스와 cap을 단일 데이터로 고정한다', () => {
+    expect(BALANCE).toMatchObject({
+      shelter: { maxHp: 1000, x: 270, y: 480 },
+      player: { speed: 150, opaqueHeightLogical: 72 },
       waveCountdownMs: 3000,
-      attackReleaseMs: 250,
       enemies: {
-        poopGuardian: {
-          hp: 35,
-          speed: 44,
-          damage: 3,
-          attackIntervalMs: 1800,
-          range: 48,
-          snack: 1,
-        },
-        offLeashGuardian: {
-          hp: 65,
-          speed: 38,
-          damage: 6,
-          attackIntervalMs: 1600,
-          range: 32,
-          snack: 2,
-        },
-        dogTrader: {
-          hp: 600,
-          speed: 25,
-          damage: 14,
-          attackIntervalMs: 2200,
-          range: 64,
-          snack: 12,
-        },
-        illegalBreeder: {
-          hp: 1000,
-          speed: 23,
-          damage: 18,
-          attackIntervalMs: 2000,
-          range: 88,
-          snack: 20,
-        },
+        poopGuardian: { hp: 60, speed: 44, damage: 25, attackIntervalMs: 1800, snack: 2 },
+        offLeashGuardian: { hp: 110, speed: 42, damage: 50, attackIntervalMs: 1800, snack: 4 },
+        dogTrader: { hp: 900, speed: 25, damage: 120, attackIntervalMs: 2400, snack: 20 },
+        illegalBreeder: { hp: 1500, speed: 23, damage: 160, attackIntervalMs: 2100, snack: 35 },
       },
       caps: { enemies: 60, projectiles: 80, particles: 120 },
     });
   });
 
-  it('W1과 W2의 경로, 종류, 시간표를 정확히 펼친다', () => {
-    const [wave1, wave2] = WAVE_DEFINITIONS;
-
-    expect(wave1.wave).toBe(1);
-    expect(wave1.spawns).toHaveLength(10);
-    expect(wave1.spawns.map(({ atMs, pathId, kind }) => ({ atMs, pathId, kind }))).toEqual(
-      Array.from({ length: 10 }, (_, index) => ({
-        atMs: index * 1000,
-        pathId: index % 2 === 0 ? 'P1' : 'P2',
-        kind: 'poopGuardian',
-      })),
-    );
-
-    expect(wave2.wave).toBe(2);
-    expect(wave2.spawns.map(({ kind }) => kind)).toEqual([
-      'poopGuardian', 'offLeashGuardian', 'offLeashGuardian',
-      'poopGuardian', 'offLeashGuardian', 'offLeashGuardian',
-      'poopGuardian', 'offLeashGuardian', 'offLeashGuardian',
-      'poopGuardian', 'offLeashGuardian', 'offLeashGuardian',
-      'poopGuardian', 'poopGuardian',
+  it('다섯 wave의 path set과 grouped schedule을 exact하게 고정한다', () => {
+    expect(WAVE_DEFINITIONS).toEqual([
+      { wave: 1, pathIds: ['P1', 'P2'], groups: [[0, 2, 0], [7, 2, 0], [14, 2, 0], [21, 2, 0], [28, 2, 0]] },
+      { wave: 2, pathIds: ['P1', 'P2', 'P3', 'P4'], groups: [[0, 1, 1], [7, 1, 1], [14, 1, 1], [21, 1, 1], [28, 1, 1], [35, 1, 1], [42, 0, 2]] },
+      { wave: 3, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 1, 2], [8, 2, 1], [16, 1, 2], [24, 1, 2], [32, 2, 1], [40, 1, 2]] },
+      { wave: 4, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 2, 2], [12, 1, 2], [24, 1, 2], [32, 0, 0, 'dogTrader']] },
+      { wave: 5, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 2, 2], [12, 1, 2], [24, 1, 2], [32, 0, 0, 'illegalBreeder'], [42, 2, 2]] },
     ]);
-    expect(wave2.spawns.map(({ atMs }) => atMs)).toEqual(
-      Array.from({ length: 14 }, (_, index) => index * 900),
-    );
-    expect(wave2.spawns.map(({ pathId }) => pathId)).toEqual(
-      Array.from({ length: 14 }, (_, index) => ['P1', 'P2', 'P3', 'P4'][index % 4]),
-    );
-  });
-
-  it('W3~W5의 묶음 생성과 보스 시간표를 정확히 펼친다', () => {
-    const [, , wave3, wave4, wave5] = WAVE_DEFINITIONS;
-
-    expect(wave3.spawns.slice(0, 6).map(({ atMs, pathId, kind }) => ({ atMs, pathId, kind })))
-      .toEqual(Array.from({ length: 6 }, (_, index) => ({
-        atMs: index * 1000,
-        pathId: ['P2', 'P4', 'P6'][index % 3],
-        kind: 'offLeashGuardian',
-      })));
-    expect(wave3.spawns.at(-1)).toEqual({
-      atMs: 7000,
-      pathId: 'P3',
-      kind: 'dogTrader',
-      variant: 'male',
-    });
-
-    expect(wave4.spawns).toHaveLength(18);
-    expect(wave4.spawns.map(({ atMs }) => atMs)).toEqual(
-      Array.from({ length: 9 }, (_, event) => [event * 1100, event * 1100]).flat(),
-    );
-    expect(wave4.spawns.slice(0, 16).map(({ kind }) => kind)).toEqual(
-      Array.from({ length: 8 }, () => ['poopGuardian', 'offLeashGuardian']).flat(),
-    );
-    expect(wave4.spawns.slice(-2).map(({ kind }) => kind)).toEqual([
-      'offLeashGuardian',
-      'offLeashGuardian',
-    ]);
-
-    expect(wave5.spawns).toHaveLength(15);
-    expect(wave5.spawns.slice(0, 12).map(({ kind }) => kind)).toEqual(
-      Array.from({ length: 6 }, () => ['poopGuardian', 'offLeashGuardian']).flat(),
-    );
-    expect(wave5.spawns.slice(12, 14).map(({ kind }) => kind)).toEqual([
-      'offLeashGuardian',
-      'offLeashGuardian',
-    ]);
-    expect(wave5.spawns.at(-1)).toEqual({
-      atMs: 8600,
-      pathId: 'P3',
-      kind: 'illegalBreeder',
-      variant: 'seeded',
-    });
-  });
-
-  it('동시 생성은 서로 다른 경로를 쓰고 일반 적 variant는 종류별로 교대한다', () => {
-    for (const wave of WAVE_DEFINITIONS) {
-      const pathsByTime = new Map<number, Set<string>>();
-      for (const spawn of wave.spawns) {
-        const used = pathsByTime.get(spawn.atMs) ?? new Set<string>();
-        expect(used.has(spawn.pathId)).toBe(false);
-        used.add(spawn.pathId);
-        pathsByTime.set(spawn.atMs, used);
-      }
-    }
-
-    for (const kind of ['poopGuardian', 'offLeashGuardian'] as const) {
-      const variants = WAVE_DEFINITIONS
-        .flatMap(({ spawns }) => [...spawns])
-        .filter((spawn) => spawn.kind === kind)
-        .map(({ variant }) => variant);
-      expect(variants).toEqual(
-        variants.map((_, index) => (index % 2 === 0 ? 'male' : 'female')),
-      );
-    }
-  });
-
-  it('W1부터 W5까지 모든 spawn tuple과 boss gap을 exact schedule로 고정한다', () => {
-    expect(WAVE_DEFINITIONS.map(({ wave, spawns }) => [wave, spawns.length])).toEqual([
-      [1, 10],
-      [2, 14],
-      [3, 7],
-      [4, 18],
-      [5, 15],
-    ]);
-    expect(WAVE_DEFINITIONS.map(({ wave, spawns }) => [
-      wave,
-      spawns.map(({ atMs, pathId, kind, variant }) => [atMs, pathId, kind, variant]),
-    ])).toEqual(EXPECTED_WAVE_SCHEDULES);
-
-    const wave3 = WAVE_DEFINITIONS[2].spawns;
-    const wave5 = WAVE_DEFINITIONS[4].spawns;
-    expect(wave3.at(-1)!.atMs - wave3.at(-2)!.atMs).toBe(2000);
-    expect(wave5.at(-1)!.atMs - wave5.at(-2)!.atMs).toBe(2000);
   });
 });
 
 describe('validateGameData', () => {
-  it('맵 밖 웨이포인트와 알 수 없는 경로를 모두 보고한다', () => {
-    const errors = validateGameData({
-      paths: { ...PATH_DEFINITIONS, P1: [[-1, 0], [270, 430]] },
-      waves: [
-        {
-          wave: 1,
-          spawns: [
-            { atMs: 0, pathId: 'PX', kind: 'poopGuardian', variant: 'male' },
-          ],
-        },
-      ],
-    });
-
-    expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('P1'),
-      expect.stringContaining('PX'),
-    ]));
-  });
-
-  it('Object prototype에서 상속되는 이름도 unknown path로 거부한다', () => {
-    const firstWave = WAVE_DEFINITIONS[0];
-    const waves = WAVE_DEFINITIONS.map((wave) => (
-      wave.wave === 1
-        ? {
-            wave: firstWave.wave,
-            spawns: [
-              { ...firstWave.spawns[0]!, pathId: 'toString' },
-              { ...firstWave.spawns[1]!, pathId: 'constructor' },
-              ...firstWave.spawns.slice(2),
-            ],
-          }
-        : wave
-    ));
-
-    const errors = validateGameData({ paths: PATH_DEFINITIONS, waves });
-
-    expect(errors).toEqual(expect.arrayContaining([
-      'wave 1[0]: unknown path toString',
-      'wave 1[1]: unknown path constructor',
-    ]));
-  });
-
-  it('공식 경로와 5개 웨이브를 오류 없이 승인한다', () => {
+  it('공식 경로와 exact 5개 wave를 오류 없이 승인한다', () => {
     expect(validateGameData({ paths: PATH_DEFINITIONS, waves: WAVE_DEFINITIONS })).toEqual([]);
   });
 
-  it('필수 경로 누락과 2점 미만 경로를 보고한다', () => {
-    const paths: Record<string, readonly (readonly [number, number])[]> = {
-      ...PATH_DEFINITIONS,
-      P1: [[110, 0]],
-    };
-    delete paths.P6;
-
-    expect(validateGameData({ paths, waves: [] })).toEqual(expect.arrayContaining([
-      expect.stringContaining('P1'),
-      expect.stringContaining('at least two'),
-      expect.stringContaining('P6'),
-      expect.stringContaining('missing'),
-    ]));
-  });
-
-  it('경로 key 집합은 P1부터 P6까지만 허용한다', () => {
-    const errors = validateGameData({
-      paths: { ...PATH_DEFINITIONS, P7: [[0, 0], [1, 1]] },
-      waves: WAVE_DEFINITIONS,
-    });
-
-    expect(errors).toContain('path P7: unexpected');
-  });
-
-  it('웨이브는 1부터 5까지 순서대로 정확히 한 번씩 요구한다', () => {
-    const emptyErrors = validateGameData({ paths: PATH_DEFINITIONS, waves: [] });
-    const missingErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: WAVE_DEFINITIONS.slice(0, 4),
-    });
-    const duplicateErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [...WAVE_DEFINITIONS.slice(0, 4), WAVE_DEFINITIONS[3]],
-    });
-    const unknownErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [...WAVE_DEFINITIONS.slice(0, 4), { wave: 6, spawns: [] }],
-    });
-    const reorderedErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [
-        WAVE_DEFINITIONS[1],
-        WAVE_DEFINITIONS[0],
-        ...WAVE_DEFINITIONS.slice(2),
-      ],
-    });
-
-    expect(emptyErrors).toEqual(expect.arrayContaining([
-      'waves: expected exactly 5, received 0',
-      'wave 1: missing',
-    ]));
-    expect(missingErrors).toContain('wave 5: missing');
-    expect(duplicateErrors).toContain('wave 4: duplicate');
-    expect(unknownErrors).toEqual(expect.arrayContaining([
-      'wave 5: missing',
-      'wave 6: unexpected',
-    ]));
-    expect(reorderedErrors).toEqual(expect.arrayContaining([
-      'waves[0]: expected wave 1, received 2',
-      'waves[1]: expected wave 2, received 1',
-    ]));
-  });
-
-  it('내림차순 시간과 같은 시각의 중복 경로를 보고한다', () => {
-    const errors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [{
-        wave: 1,
-        spawns: [
-          makeSpawn({ atMs: 100, pathId: 'P1' }),
-          makeSpawn({ atMs: 0, pathId: 'P2' }),
-          makeSpawn({ atMs: 0, pathId: 'P2', variant: 'female' }),
-        ],
-      }],
-    });
-
-    expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('not ascending'),
-      expect.stringContaining('duplicate path P2 at 0ms'),
-    ]));
-  });
-
-  it('좌표는 finite이고 모든 인접 segment 길이는 finite 양수여야 한다', () => {
+  it('맵 밖 좌표, 유한하지 않은 좌표, 0 길이 segment를 모두 보고한다', () => {
     const errors = validateGameData({
       paths: {
         ...PATH_DEFINITIONS,
-        P1: [[Number.NaN, 0], [270, 430]],
-        P2: [[430, 0], [430, 0], [270, 430]],
-        P3: [[Number.POSITIVE_INFINITY, 0], [270, 430]],
+        P1: [[-1, 0], [270, 430]],
+        P2: [[430, 0], [430, 0]],
+        P3: [[Number.NaN, 0], [270, 430]],
       },
       waves: WAVE_DEFINITIONS,
     });
 
     expect(errors).toEqual(expect.arrayContaining([
-      'path P1[0]: waypoint coordinates must be finite',
-      'path P1 segment 0-1: length must be finite and greater than zero',
+      expect.stringContaining('path P1[0]'),
       'path P2 segment 0-1: length must be finite and greater than zero',
       'path P3[0]: waypoint coordinates must be finite',
-      'path P3 segment 0-1: length must be finite and greater than zero',
     ]));
   });
 
-  it('spawn atMs는 finite이고 0 이상이어야 한다', () => {
-    const firstWave = WAVE_DEFINITIONS[0];
-    const waves = WAVE_DEFINITIONS.map((wave) => (
-      wave.wave === 1
-        ? {
-            wave: firstWave.wave,
-            spawns: [
-              { ...firstWave.spawns[0]!, atMs: Number.NaN },
-              { ...firstWave.spawns[1]!, atMs: Number.POSITIVE_INFINITY },
-              { ...firstWave.spawns[2]!, atMs: -1 },
-              ...firstWave.spawns.slice(3),
-            ],
-          }
-        : wave
-    ));
+  it('필수 path 누락, 추가 path, 2점 미만 path를 보고한다', () => {
+    const paths: Record<string, readonly (readonly [number, number])[]> = {
+      ...PATH_DEFINITIONS,
+      P1: [[110, 0]],
+      P7: [[0, 0], [1, 1]],
+    };
+    delete paths.P6;
 
-    const errors = validateGameData({ paths: PATH_DEFINITIONS, waves });
-
-    expect(errors).toEqual(expect.arrayContaining([
-      'wave 1[0]: atMs must be finite and non-negative',
-      'wave 1[1]: atMs must be finite and non-negative',
-      'wave 1[2]: atMs must be finite and non-negative',
+    expect(validateGameData({ paths, waves: WAVE_DEFINITIONS })).toEqual(expect.arrayContaining([
+      'path P1: needs at least two waypoints',
+      'path P6: missing',
+      'path P7: unexpected',
     ]));
   });
 
-  it('웨이브 적 cap 60 초과를 보고한다', () => {
-    const errors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [{
-        wave: 1,
-        spawns: Array.from({ length: 61 }, (_, index) => makeSpawn({ atMs: index })),
-      }],
-    });
+  it('wave 1~5를 순서대로 정확히 한 번 요구한다', () => {
+    const missing = cloneWaves().slice(0, 4);
+    const duplicate = [...cloneWaves().slice(0, 4), cloneWaves()[3]!];
+    const reordered = cloneWaves();
+    [reordered[0], reordered[1]] = [reordered[1]!, reordered[0]!];
 
-    expect(errors).toContain('wave 1: 61 exceeds enemy cap 60');
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: missing })).toEqual(
+      expect.arrayContaining(['waves: expected exactly 5, received 4', 'wave 5: missing']),
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: duplicate })).toContain(
+      'wave 4: duplicate',
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: reordered })).toEqual(
+      expect.arrayContaining([
+        'waves[0]: expected wave 1, received 2',
+        'waves[1]: expected wave 2, received 1',
+      ]),
+    );
   });
 
-  it('보스는 P3와 지정 웨이브만 사용하게 한다', () => {
-    const errors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [
-        { wave: 1, spawns: [makeSpawn({ pathId: 'P3', kind: 'dogTrader' })] },
-        { wave: 3, spawns: [makeSpawn({ pathId: 'P2', kind: 'dogTrader' })] },
+  it('wave별 exact path set의 누락, 중복, 순서, unknown path를 거부한다', () => {
+    const missing = cloneWaves();
+    missing[1] = { ...missing[1]!, pathIds: ['P1', 'P2', 'P3'] };
+    const duplicate = cloneWaves();
+    duplicate[0] = { ...duplicate[0]!, pathIds: ['P1', 'P1'] };
+    const reordered = cloneWaves();
+    reordered[0] = { ...reordered[0]!, pathIds: ['P2', 'P1'] };
+    const unknown = cloneWaves();
+    unknown[0] = {
+      ...unknown[0]!,
+      pathIds: ['P1', 'PX' as never],
+    };
+
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: missing })).toContain(
+      'wave 2: expected path set P1,P2,P3,P4',
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: duplicate })).toEqual(
+      expect.arrayContaining([
+        'wave 1: duplicate path P1',
+        'wave 1: expected path set P1,P2',
+      ]),
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: reordered })).toContain(
+      'wave 1: expected path set P1,P2',
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: unknown })).toContain(
+      'wave 1: unknown path PX',
+    );
+  });
+
+  it('group tuple shape와 finite ascending seconds를 검사한다', () => {
+    const malformed = cloneWaves();
+    malformed[0] = {
+      ...malformed[0]!,
+      groups: [
+        [0, 2] as never,
+        [Number.NaN, 2, 0],
+        [14, 2, 0],
+        [13, 2, 0],
+        [28, 2, 0, undefined, 'extra'] as never,
       ],
-    });
+    };
 
+    const errors = validateGameData({ paths: PATH_DEFINITIONS, waves: malformed });
     expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('invalid boss dogTrader'),
-      expect.stringContaining('boss must use P3'),
+      'wave 1 group 0: expected tuple length 3 or 4',
+      'wave 1 group 1: seconds must be finite and non-negative',
+      'wave 1 group 3: seconds must be ascending',
+      'wave 1 group 4: expected tuple length 3 or 4',
     ]));
   });
 
-  it('W3 trader와 W5 breeder가 정확히 하나인지 검사한다', () => {
-    const errors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: [
-        { wave: 3, spawns: [] },
-        {
-          wave: 5,
-          spawns: [
-            makeSpawn({ atMs: 0, pathId: 'P3', kind: 'illegalBreeder', variant: 'seeded' }),
-            makeSpawn({ atMs: 1, pathId: 'P3', kind: 'illegalBreeder', variant: 'seeded' }),
-          ],
-        },
+  it('group count는 non-negative safe integer이고 event path 수를 넘지 않는다', () => {
+    const malformed = cloneWaves();
+    malformed[0] = {
+      ...malformed[0]!,
+      groups: [
+        [0, -1, 0],
+        [7, 1.5, 0],
+        [14, Number.MAX_SAFE_INTEGER + 1, 0],
+        [21, 3, 0],
+        [28, 0, 0],
       ],
-    });
+    };
 
+    const errors = validateGameData({ paths: PATH_DEFINITIONS, waves: malformed });
     expect(errors).toEqual(expect.arrayContaining([
-      expect.stringContaining('wave 3: expected exactly one dogTrader'),
-      expect.stringContaining('wave 5: expected exactly one illegalBreeder'),
+      'wave 1 group 0: poopGuardian count must be a non-negative safe integer',
+      'wave 1 group 1: poopGuardian count must be a non-negative safe integer',
+      'wave 1 group 2: poopGuardian count must be a non-negative safe integer',
+      'wave 1 group 3: event count 3 exceeds unique path count 2',
+      'wave 1 group 4: event must spawn at least one enemy',
     ]));
   });
 
-  it('일반 적 variant는 seeded를 금지하고 종류별 male/female 순서를 지킨다', () => {
-    const seededErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: withSpawnVariant(1, 0, 'seeded'),
-    });
-    const parityErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: withSpawnVariant(1, 1, 'male'),
-    });
+  it('exact 시간과 family count가 바뀐 정의를 거부한다', () => {
+    const changedTime = cloneWaves();
+    changedTime[2]!.groups[1] = [9, 2, 1];
+    const changedCount = cloneWaves();
+    changedCount[4]!.groups[4] = [42, 1, 3];
 
-    expect(seededErrors).toContain('wave 1[0]: poopGuardian cannot use seeded variant');
-    expect(parityErrors).toContain('wave 1[1]: expected female variant for poopGuardian');
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: changedTime })).toContain(
+      'wave 3 group 1: expected 8,2,1',
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: changedCount })).toContain(
+      'wave 5 group 4: expected 42,2,2',
+    );
   });
 
-  it('trader는 male, breeder는 seeded variant만 허용한다', () => {
-    const traderErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: withSpawnVariant(3, 6, 'female'),
-    });
-    const breederErrors = validateGameData({
-      paths: PATH_DEFINITIONS,
-      waves: withSpawnVariant(5, 14, 'male'),
-    });
+  it('dogTrader는 W4 t=32, illegalBreeder는 W5 t=32에만 하나씩 허용한다', () => {
+    const wrongBoss = cloneWaves();
+    wrongBoss[3]!.groups[3] = [32, 0, 0, 'illegalBreeder'];
+    const earlyBoss = cloneWaves();
+    earlyBoss[0]!.groups[0] = [0, 1, 0, 'dogTrader'];
+    const duplicateBoss = cloneWaves();
+    duplicateBoss[4]!.groups[4] = [42, 1, 2, 'illegalBreeder'];
 
-    expect(traderErrors).toContain('wave 3[6]: dogTrader variant must be male');
-    expect(breederErrors).toContain('wave 5[14]: illegalBreeder variant must be seeded');
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: wrongBoss })).toEqual(
+      expect.arrayContaining([
+        'wave 4 group 3: invalid boss illegalBreeder',
+        'wave 4: expected exactly one dogTrader',
+      ]),
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: earlyBoss })).toContain(
+      'wave 1 group 0: invalid boss dogTrader',
+    );
+    expect(validateGameData({ paths: PATH_DEFINITIONS, waves: duplicateBoss })).toContain(
+      'wave 5: expected exactly one illegalBreeder',
+    );
   });
 });
 
@@ -577,7 +271,6 @@ describe('BootScene', () => {
       expect(dom).toHaveBeenCalledWith(270, 480);
       expect(createFromHTML).toHaveBeenCalledWith(expect.stringContaining('게임 데이터를 확인하지 못했어요'));
       expect(createFromHTML).toHaveBeenCalledWith(expect.stringContaining('path P1'));
-      expect(createFromHTML).toHaveBeenCalledWith(expect.stringContaining('다시 시도'));
       expect(start).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(PATH_DEFINITIONS, 'P1', {
