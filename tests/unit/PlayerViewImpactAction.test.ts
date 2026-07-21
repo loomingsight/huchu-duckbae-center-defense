@@ -1,6 +1,10 @@
 import { expect, it, vi } from 'vitest';
 import { AssetKeys } from '../../src/game/assets/AssetKeys';
-import { PlayerView } from '../../src/game/player/PlayerView';
+import {
+  PlayerView,
+  TAIL_SWIPE_BODY_DURATION_MS,
+  TAIL_SWIPE_LAST_FRAME_HOLD_MS,
+} from '../../src/game/player/PlayerView';
 import { PresentationTelemetry } from '../../src/game/presentation/PresentationTelemetry';
 import type { PoolSnapshot } from '../../src/game/pooling/ObjectPool';
 
@@ -27,6 +31,35 @@ it('tail body action은 전용 sheet를 쓰고 aqua body action은 attack sheet�
   });
   expect(fake.last('setTexture')).toEqual([AssetKeys.huchuAttack]);
   expect(fake.last('setFrame')).toEqual([3]);
+});
+
+it('꼬리치기는 마지막 프레임을 정확히 800ms 유지한다', () => {
+  const fake = createScene();
+  const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
+
+  expect(TAIL_SWIPE_LAST_FRAME_HOLD_MS).toBe(800);
+  expect(TAIL_SWIPE_BODY_DURATION_MS).toBeCloseTo(5 * 1000 / 12 + 800, 9);
+
+  view.render({
+    x: 270,
+    y: 650,
+    worldAnimationMs: 0,
+    moving: false,
+    bodyAction: {
+      kind: 'tailSwipe',
+      elapsedMs: TAIL_SWIPE_BODY_DURATION_MS - TAIL_SWIPE_LAST_FRAME_HOLD_MS,
+    },
+  });
+  expect(fake.last('setFrame')).toEqual([5]);
+
+  view.render({
+    x: 270,
+    y: 650,
+    worldAnimationMs: 0,
+    moving: false,
+    bodyAction: { kind: 'tailSwipe', elapsedMs: TAIL_SWIPE_BODY_DURATION_MS - 0.001 },
+  });
+  expect(fake.last('setFrame')).toEqual([5]);
 });
 
 it('공격 시각 효과는 좌우 대상에 맞춘 후추 입에서 시작한다', () => {

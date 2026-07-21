@@ -1,4 +1,5 @@
 import { expectTypeOf } from 'vitest';
+import { FIXED_STEP_MS } from '../../src/game/constants';
 import { BALANCE } from '../../src/game/data/balance';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
 import type { EnemySpawnRequest } from '../../src/game/waves/WaveTypes';
@@ -52,18 +53,26 @@ it('재감속은 배율을 중첩하지 않고 더 긴 남은 시간만 보존�
   });
 });
 
-it('off-leash dash 64에도 현재 multiplier를 적용하고 attack cadence는 바꾸지 않는다', () => {
+it('오프리시 보호자는 4초 경계를 지나도 매 프레임 연속 이동한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
   const id = system.snapshots()[0]!.id;
   system.applyTailEffect(id, { knockbackPx: 0, multiplier: 0.6, durationMs: 5000 });
+  const continuousSpeed = 42 + 64 / 4;
+  const maximumStepProgress = continuousSpeed * 0.6 * FIXED_STEP_MS / 1000;
 
-  system.step(4000);
+  let previousProgress = system.snapshots()[0]!.pathProgress;
+  for (let tick = 0; tick < 250; tick += 1) {
+    system.step(FIXED_STEP_MS);
+    const progress = system.snapshots()[0]!.pathProgress;
+    expect(progress - previousProgress).toBeLessThanOrEqual(maximumStepProgress + 1e-9);
+    previousProgress = progress;
+  }
 
-  expect(system.snapshots()[0]).toMatchObject({ dashCooldownRemainingMs: 4000 });
-  expect(system.snapshots()[0]!.pathProgress).toBeCloseTo(42 * 0.6 * 4 + 64 * 0.6, 9);
+  expect(system.snapshots()[0]!.pathProgress)
+    .toBeCloseTo(continuousSpeed * 0.6 * (250 / 60), 9);
 });
 
-it('slow/dash 경계를 포함한 큰 step은 같은 합계의 분할 step과 같다', () => {
+it('slow 경계를 포함한 큰 step은 같은 합계의 분할 step과 같다', () => {
   const whole = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
   const split = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
   whole.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 4010 });
@@ -77,8 +86,9 @@ it('slow/dash 경계를 포함한 큰 step은 같은 합계의 분할 step과 �
   expect(whole.snapshots()).toEqual(split.snapshots());
 });
 
-it('sub-epsilon dash 경계에서 snapshot ETA는 종료하고 finite하다', () => {
+it('sub-epsilon slow 경계에서 snapshot ETA는 종료하고 finite하다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
+  system.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 4000 });
 
   system.step(3999.999_999_95);
 
@@ -111,7 +121,7 @@ it('일반 적의 매우 큰 finite step도 도달 경계에서 즉시 종료한
   expect(Number.isFinite(settled.pathProgress)).toBe(true);
 });
 
-it('slow와 dash가 같은 sub-epsilon 경계면 slow을 먼저 풀고 정상 배율 dash한다', () => {
+it('slow의 sub-epsilon 경계에서는 배율을 풀되 위치를 건너뛰지 않는다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
   system.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 4000 });
 
@@ -120,10 +130,10 @@ it('slow와 dash가 같은 sub-epsilon 경계면 slow을 먼저 풀고 정상 �
   expect(system.snapshots()[0]).toMatchObject({
     moveSpeedMultiplier: 1,
     slowRemainingMs: 0,
-    dashCooldownRemainingMs: 4000,
+    dashCooldownRemainingMs: 0,
   });
   expect(system.snapshots()[0]!.pathProgress)
-    .toBeCloseTo(42 * 0.6 * 3.999_999_999_95 + 64, 8);
+    .toBeCloseTo((42 + 64 / 4) * 0.6 * 3.999_999_999_95, 8);
 });
 
 it('dogTrader는 -70 pre-entry에서 시작하고 첫 segment 밖 위치와 ETA를 보존한다', () => {
@@ -146,7 +156,7 @@ it('dogTrader는 -70 pre-entry에서 시작하고 첫 segment 밖 위치와 ETA�
   expect(nearStart.snapshots()[0]!.pathProgress).toBe(-70);
 });
 
-it('dogTrader -70 pre-entry ETA는 0 시작보다 정확히 2800ms 길다', () => {
+it('dogTrader -70 pre-entry ETA는 0 시작보다 정확히 2333.33ms 길다', () => {
   const beforeEntry = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
   const atEntry = EnemySystem.withSingleEnemy({
     kind: 'dogTrader',
@@ -155,7 +165,7 @@ it('dogTrader -70 pre-entry ETA는 0 시작보다 정확히 2800ms 길다', () =
   });
 
   expect(beforeEntry.snapshots()[0]!.etaMs - atEntry.snapshots()[0]!.etaMs)
-    .toBeCloseTo(70 / 25 * 1000, 9);
+    .toBeCloseTo(70 / 30 * 1000, 9);
 });
 
 it('감속 중 snapshot ETA는 남은 slow을 복사 적분하고 실제 상태는 변경하지 않는다', () => {
@@ -180,7 +190,7 @@ it('일반 적 slow ETA delta를 정확히 반영하고 초기 ETA만큼 step하
   expect(slowed.snapshots()[0]!.etaMs).toBe(0);
 });
 
-it('off-leash ETA는 남은 slow/dash를 동일하게 적분하고 그 시간만큼 step하면 0에 도달한다', () => {
+it('off-leash ETA는 남은 slow을 동일하게 적분하고 그 시간만큼 step하면 0에 도달한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
   system.applyTailEffect(0, { knockbackPx: 0, multiplier: 0.6, durationMs: 5000 });
   system.step(1250);

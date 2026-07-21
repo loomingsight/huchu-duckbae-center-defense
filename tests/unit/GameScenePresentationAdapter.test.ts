@@ -40,7 +40,6 @@ it('Scene adapter는 exact event ownership을 공용 CombatEffectPool에 연결�
   for (const call of [
     'startAquaBeam',
     'retargetAquaBeam',
-    'showTailImpact',
     'showAquaImpact',
     'startSafetyReport',
     'showSafetyImpact',
@@ -51,6 +50,7 @@ it('Scene adapter는 exact event ownership을 공용 CombatEffectPool에 연결�
   ]) {
     expect(source).toContain(call);
   }
+  expect(source).not.toContain('showTailImpact');
   expect(source).toContain("event.type === 'projectileRequested'");
 });
 

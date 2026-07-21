@@ -43,8 +43,7 @@ interface MovementState {
 }
 
 const DOG_TRADER_ENTRY_PROGRESS = -70;
-const OFF_LEASH_DASH_DISTANCE = 64;
-const OFF_LEASH_DASH_INTERVAL_MS = 4000;
+const OFF_LEASH_CONTINUOUS_BONUS_SPEED = 64 / 4;
 
 const PATH_IDS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const;
 const PATH_ID_SET = new Set<string>(PATH_IDS);
@@ -135,7 +134,7 @@ export class EnemySystem {
       isBoss: isBoss(request.kind),
       moveSpeedMultiplier: 1,
       slowRemainingMs: 0,
-      dashCooldownRemainingMs: OFF_LEASH_DASH_INTERVAL_MS,
+      dashCooldownRemainingMs: 0,
       animationElapsedMs: 0,
       speed: stats.speed,
       snack: stats.snack,
@@ -284,7 +283,7 @@ export class EnemySystem {
       this.resolveMovementBoundaries(enemy);
       if (this.settleAtAttackProgress(enemy)) return;
 
-      const speedPerMs = enemy.speed * enemy.moveSpeedMultiplier / 1000;
+      const speedPerMs = movementSpeed(enemy) * enemy.moveSpeedMultiplier / 1000;
       if (!Number.isFinite(speedPerMs) || speedPerMs <= 0) {
         throw new Error('Invalid internal enemy movement speed');
       }
@@ -292,20 +291,15 @@ export class EnemySystem {
       const slowBoundary = enemy.slowRemainingMs > 0
         ? enemy.slowRemainingMs
         : Number.POSITIVE_INFINITY;
-      const dashBoundary = enemy.kind === 'offLeashGuardian'
-        ? enemy.dashCooldownRemainingMs
-        : Number.POSITIVE_INFINITY;
-      const sliceMs = Math.min(remainingMs, untilArrivalMs, slowBoundary, dashBoundary);
+      const sliceMs = Math.min(remainingMs, untilArrivalMs, slowBoundary);
       const previousProgress = enemy.pathProgress;
       const previousMultiplier = enemy.moveSpeedMultiplier;
       const previousSlowRemainingMs = enemy.slowRemainingMs;
-      const previousDashRemainingMs = enemy.dashCooldownRemainingMs;
       enemy.pathProgress = Math.min(
         enemy.attackProgress,
         enemy.pathProgress + speedPerMs * sliceMs,
       );
       enemy.slowRemainingMs = Math.max(0, enemy.slowRemainingMs - sliceMs);
-      enemy.dashCooldownRemainingMs = Math.max(0, enemy.dashCooldownRemainingMs - sliceMs);
       const nextRemainingMs = Math.max(0, remainingMs - sliceMs);
       if (this.settleAtAttackProgress(enemy)) return;
       this.resolveMovementBoundaries(enemy);
@@ -313,8 +307,7 @@ export class EnemySystem {
       const timeAdvanced = nextRemainingMs < remainingMs;
       const stateAdvanced = enemy.pathProgress !== previousProgress
         || enemy.moveSpeedMultiplier !== previousMultiplier
-        || enemy.slowRemainingMs !== previousSlowRemainingMs
-        || enemy.dashCooldownRemainingMs !== previousDashRemainingMs;
+        || enemy.slowRemainingMs !== previousSlowRemainingMs;
       if (!timeAdvanced && !stateAdvanced) {
         throw new Error('Enemy movement integration could not advance');
       }
@@ -330,9 +323,7 @@ export class EnemySystem {
       enemy.slowRemainingMs = 0;
       enemy.moveSpeedMultiplier = 1;
     }
-    if (enemy.dashCooldownRemainingMs <= TIME_EPSILON_MS) {
-      enemy.dashCooldownRemainingMs = 0;
-    }
+    enemy.dashCooldownRemainingMs = 0;
     return true;
   }
 
@@ -341,15 +332,7 @@ export class EnemySystem {
       enemy.slowRemainingMs = 0;
       enemy.moveSpeedMultiplier = 1;
     }
-    if (enemy.dashCooldownRemainingMs > TIME_EPSILON_MS) return;
-
     enemy.dashCooldownRemainingMs = 0;
-    if (enemy.kind !== 'offLeashGuardian') return;
-    enemy.pathProgress = Math.min(
-      enemy.attackProgress,
-      enemy.pathProgress + OFF_LEASH_DASH_DISTANCE * enemy.moveSpeedMultiplier,
-    );
-    enemy.dashCooldownRemainingMs = OFF_LEASH_DASH_INTERVAL_MS;
   }
 
   private estimateEtaMs(enemy: MutableEnemy): number {
@@ -369,16 +352,13 @@ export class EnemySystem {
       this.resolveMovementBoundaries(estimate);
       if (this.settleAtAttackProgress(estimate)) break;
       const remainingDistance = estimate.attackProgress - estimate.pathProgress;
-      const speedPerMs = estimate.speed * estimate.moveSpeedMultiplier / 1000;
+      const speedPerMs = movementSpeed(estimate) * estimate.moveSpeedMultiplier / 1000;
       if (speedPerMs <= 0) return Number.POSITIVE_INFINITY;
       const untilArrivalMs = remainingDistance / speedPerMs;
       const untilSlowBoundaryMs = estimate.slowRemainingMs > 0
         ? estimate.slowRemainingMs
         : Number.POSITIVE_INFINITY;
-      const untilDashBoundaryMs = estimate.kind === 'offLeashGuardian'
-        ? estimate.dashCooldownRemainingMs
-        : Number.POSITIVE_INFINITY;
-      const sliceMs = Math.min(untilArrivalMs, untilSlowBoundaryMs, untilDashBoundaryMs);
+      const sliceMs = Math.min(untilArrivalMs, untilSlowBoundaryMs);
       this.advanceMoving(estimate, sliceMs);
       elapsedMs += sliceMs;
     }
@@ -438,4 +418,10 @@ function isBoss(kind: EnemyKind): boolean {
 
 function minimumProgress(kind: EnemyKind): number {
   return kind === 'dogTrader' ? DOG_TRADER_ENTRY_PROGRESS : 0;
+}
+
+function movementSpeed(enemy: Pick<MovementState, 'kind' | 'speed'>): number {
+  return enemy.speed + (enemy.kind === 'offLeashGuardian'
+    ? OFF_LEASH_CONTINUOUS_BONUS_SPEED
+    : 0);
 }

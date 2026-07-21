@@ -32,8 +32,6 @@ export const BARK_WAVE_DURATION_MS = 180;
 export const BARK_WAVE_CONE_DEGREES = BARK_CONE_DEGREES;
 export const AQUA_BEAM_DURATION_MS = 600;
 export const SAFETY_REPORT_DURATION_MS = 300;
-export const TAIL_EFFECT_DURATION_MS = 500;
-export const TAIL_EFFECT_VISUAL_SCALE = 2.5;
 
 const BARK_WAVE_START_RADIUS = 26;
 const BARK_WAVE_END_RADIUS = BARK_RANGE_LOGICAL;
@@ -72,8 +70,6 @@ class MutableEffectWorkloadCounters implements EffectWorkloadCounters {
 export type CombatEffectType =
   | 'projectileImpact'
   | 'bark'
-  | 'tailArc'
-  | 'tailDust'
   | 'aquaBeam'
   | 'aquaSplash'
   | 'safetyNotice'
@@ -121,7 +117,6 @@ export type EffectPayload =
     readonly position: Point;
   }
   | { readonly type: 'bark'; readonly origin: Point; readonly target: Point }
-  | { readonly type: 'tailArc' | 'tailDust'; readonly castId: string; readonly position: Point }
   | {
     readonly type: 'aquaBeam';
     readonly castId: string;
@@ -214,33 +209,6 @@ export class CombatEffectPool {
   showBarkWave(origin: Point, target: Point): boolean {
     barkWaveVisualAt(0, origin, target);
     return this.activate({ type: 'bark', origin: copyPoint(origin), target: copyPoint(target) });
-  }
-
-  showTailImpact(castId: string, position: Point): number {
-    assertCastId(castId);
-    assertPoint(position, 'Tail impact position');
-    if (this.pool.snapshot().available < 2) {
-      this.workload.rejected += 2;
-      return 0;
-    }
-    const arc = this.activateActor({ type: 'tailArc', castId, position: copyPoint(position) });
-    if (arc === undefined) return 0;
-    try {
-      const dust = this.activateActor({ type: 'tailDust', castId, position: copyPoint(position) });
-      if (dust !== undefined) return 2;
-      this.release(arc);
-      return 0;
-    } catch (activationError) {
-      try {
-        this.release(arc);
-      } catch (rollbackError) {
-        throw new AggregateError(
-          [activationError, rollbackError],
-          'Tail effect activation and rollback both failed',
-        );
-      }
-      throw activationError;
-    }
   }
 
   startAquaBeam(castId: string, origin: Point, target: SkillTargetSnapshot): boolean {
@@ -834,8 +802,6 @@ class CombatEffectActor {
     switch (this.requirePayload().type) {
       case 'projectileImpact': return IMPACT_FADE_MS;
       case 'bark': return BARK_WAVE_DURATION_MS;
-      case 'tailArc':
-      case 'tailDust': return TAIL_EFFECT_DURATION_MS;
       case 'aquaBeam': return AQUA_BEAM_DURATION_MS;
       case 'aquaSplash': return AQUA_SPLASH_DURATION_MS;
       case 'safetyNotice': return SAFETY_REPORT_DURATION_MS + SAFETY_IMPACT_GRACE_MS;
@@ -870,8 +836,6 @@ class CombatEffectActor {
     graphics.clear();
     switch (payload.type) {
       case 'bark': this.renderBark(payload); break;
-      case 'tailArc': this.renderTailArc(payload.position); break;
-      case 'tailDust': this.renderTailDust(payload.position); break;
       case 'aquaBeam': this.renderAquaBeam(payload); break;
       case 'aquaSplash': this.renderAquaSplash(payload.position); break;
       case 'doorPush': this.renderDoorPush(payload.origin, payload.target); break;
@@ -906,23 +870,6 @@ class CombatEffectActor {
       .setPosition(payload.origin.x, payload.origin.y)
       .setRotation(visual.rotation)
       .setAlpha(visual.alpha);
-  }
-
-  private renderTailArc(position: Point): void {
-    const progress = this.elapsedMs / TAIL_EFFECT_DURATION_MS;
-    this.graphics.lineStyle(7, 0xffd66e, 1 - progress).strokeCircle(0, 0, 42 + progress * 18)
-      .setPosition(position.x, position.y)
-      .setScale(TAIL_EFFECT_VISUAL_SCALE);
-  }
-
-  private renderTailDust(position: Point): void {
-    const progress = this.elapsedMs / TAIL_EFFECT_DURATION_MS;
-    this.graphics.fillStyle(0xd2b178, 0.75 * (1 - progress));
-    for (let index = 0; index < 6; index += 1) {
-      const angle = index * Math.PI / 3;
-      this.graphics.fillCircle(Math.cos(angle) * 35, Math.sin(angle) * 14, 4);
-    }
-    this.graphics.setPosition(position.x, position.y).setScale(TAIL_EFFECT_VISUAL_SCALE);
   }
 
   private renderAquaBeam(payload: Extract<EffectPayload, { type: 'aquaBeam' }>): void {
@@ -1099,8 +1046,6 @@ function copyPayload(payload: EffectPayload): EffectPayload {
   switch (payload.type) {
     case 'projectileImpact': return { ...payload, position: copyPoint(payload.position) };
     case 'bark': return { ...payload, origin: copyPoint(payload.origin), target: copyPoint(payload.target) };
-    case 'tailArc':
-    case 'tailDust':
     case 'breederWarning':
     case 'electricWave': return { ...payload, position: copyPoint(payload.position) };
     case 'aquaBeam': return {

@@ -21,6 +21,9 @@ const TAIL_ENTRY = animationEntry(AssetKeys.huchuTailSwipe);
 const BASE_SCALE = HUCHU_PRESENTATION.dogOpaqueHeightLogical / WALK_ENTRY.opaqueHeightPx;
 const HUCHU_MOUTH_OFFSET_X = 32;
 const HUCHU_MOUTH_OFFSET_Y = -45;
+export const TAIL_SWIPE_LAST_FRAME_HOLD_MS = 800;
+export const TAIL_SWIPE_BODY_DURATION_MS =
+  (TAIL_ENTRY.frameCount - 1) * 1000 / TAIL_ENTRY.fps + TAIL_SWIPE_LAST_FRAME_HOLD_MS;
 export const BARK_WAVE_POOL_CAPACITY = BALANCE.caps.particles;
 export { BARK_WAVE_CONE_DEGREES, BARK_WAVE_DURATION_MS, barkWaveVisualAt };
 export type { BarkWaveVisual };

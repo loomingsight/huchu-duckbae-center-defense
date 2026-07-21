@@ -408,58 +408,6 @@ it('releaseType safetyNotice는 실패해도 모든 제거 대상 cast clock을 
   expect(effects.showSafetyImpact('safety:also-released', [])).toBe(0);
 });
 
-it('H6 tail composite는 두 번째 lazy Graphics 실패 시 첫 arc까지 반환해 partial effect를 남기지 않는다', () => {
-  const fake = createEffectScene();
-  const effects = new CombatEffectPool(fake.scene as never);
-  const initial = effects.snapshot();
-  fake.failGraphicsDepthOn(2);
-
-  expect(() => effects.showTailImpact('tail:atomic', { x: 20, y: 30 }))
-    .toThrow('fake Graphics setDepth failed');
-
-  expect(effects.effectSnapshots()).toEqual([]);
-  expect(effects.snapshot()).toEqual(initial);
-  expect(fake.graphics).toHaveLength(2);
-  expect(fake.graphics[1]!.calls.get('destroy')).toEqual([[]]);
-  expect(effects.workloadCounters()).toMatchObject({
-    impactActive: 0,
-    renderEligibleBobs: 0,
-    graphicsAllocated: 1,
-    graphicsVisible: 0,
-    activations: 1,
-    releases: 1,
-    rejected: 1,
-  });
-
-  expect(effects.showTailImpact('tail:atomic:retry', { x: 20, y: 30 })).toBe(2);
-  expect(effects.effectSnapshots().map(({ type }) => type)).toEqual(['tailArc', 'tailDust']);
-});
-
-it('tail dust activation과 arc rollback이 모두 실패하면 root-first AggregateError를 보존한다', () => {
-  const activationError = new Error('fake tail dust activation failed');
-  const rollbackError = new Error('fake tail arc rollback failed');
-  const fake = createEffectScene({
-    beforeGraphicsCreation: (creationNumber, existing) => {
-      if (creationNumber === 2) existing[0]!.failNext('setPosition', 1, [rollbackError]);
-    },
-  });
-  const effects = new CombatEffectPool(fake.scene as never);
-  const initial = effects.snapshot();
-  fake.failGraphicsOn(2, 'setDepth', 1, [activationError]);
-
-  let thrown: unknown;
-  try {
-    effects.showTailImpact('tail:double-failure', { x: 20, y: 30 });
-  } catch (error) {
-    thrown = error;
-  }
-
-  expect(thrown).toBeInstanceOf(AggregateError);
-  expect((thrown as AggregateError).errors).toEqual([activationError, rollbackError]);
-  expect(effects.effectSnapshots()).toEqual([]);
-  expect(effects.snapshot()).toEqual(initial);
-});
-
 it('H6 safety batch는 두 번째 shared Bob 실패 시 앞선 notice와 cast clock까지 rollback한다', () => {
   const fake = createEffectScene();
   const effects = new CombatEffectPool(fake.scene as never);
@@ -656,28 +604,25 @@ it('H6 mixed 119 impact + 1 bark reset은 logical actor와 Bob identity를 그�
   expect(fake.graphics).toHaveLength(1);
 });
 
-it('projectile/bark/tail/aqua/safety가 created 120인 한 shared pool만 사용한다', () => {
+it('projectile/bark/aqua/safety가 created 120인 한 shared pool만 사용한다', () => {
   const fake = createEffectScene();
   const effects = new CombatEffectPool(fake.scene as never);
 
   expect(effects.showProjectileImpact(7, 'poop', { x: 270, y: 518 })).toBe(true);
   expect(effects.showBarkWave({ x: 10, y: 20 }, { x: 100, y: 20 })).toBe(true);
-  expect(effects.showTailImpact('tail:1', { x: 10, y: 20 })).toBe(2);
   expect(effects.startAquaBeam('aqua:1', { x: 10, y: 20 }, { targetId: 2, position: { x: 200, y: 20 } })).toBe(true);
   expect(effects.startSafetyReport('safety:1', { x: 270, y: 650 }, [
     { targetId: 4, position: { x: 270, y: 500 } },
   ])).toBe(1);
 
-  expect(effects.snapshot()).toMatchObject({ created: 120, active: 6, available: 114 });
+  expect(effects.snapshot()).toMatchObject({ created: 120, active: 4, available: 116 });
   expect(new Set(effects.effectSnapshots().map(({ type }) => type))).toEqual(new Set([
     'projectileImpact',
     'bark',
-    'tailArc',
-    'tailDust',
     'aquaBeam',
     'safetyNotice',
   ]));
-  expect(fake.graphics).toHaveLength(4);
+  expect(fake.graphics).toHaveLength(2);
   expect(fake.sprites).toEqual([]);
   expect(fake.blitters).toHaveLength(1);
   expect(fake.bobs).toHaveLength(120);
@@ -711,22 +656,6 @@ it('전역 cap 이후 effect는 allocation/crash 없이 drop하고 reset 뒤 같
   ]);
   expect(fake.graphics).toHaveLength(graphicsCreated);
   expect(fake.sprites).toHaveLength(spritesCreated);
-});
-
-it('tail atomic capacity preflight는 요청한 두 actor를 rejected로 센다', () => {
-  const effects = new CombatEffectPool(createEffectScene().scene as never);
-  for (let index = 0; index < 119; index += 1) {
-    expect(effects.showProjectileImpact(index, 'poop', { x: -1, y: -1 })).toBe(true);
-  }
-
-  expect(effects.showTailImpact('tail:capacity', { x: 20, y: 30 })).toBe(0);
-
-  expect(effects.snapshot()).toMatchObject({ active: 119, available: 1 });
-  expect(effects.workloadCounters()).toMatchObject({
-    activations: 119,
-    impactActive: 119,
-    rejected: 2,
-  });
 });
 
 it('Task 9 impact snapshot/frame과 split fixed-step age를 유지하고 120ms에 반환한다', () => {
@@ -1076,27 +1005,8 @@ it('releaseType은 다른 effect identity/age를 건드리지 않는다', () => 
   expect(effects.effectSnapshots()).toEqual([barkBefore]);
 });
 
-it('bark wave는 정확히 120도이고 tail impact는 arc+dust를 함께 만든다', () => {
-  const effects = new CombatEffectPool(createEffectScene().scene as never);
+it('bark wave는 정확히 120도이다', () => {
   expect(BARK_WAVE_CONE_DEGREES).toBe(120);
-  expect(effects.showTailImpact('tail:1', { x: 20, y: 30 })).toBe(2);
-  expect(effects.effectSnapshots().map(({ type }) => type)).toEqual(['tailArc', 'tailDust']);
-});
-
-it('tail arc와 dust는 2.5배 크기로 0.5배속인 500ms 동안 표시된다', () => {
-  const fake = createEffectScene();
-  const effects = new CombatEffectPool(fake.scene as never);
-
-  expect(effects.showTailImpact('tail:visibility', { x: 20, y: 30 })).toBe(2);
-  expect(fake.graphics).toHaveLength(2);
-  expect(fake.graphics[0]!.calls.get('setScale')?.at(-1)).toEqual([2.5]);
-  expect(fake.graphics[1]!.calls.get('setScale')?.at(-1)).toEqual([2.5]);
-
-  effects.step(499.999);
-  expect(effects.effectSnapshots().map(({ type }) => type)).toEqual(['tailArc', 'tailDust']);
-
-  effects.step(0.001);
-  expect(effects.effectSnapshots()).toEqual([]);
 });
 
 it('aqua는 600ms 동안 한 번만 retarget하고 impact에서 splash한다', () => {

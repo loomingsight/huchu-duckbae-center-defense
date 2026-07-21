@@ -41,7 +41,10 @@ import {
 } from '../player/MovementIntentPort';
 import { PlayerController } from '../player/PlayerController';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
-import { PlayerView } from '../player/PlayerView';
+import {
+  PlayerView,
+  TAIL_SWIPE_BODY_DURATION_MS,
+} from '../player/PlayerView';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import {
   PresentationTelemetry,
@@ -71,7 +74,6 @@ const DEFAULT_RUN_SEED = 424242;
 const MAX_CATCH_UP_STEPS = 5;
 const BARK_CADENCE_MS = 800;
 const DEFAULT_PLAYER_FACING = { x: 0, y: -1 } as const;
-const TAIL_BODY_DURATION_MS = 500;
 const AQUA_BODY_DURATION_MS = 600;
 const SNACK_DOCK_TARGET = { x: 34, y: 900 } as const;
 
@@ -498,8 +500,6 @@ export class GameScene extends Phaser.Scene {
       barkEffectAgesMs: this.playerView.effectAgesSnapshot(),
       projectileEffectAgesMs: this.projectileActors?.impactAgesSnapshot() ?? [],
       skillEffectAgesMs: [
-        ...this.combatEffects.effectAges('tailArc'),
-        ...this.combatEffects.effectAges('tailDust'),
         ...this.combatEffects.effectAges('aquaBeam'),
         ...this.combatEffects.effectAges('aquaSplash'),
         ...this.combatEffects.effectAges('safetyNotice'),
@@ -653,11 +653,9 @@ export class GameScene extends Phaser.Scene {
         });
       }
       if (event.type === 'skillImpact') {
-        if (event.skillId === 'tailSwipe') {
-          this.combatEffects.showTailImpact(event.castId, event.origin);
-        } else if (event.skillId === 'aquaBeam') {
+        if (event.skillId === 'aquaBeam') {
           this.combatEffects.showAquaImpact(event.castId, event.targets);
-        } else {
+        } else if (event.skillId === 'safetyReport') {
           this.combatEffects.showSafetyImpact(event.castId, event.targets);
         }
       }
@@ -833,14 +831,16 @@ export class GameScene extends Phaser.Scene {
       kind: selected,
       castId: started.castId,
       elapsedMs: 0,
-      durationMs: selected === 'tailSwipe' ? TAIL_BODY_DURATION_MS : AQUA_BODY_DURATION_MS,
+      durationMs: selected === 'tailSwipe'
+        ? TAIL_SWIPE_BODY_DURATION_MS
+        : AQUA_BODY_DURATION_MS,
     };
   }
 
   private stepPlayerBodyAction(stepMs: number): void {
     if (this.playerBodyAction === undefined) return;
     const next = this.playerBodyAction.elapsedMs + stepMs;
-    if (next > this.playerBodyAction.durationMs) {
+    if (next + TIME_EPSILON_MS >= this.playerBodyAction.durationMs) {
       this.playerBodyAction = undefined;
       return;
     }
