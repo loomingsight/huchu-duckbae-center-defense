@@ -98,6 +98,25 @@ describe('SkillSystem timeline', () => {
     }))).toEqual(['tailSwipe']);
   });
 
+  it('문맥 검증만 필요한 step은 표적 순위 비교를 수행하지 않는다', () => {
+    let hpReads = 0;
+    const enemies = [enemy({ id: 1 }), enemy({ id: 2 })].map((candidate) => {
+      Object.defineProperty(candidate, 'currentHp', {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+          hpReads += 1;
+          return 100;
+        },
+      });
+      return candidate;
+    });
+
+    new SkillSystem().step(0, { player: { x: 0, y: 0 }, enemies });
+
+    expect(hpReads).toBe(2);
+  });
+
   it('cooldown은 성공한 cast 시작 시점부터 다시 계산하고 active cast를 snapshot한다', () => {
     const system = learnedSkillSystem('tailSwipe');
     const context = {
@@ -142,6 +161,32 @@ describe('SkillSystem timeline', () => {
       targets: [{ targetId: 4, position: { x: 5, y: 0 } }],
       durationMs: 600,
     });
+  });
+
+  it('aqua 문맥 검증과 표적 선택은 scheduler 외 전체 정렬을 추가하지 않는다', () => {
+    const system = learnedSkillSystem('aquaBeam');
+    const sort = vi.spyOn(Array.prototype, 'sort');
+    let events: ReturnType<SkillSystem['step']>;
+    let sortCalls: number;
+
+    try {
+      events = system.step(10_000, {
+        player: { x: 0, y: 0 },
+        enemies: [
+          enemy({ id: 2, currentHp: 100, position: { x: 1, y: 0 } }),
+          enemy({ id: 1, currentHp: 200, position: { x: 2, y: 0 } }),
+        ],
+      });
+      sortCalls = sort.mock.calls.length;
+    } finally {
+      sort.mockRestore();
+    }
+
+    expect(events.at(0)).toMatchObject({
+      type: 'skillCastStarted',
+      targets: [{ targetId: 1 }],
+    });
+    expect(sortCalls).toBe(2);
   });
 
   it('aqua는 600ms 동안 한 번만 retarget하고 남은 charge를 보존한다', () => {

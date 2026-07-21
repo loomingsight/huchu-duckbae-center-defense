@@ -34,12 +34,23 @@ function createSharedScene(): {
     });
     return object;
   };
+  const createBlitter = (): object => {
+    const object = new Proxy({}, {
+      get: (_target, property) => {
+        if (property === 'create') return (..._args: unknown[]) => create();
+        return (..._args: unknown[]) => object;
+      },
+    });
+    return object;
+  };
   return {
     scene: {
       add: {
         graphics: create,
+        image: create,
         sprite: create,
         container: create,
+        blitter: createBlitter,
       },
     },
   };

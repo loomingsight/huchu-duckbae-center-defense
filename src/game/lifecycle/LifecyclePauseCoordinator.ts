@@ -1,11 +1,17 @@
 import type { GameMode } from '../core/GameMode';
-import type { VisibilitySessionPort } from './VisibilityController';
+
+export interface LifecyclePauseSessionPort {
+  currentMode(): GameMode;
+  requestVisibilityPause(): void;
+  requestVisibilityResume(): void;
+}
 
 export type LifecyclePauseReason = 'visibility' | 'webgl';
 
 export interface LifecyclePauseRuntimePort {
   setWorldPaused(paused: boolean): void;
   setCanvasInputEnabled?(enabled: boolean): void;
+  setAudioLifecyclePaused?(paused: boolean): void;
 }
 
 export class LifecyclePauseCoordinator {
@@ -13,7 +19,7 @@ export class LifecyclePauseCoordinator {
   private returnMode: GameMode | null = null;
 
   constructor(
-    private readonly session: VisibilitySessionPort,
+    private readonly session: LifecyclePauseSessionPort,
     private readonly runtime: LifecyclePauseRuntimePort,
   ) {}
 
@@ -31,6 +37,7 @@ export class LifecyclePauseCoordinator {
       const mode = this.session.currentMode();
       if (mode === 'visibilityPause' || mode === 'won' || mode === 'lost') return false;
       this.returnMode = mode;
+      this.runtime.setAudioLifecyclePaused?.(true);
       this.runtime.setCanvasInputEnabled?.(false);
       this.runtime.setWorldPaused(true);
       this.session.requestVisibilityPause();
@@ -53,6 +60,7 @@ export class LifecyclePauseCoordinator {
     }
     this.runtime.setWorldPaused(expectedMode !== 'playing');
     this.runtime.setCanvasInputEnabled?.(true);
+    this.runtime.setAudioLifecyclePaused?.(false);
     return true;
   }
 

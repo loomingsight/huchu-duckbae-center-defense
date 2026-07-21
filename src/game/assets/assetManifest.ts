@@ -1,4 +1,14 @@
 import { AssetKeys } from './AssetKeys';
+import { animationEntries, isSourceAnimationEntry } from './AnimationManifest';
+
+export const SHELTER_V2 = {
+  source: 'assets/source/generated/v2/shelter-states.png',
+  url: '/assets/shelter/shelter-states.png',
+  frameCount: 4,
+  frameWidth: 256,
+  frameHeight: 256,
+  opaqueHeightPx: 204,
+} as const;
 
 export const imageAssets = [
   { key: AssetKeys.map, url: '/assets/map/map-background.webp' },
@@ -7,45 +17,9 @@ export const imageAssets = [
 export const spriteSheetAssets = [
   {
     key: AssetKeys.shelter,
-    url: '/assets/shelter/shelter-states.png',
-    frameWidth: 256,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.huchu,
-    url: '/assets/characters/huchu.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.deokbae,
-    url: '/assets/characters/deokbae.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.poopMale,
-    url: '/assets/characters/enemy-poop-male.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.poopFemale,
-    url: '/assets/characters/enemy-poop-female.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.offLeashMale,
-    url: '/assets/characters/enemy-offleash-male.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.offLeashFemale,
-    url: '/assets/characters/enemy-offleash-female.png',
-    frameWidth: 192,
-    frameHeight: 256,
+    url: SHELTER_V2.url,
+    frameWidth: SHELTER_V2.frameWidth,
+    frameHeight: SHELTER_V2.frameHeight,
   },
   {
     key: AssetKeys.trader,
@@ -53,23 +27,16 @@ export const spriteSheetAssets = [
     frameWidth: 192,
     frameHeight: 256,
   },
-  {
-    key: AssetKeys.breederMale,
-    url: '/assets/characters/enemy-breeder-male.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
-  {
-    key: AssetKeys.breederFemale,
-    url: '/assets/characters/enemy-breeder-female.png',
-    frameWidth: 192,
-    frameHeight: 256,
-  },
 ] as const;
+
+export const animationSpriteSheetAssets = animationEntries
+  .filter(isSourceAnimationEntry)
+  .map(({ key, url, frameWidth, frameHeight }) => ({ key, url, frameWidth, frameHeight }));
 
 export const requiredTextureKeys = [
   ...imageAssets.map(({ key }) => key),
   ...spriteSheetAssets.map(({ key }) => key),
+  ...animationSpriteSheetAssets.map(({ key }) => key),
 ] as const;
 
 export function requiredAssetFailureCount(

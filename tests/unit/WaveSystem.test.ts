@@ -130,7 +130,7 @@ describe('WaveSystem', () => {
 
     failedThenRetried.start(3);
     clean.start(3);
-    expect(failedThenRetried.step(60_000, 0)).toEqual(clean.step(60_000, 0));
+    expect(failedThenRetried.step(120_000, 0)).toEqual(clean.step(120_000, 0));
     expect(calls).toBe(21);
   });
 
@@ -161,8 +161,8 @@ describe('WaveSystem', () => {
     failedThenRetried.start(5);
     clean.start(5);
 
-    const retried = failedThenRetried.step(60_000, 0);
-    const baseline = clean.step(60_000, 0);
+    const retried = failedThenRetried.step(120_000, 0);
+    const baseline = clean.step(120_000, 0);
     expect(retried).toEqual(baseline);
     expect(retried.find(({ kind }) => kind === 'illegalBreeder')).toMatchObject({
       variant: 'female',
@@ -189,11 +189,11 @@ describe('WaveSystem', () => {
 
   it('다섯 wave의 시간과 계열 총계를 exact하게 보존한다', () => {
     expect(summarize(WAVE_DEFINITIONS)).toEqual([
-      { poopGuardian: 10, offLeashGuardian: 0, dogTrader: 0, illegalBreeder: 0, times: [0, 7, 14, 21, 28] },
-      { poopGuardian: 6, offLeashGuardian: 8, dogTrader: 0, illegalBreeder: 0, times: [0, 7, 14, 21, 28, 35, 42] },
-      { poopGuardian: 8, offLeashGuardian: 10, dogTrader: 0, illegalBreeder: 0, times: [0, 8, 16, 24, 32, 40] },
-      { poopGuardian: 4, offLeashGuardian: 6, dogTrader: 1, illegalBreeder: 0, times: [0, 12, 24, 32] },
-      { poopGuardian: 6, offLeashGuardian: 8, dogTrader: 0, illegalBreeder: 1, times: [0, 12, 24, 32, 42] },
+      { poopGuardian: 10, offLeashGuardian: 0, dogTrader: 0, illegalBreeder: 0, times: [0, 5, 10, 15, 20] },
+      { poopGuardian: 6, offLeashGuardian: 8, dogTrader: 0, illegalBreeder: 0, times: [0, 4.5, 9, 13.5, 18, 22.5, 28] },
+      { poopGuardian: 8, offLeashGuardian: 10, dogTrader: 0, illegalBreeder: 0, times: [0, 6.5, 13, 19.5, 26, 32.5] },
+      { poopGuardian: 4, offLeashGuardian: 6, dogTrader: 1, illegalBreeder: 0, times: [0, 10, 20, 34] },
+      { poopGuardian: 6, offLeashGuardian: 8, dogTrader: 0, illegalBreeder: 1, times: [0, 10, 20, 40, 55] },
     ]);
     expect(WAVE_DEFINITIONS.map(({ pathIds }) => pathIds)).toEqual([
       ['P1', 'P2'],
@@ -213,7 +213,7 @@ describe('WaveSystem', () => {
     for (const definition of WAVE_DEFINITIONS) {
       const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(77));
       system.start(definition.wave);
-      const requests = system.step(60_000, 0);
+      const requests = system.step(120_000, 0);
 
       expect([...new Set(requests.map(({ atMs }) => atMs))]).toEqual(
         definition.groups.map(([atSeconds]) => atSeconds * 1000),
@@ -233,7 +233,7 @@ describe('WaveSystem', () => {
       const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(20260720));
       return WAVE_DEFINITIONS.flatMap(({ wave }) => {
         system.start(wave);
-        return system.step(60_000, 0);
+        return system.step(120_000, 0);
       });
     };
 
@@ -244,7 +244,7 @@ describe('WaveSystem', () => {
     const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(11));
     const requests = WAVE_DEFINITIONS.flatMap(({ wave }) => {
       system.start(wave);
-      return system.step(60_000, 0);
+      return system.step(120_000, 0);
     });
 
     for (const kind of ['poopGuardian', 'offLeashGuardian'] as const) {

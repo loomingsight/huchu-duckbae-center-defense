@@ -531,22 +531,24 @@ Files 목록의 기존 E2E는 모두 V2 bridge shape로 이관한다. `skill-sel
 import type { PurchasableSkillId } from '../../src/game/types/GameTypes';
 
 export interface FullRunResult {
-  readonly outcome:'won'; readonly durationMs:number; readonly simulationMs:number;
+  readonly seed:number; readonly outcome:'won'; readonly durationMs:number; readonly simulationMs:number;
   readonly shelterMaxHp:1000; readonly finalShelterHp:number; readonly spawnCount:number;
   readonly purchaseCount:number; readonly countdowns:readonly number[]; readonly bossKinds:readonly string[];
+  readonly waveDurationsMs:readonly number[];
 }
 export async function runFullGame(page:Page,input:{seed:number;policy:'threat-orbit-v2'}):Promise<FullRunResult>{
   await openScenario(page,'full-run',input.seed);
   return page.evaluate(async ({seed})=>{
     const bridge=window.__HUCHU_TEST__!; const FIXED=1000/60, BATCH_STEPS=30, BATCH_MS=FIXED*BATCH_STEPS, LIMIT_MS=540_000;
     const order:PurchasableSkillId[]=['tailSwipe','aquaBeam','safetyReport'];
-    let sequence=0,spawnCount=0,purchaseCount=0,elapsedMs=0; const countdowns:number[]=[]; const bossKinds=new Set<string>();
+    let sequence=0,spawnCount=0,purchaseCount=0,elapsedMs=0,waveStartedAtMs:number|null=null;
+    const countdowns:number[]=[],waveDurationsMs:number[]=[]; const bossKinds=new Set<string>();
     const normalize=(x:number,y:number)=>{const length=Math.hypot(x,y);return length<1e-9?{x:0,y:0}:{x:x/length,y:y/length};};
     while(elapsedMs<LIMIT_MS){
       const snapshot=bridge.snapshot(), run=snapshot.run;
       if(run.mode==='won'||run.mode==='lost'){
-        if(run.mode!=='won')throw new Error(`threat-orbit-v2 lost at ${run.simulationMs}`);
-        return {outcome:'won' as const,durationMs:elapsedMs,simulationMs:run.simulationMs,shelterMaxHp:run.shelterMaxHp,finalShelterHp:run.shelterHp,spawnCount,purchaseCount,countdowns,bossKinds:[...bossKinds]};
+        if(run.mode!=='won')throw new Error(`threat-orbit-v2 seed ${seed} lost at ${run.simulationMs}`);
+        return {seed,outcome:'won' as const,durationMs:elapsedMs,simulationMs:run.simulationMs,shelterMaxHp:run.shelterMaxHp,finalShelterHp:run.shelterHp,spawnCount,purchaseCount,countdowns,bossKinds:[...bossKinds],waveDurationsMs};
       }
       const next=order.find(id=>!run.learnedSkills[id]);
       if(run.mode==='playing'&&next&&run.nextSkillCost!==null&&run.snacks>=run.nextSkillCost)await bridge.purchaseSkill(next);
@@ -569,7 +571,13 @@ export async function runFullGame(page:Page,input:{seed:number;policy:'threat-or
         sequence=Math.max(sequence,event.sequence);
         if(event.type==='enemySpawned')spawnCount+=1;
         if(event.type==='skillPurchaseResolved'&&event.result.status==='learned')purchaseCount+=1;
-        if(event.type==='waveTransition')countdowns.push(event.countdownMs);
+        if(event.type==='waveStarted')waveStartedAtMs=event.atSimulationMs;
+        if(event.type==='waveTransition'){
+          waveDurationsMs.push(event.atSimulationMs-waveStartedAtMs!); waveStartedAtMs=null; countdowns.push(event.countdownMs);
+        }
+        if(event.type==='runEnded'&&event.outcome==='won'){
+          waveDurationsMs.push(event.atSimulationMs-waveStartedAtMs!); waveStartedAtMs=null;
+        }
       }
     }
     throw new Error('threat-orbit-v2 exceeded 540000 simulation ms');
@@ -579,6 +587,7 @@ export async function runFullGame(page:Page,input:{seed:number;policy:'threat-or
 
 ```ts
 const durations=[];
+const waveRanges=[[40_000,50_000],[55_000,65_000],[65_000,80_000],[80_000,100_000],[100_000,130_000]] as const;
 for(const seed of [104729,130363,155921]){
   const result=await runFullGame(page,{seed,policy:'threat-orbit-v2'});
   expect(result).toMatchObject({outcome:'won',shelterMaxHp:1000,spawnCount:68,purchaseCount:3,countdowns:[3000,3000,3000,3000]});
@@ -586,6 +595,10 @@ for(const seed of [104729,130363,155921]){
   expect(result.durationMs-result.simulationMs).toBeGreaterThanOrEqual(12_000);
   expect(result.durationMs-result.simulationMs).toBeLessThan(12_500);
   expect([...result.bossKinds].sort()).toEqual(['dogTrader','illegalBreeder']);
+  result.waveDurationsMs.forEach((duration,index)=>{
+    expect(duration).toBeGreaterThanOrEqual(waveRanges[index]![0]);
+    expect(duration).toBeLessThanOrEqual(waveRanges[index]![1]);
+  });
   durations.push(result.durationMs);
 }
 const median=[...durations].sort((a,b)=>a-b)[1]!;

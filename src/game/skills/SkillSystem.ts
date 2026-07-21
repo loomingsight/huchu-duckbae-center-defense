@@ -1,5 +1,8 @@
 import type { DamageCommand } from '../combat/CombatTypes';
-import { rankHighestHpTargets } from '../combat/TargetingSystem';
+import {
+  selectHighestHpTarget,
+  validateTargetingCandidates,
+} from '../combat/TargetingSystem';
 import { TIME_EPSILON_MS } from '../constants';
 import { BALANCE } from '../data/balance';
 import type { TailEffect } from '../enemies/EnemySystem';
@@ -191,7 +194,7 @@ export class SkillSystem {
       if (cast.skillId === 'aquaBeam') {
         const currentTarget = activeEnemyById(context.enemies, cast.targetId);
         if (currentTarget === undefined && !cast.retargeted) {
-          const replacement = rankHighestHpTargets(context.player, context.enemies).at(0)?.enemy;
+          const replacement = selectHighestHpTarget(context.player, context.enemies);
           if (replacement !== undefined) {
             const previousTargetId = cast.targetId;
             cast.targetId = replacement.id;
@@ -272,7 +275,7 @@ export class SkillSystem {
         startSequence,
       };
     } else if (skillId === 'aquaBeam') {
-      const target = rankHighestHpTargets(origin, context.enemies).at(0)?.enemy;
+      const target = selectHighestHpTarget(origin, context.enemies);
       if (target === undefined) return undefined;
       targets = [targetSnapshot(target)];
       pending = {
@@ -387,7 +390,7 @@ function targetSnapshot(enemy: EnemySnapshot): SkillTargetSnapshot {
 
 function validateContext(context: SkillContext): void {
   assertPoint(context.player, 'Skill player');
-  rankHighestHpTargets(context.player, context.enemies);
+  validateTargetingCandidates(context.player, context.enemies);
 }
 
 function priorityOf(skillId: PurchasableSkillId): number {

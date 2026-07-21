@@ -1,4 +1,7 @@
 import './styles.css';
+import Phaser from 'phaser';
+import { GAME_AUDIO_REGISTRY_KEY } from './game/audio/AudioRegistry';
+import type { AudioSystem } from './game/audio/AudioSystem';
 import { createGame } from './game/createGame';
 
 void bootstrap();
@@ -18,7 +21,23 @@ async function bootstrap(): Promise<void> {
     renderUnsupportedMessage();
     return;
   }
-  createGame(gameScene);
+  const game = createGame(gameScene);
+  bindAudioTeardown(game);
+}
+
+function bindAudioTeardown(game: Phaser.Game): void {
+  let handled = false;
+  game.events.once(Phaser.Core.Events.DESTROY, () => {
+    if (handled) return;
+    handled = true;
+    const audio = game.registry.get(GAME_AUDIO_REGISTRY_KEY) as AudioSystem | undefined;
+    if (audio === undefined) return;
+    try {
+      void audio.destroy().catch(() => undefined);
+    } catch {
+      // Teardown remains best effort when the host is already partially destroyed.
+    }
+  });
 }
 
 function probeWebgl(): boolean {

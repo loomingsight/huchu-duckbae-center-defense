@@ -20,7 +20,7 @@ export function shelterVisualState(hp: number, maxHp: number): ShelterVisualStat
 export class ShelterSystem {
   private hp: number;
 
-  constructor(private readonly maxHp = 100, initialHp = maxHp) {
+  constructor(private readonly maxHp = 1000, initialHp = maxHp) {
     if (
       !Number.isFinite(maxHp)
       || !Number.isFinite(initialHp)

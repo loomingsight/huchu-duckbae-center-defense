@@ -266,7 +266,7 @@ describe('GameSession V2 fixed-step integration', () => {
     const run = Harness.createHarness(17);
     const events: GameEvent[] = [];
 
-    for (let tick = 0; tick < 1800 && run.currentMode() === 'playing'; tick += 1) {
+    for (let tick = 0; tick < 3000 && run.currentMode() === 'playing'; tick += 1) {
       events.push(...run.step(FIXED_STEP_MS, PLAYER));
       run.prepareActiveEnemiesForClear();
     }

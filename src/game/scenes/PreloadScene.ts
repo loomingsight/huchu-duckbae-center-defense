@@ -1,10 +1,14 @@
 import Phaser from 'phaser';
 import {
+  animationSpriteSheetAssets,
   imageAssets,
   requiredAssetFailureCount,
   requiredTextureKeys,
   spriteSheetAssets,
 } from '../assets/assetManifest';
+import { ensureCombatShapeAtlas } from '../assets/CombatShapeAtlas';
+import { ensureDamageNumberBitmapFonts } from '../assets/DamageNumberBitmapFont';
+import { ensureEnemyLabelAtlas } from '../assets/EnemyLabelAtlas';
 import { RuntimeErrorOverlay } from '../ui/RuntimeErrorOverlay';
 
 export class PreloadScene extends Phaser.Scene {
@@ -30,6 +34,11 @@ export class PreloadScene extends Phaser.Scene {
         this.load.spritesheet(key, url, { frameWidth, frameHeight });
       }
     });
+    animationSpriteSheetAssets.forEach(({ key, url, frameWidth, frameHeight }) => {
+      if (!this.textures.exists(key)) {
+        this.load.spritesheet(key, url, { frameWidth, frameHeight });
+      }
+    });
   }
 
   create(): void {
@@ -40,6 +49,9 @@ export class PreloadScene extends Phaser.Scene {
       this.failedFiles,
     );
     if (failedFiles === 0) {
+      ensureCombatShapeAtlas(this);
+      ensureEnemyLabelAtlas(this);
+      ensureDamageNumberBitmapFonts(this);
       this.scene.start('Title');
       return;
     }

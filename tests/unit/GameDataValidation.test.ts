@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BALANCE } from '../../src/game/data/balance';
 import { PATH_DEFINITIONS } from '../../src/game/data/pathDefinitions';
 import { validateGameData } from '../../src/game/data/validateGameData';
@@ -12,6 +12,8 @@ vi.mock('phaser', () => ({
     Scenes: { Events: { SHUTDOWN: 'shutdown' } },
   },
 }));
+
+afterEach(() => vi.unstubAllGlobals());
 
 type TestGroup = [number, number, number, ('dogTrader' | 'illegalBreeder')?];
 type TestWaveDefinition = {
@@ -55,11 +57,11 @@ describe('고정 게임 데이터', () => {
 
   it('다섯 wave의 path set과 grouped schedule을 exact하게 고정한다', () => {
     expect(WAVE_DEFINITIONS).toEqual([
-      { wave: 1, pathIds: ['P1', 'P2'], groups: [[0, 2, 0], [7, 2, 0], [14, 2, 0], [21, 2, 0], [28, 2, 0]] },
-      { wave: 2, pathIds: ['P1', 'P2', 'P3', 'P4'], groups: [[0, 1, 1], [7, 1, 1], [14, 1, 1], [21, 1, 1], [28, 1, 1], [35, 1, 1], [42, 0, 2]] },
-      { wave: 3, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 1, 2], [8, 2, 1], [16, 1, 2], [24, 1, 2], [32, 2, 1], [40, 1, 2]] },
-      { wave: 4, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 2, 2], [12, 1, 2], [24, 1, 2], [32, 0, 0, 'dogTrader']] },
-      { wave: 5, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 2, 2], [12, 1, 2], [24, 1, 2], [32, 0, 0, 'illegalBreeder'], [42, 2, 2]] },
+      { wave: 1, pathIds: ['P1', 'P2'], groups: [[0, 2, 0], [5, 2, 0], [10, 2, 0], [15, 2, 0], [20, 2, 0]] },
+      { wave: 2, pathIds: ['P1', 'P2', 'P3', 'P4'], groups: [[0, 1, 1], [4.5, 1, 1], [9, 1, 1], [13.5, 1, 1], [18, 1, 1], [22.5, 1, 1], [28, 0, 2]] },
+      { wave: 3, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 1, 2], [6.5, 2, 1], [13, 1, 2], [19.5, 1, 2], [26, 2, 1], [32.5, 1, 2]] },
+      { wave: 4, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 2, 2], [10, 1, 2], [20, 1, 2], [34, 0, 0, 'dogTrader']] },
+      { wave: 5, pathIds: ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'], groups: [[0, 2, 2], [10, 1, 2], [20, 1, 2], [40, 0, 0, 'illegalBreeder'], [55, 2, 2]] },
     ]);
   });
 });
@@ -199,25 +201,25 @@ describe('validateGameData', () => {
 
   it('exact 시간과 family count가 바뀐 정의를 거부한다', () => {
     const changedTime = cloneWaves();
-    changedTime[2]!.groups[1] = [9, 2, 1];
+    changedTime[2]!.groups[1] = [7, 2, 1];
     const changedCount = cloneWaves();
-    changedCount[4]!.groups[4] = [42, 1, 3];
+    changedCount[4]!.groups[4] = [55, 1, 3];
 
     expect(validateGameData({ paths: PATH_DEFINITIONS, waves: changedTime })).toContain(
-      'wave 3 group 1: expected 8,2,1',
+      'wave 3 group 1: expected 6.5,2,1',
     );
     expect(validateGameData({ paths: PATH_DEFINITIONS, waves: changedCount })).toContain(
-      'wave 5 group 4: expected 42,2,2',
+      'wave 5 group 4: expected 55,2,2',
     );
   });
 
-  it('dogTrader는 W4 t=32, illegalBreeder는 W5 t=32에만 하나씩 허용한다', () => {
+  it('dogTrader는 W4 t=34, illegalBreeder는 W5 t=40에만 하나씩 허용한다', () => {
     const wrongBoss = cloneWaves();
-    wrongBoss[3]!.groups[3] = [32, 0, 0, 'illegalBreeder'];
+    wrongBoss[3]!.groups[3] = [34, 0, 0, 'illegalBreeder'];
     const earlyBoss = cloneWaves();
     earlyBoss[0]!.groups[0] = [0, 1, 0, 'dogTrader'];
     const duplicateBoss = cloneWaves();
-    duplicateBoss[4]!.groups[4] = [42, 1, 2, 'illegalBreeder'];
+    duplicateBoss[4]!.groups[4] = [55, 1, 2, 'illegalBreeder'];
 
     expect(validateGameData({ paths: PATH_DEFINITIONS, waves: wrongBoss })).toEqual(
       expect.arrayContaining([
@@ -235,6 +237,33 @@ describe('validateGameData', () => {
 });
 
 describe('BootScene', () => {
+  it('window.localStorage getter SecurityError에도 audio를 설치하고 Preload를 시작한다', async () => {
+    const deniedWindow = {};
+    Object.defineProperty(deniedWindow, 'localStorage', {
+      get: () => { throw new DOMException('denied', 'SecurityError'); },
+    });
+    vi.stubGlobal('window', deniedWindow);
+    const { BootScene } = await import('../../src/game/scenes/BootScene');
+    const scene = new BootScene();
+    const values = new Map<string, unknown>();
+    const start = vi.fn();
+    Object.defineProperties(scene, {
+      game: { value: { renderer: { type: 2 } } },
+      registry: {
+        value: {
+          get: vi.fn((key: string) => values.get(key)),
+          set: vi.fn((key: string, value: unknown) => values.set(key, value)),
+        },
+      },
+      scene: { value: { start } },
+      events: { value: { once: vi.fn() } },
+    });
+
+    expect(() => scene.create()).not.toThrow();
+    expect(start).toHaveBeenCalledWith('Preload');
+    expect(values.has('huchu-defense:audio')).toBe(true);
+  });
+
   it('잘못된 데이터의 첫 오류를 한국어로 표시하고 Preload를 시작하지 않는다', async () => {
     const originalP1 = PATH_DEFINITIONS.P1;
     Object.defineProperty(PATH_DEFINITIONS, 'P1', {

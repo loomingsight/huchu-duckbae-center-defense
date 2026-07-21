@@ -4,6 +4,7 @@ import {
 } from '../../src/game/combat/EnemyAttackSystem';
 import { ProjectileSystem } from '../../src/game/combat/ProjectileSystem';
 import { BALANCE, attackImpactMs } from '../../src/game/data/balance';
+import { dogTraderAttackOrigin } from '../../src/game/enemies/DogTraderAttackGeometry';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
 import type { EnemyKind } from '../../src/game/types/GameTypes';
@@ -78,6 +79,32 @@ it('일반 공격은 250ms, 두 보스 공격은 500ms event frame에 release한
     inRangeEnemy({ id: 4, kind: 'illegalBreeder', isBoss: true }),
   ).some((event) => event.type === 'projectileRequested')).toBe(true);
   expect(attackImpactMs(BALANCE.enemies.illegalBreeder.attackTiming)).toBe(500);
+});
+
+it('dogTrader는 499ms 전에는 발사하지 않고 정확히 500ms에 현재 손 socket에서 net을 놓는다', () => {
+  const target = inRangeEnemy({
+    id: 21,
+    kind: 'dogTrader',
+    isBoss: true,
+    pathId: 'P2',
+    pathProgress: 180,
+  });
+  const attack = new EnemyAttackSystem({
+    kind: 'dogTrader',
+    balance: BALANCE.enemies.dogTrader,
+    shelter: { center: { x: 270, y: 480 }, radius: 38 },
+    projectileOrigin: dogTraderAttackOrigin,
+  });
+
+  expect(attack.step(499, target).some(
+    (event) => event.type === 'projectileRequested',
+  )).toBe(false);
+  expect(attack.step(1, target).find(
+    (event) => event.type === 'projectileRequested',
+  )).toMatchObject({
+    from: dogTraderAttackOrigin(target),
+    projectileKind: 'net',
+  });
 });
 
 it('enemy castId와 kind는 attack start부터 projectile hit까지 보존된다', () => {

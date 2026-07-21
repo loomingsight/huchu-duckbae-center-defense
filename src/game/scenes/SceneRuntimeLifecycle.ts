@@ -1,3 +1,17 @@
+export function runCleanupSteps(steps: readonly (() => void)[]): void {
+  let failed = false;
+  let firstFailure: unknown;
+  for (const step of steps) {
+    try {
+      step();
+    } catch (error) {
+      if (!failed) firstFailure = error;
+      failed = true;
+    }
+  }
+  if (failed) throw firstFailure;
+}
+
 export class SceneRuntimeLifecycle {
   private generation = 0;
   private readonly disposers = new Set<() => void>();
@@ -6,7 +20,7 @@ export class SceneRuntimeLifecycle {
     const previous = [...this.disposers];
     this.disposers.clear();
     this.generation += 1;
-    previous.forEach((dispose) => dispose());
+    runCleanupSteps(previous);
     return this.generation;
   }
 
@@ -28,6 +42,6 @@ export class SceneRuntimeLifecycle {
     const current = [...this.disposers];
     this.disposers.clear();
     this.generation += 1;
-    current.forEach((dispose) => dispose());
+    runCleanupSteps(current);
   }
 }

@@ -21,7 +21,7 @@ describe('UiTransitionClock', () => {
     expect(clock.remainingMs).toBe(0);
   });
 
-  it.each(['playing', 'skillSelection', 'visibilityPause', 'won'] as const)(
+  it.each(['playing', 'visibilityPause', 'won'] as const)(
     '%s에서는 UI transition 시간을 소비하지 않는다',
     (mode) => {
       const clock = new UiTransitionClock(3000);

@@ -1,5 +1,6 @@
 import { reachedDuration } from '../constants';
 import { ObjectPool, type PoolSnapshot } from '../pooling/ObjectPool';
+import type { ProjectileLogicalWorkloadCounters } from '../presentation/PresentationWorkloadTelemetry';
 import type { EnemyKind } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
 import {
@@ -106,6 +107,7 @@ export class ProjectileSystem {
   private readonly pool: ObjectPool<MutableProjectile>;
   private readonly active = new Set<MutableProjectile>();
   private readonly shelterRadius: number;
+  private readonly workload: ProjectileLogicalWorkloadCounters;
 
   constructor(capacity: number, shelterRadius = 38) {
     if (!Number.isFinite(shelterRadius) || shelterRadius < 0) {
@@ -127,6 +129,15 @@ export class ProjectileSystem {
       lifeMs: 0,
       impactDirection: { x: 0, y: -1 },
     }));
+    this.workload = {
+      poolInstanceId: this.pool.snapshot().instanceId,
+      active: 0,
+      logicalStepPasses: 0,
+      logicalActorVisits: 0,
+      activations: 0,
+      releases: 0,
+      rejected: 0,
+    };
   }
 
   spawn(input: ProjectileSpawn): readonly ProjectileEvent[] {
@@ -154,6 +165,7 @@ export class ProjectileSystem {
     }
     const projectile = this.pool.acquire();
     if (projectile === undefined) {
+      this.workload.rejected += 1;
       return [{
         type: 'projectileDropped',
         projectileId: input.id,
@@ -177,6 +189,8 @@ export class ProjectileSystem {
       impactDirection: normalizedImpactDirection(input.from, input.to),
     });
     this.active.add(projectile);
+    this.workload.active = this.active.size;
+    this.workload.activations += 1;
     return [{ type: 'projectileSpawned', projectileId: input.id, kind: input.projectileKind }];
   }
 
@@ -184,6 +198,7 @@ export class ProjectileSystem {
     if (!Number.isFinite(stepMs) || stepMs < 0) {
       throw new RangeError('Projectile step must be finite and non-negative');
     }
+    const activeAtStart = this.active.size;
     const events: ProjectileEvent[] = [];
     for (const projectile of [...this.active]) {
       const previous = projectile.position;
@@ -228,6 +243,8 @@ export class ProjectileSystem {
         this.release(projectile);
       }
     }
+    this.workload.logicalStepPasses += 1;
+    this.workload.logicalActorVisits += activeAtStart;
     return events;
   }
 
@@ -251,13 +268,19 @@ export class ProjectileSystem {
     return this.pool.snapshot();
   }
 
+  workloadCounters(): Readonly<ProjectileLogicalWorkloadCounters> {
+    return this.workload;
+  }
+
   clear(): void {
     for (const projectile of [...this.active]) this.release(projectile);
   }
 
   private release(projectile: MutableProjectile): void {
-    this.active.delete(projectile);
-    this.pool.release(projectile);
+    if (!this.active.delete(projectile)) return;
+    if (!this.pool.release(projectile)) return;
+    this.workload.active = this.active.size;
+    this.workload.releases += 1;
   }
 }
 

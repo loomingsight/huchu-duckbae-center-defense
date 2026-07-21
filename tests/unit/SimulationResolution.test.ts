@@ -20,7 +20,7 @@ function simulateWithRenderDeltas(deltas: readonly number[], seed: number): unkn
   return normalizeSnapshot(run.snapshot());
 }
 
-it('RunSnapshot은 skill cooldown과 Bark phase를 포함한 exact 초기 상태를 제공한다', () => {
+it('RunSnapshot은 companion과 V2 구매 상태를 포함한 exact 초기 상태를 제공한다', () => {
   expect(GameSession.create({ seed: 7 }).snapshot()).toEqual({
     mode: 'playing',
     simulationMs: 0,
@@ -28,17 +28,17 @@ it('RunSnapshot은 skill cooldown과 Bark phase를 포함한 exact 초기 상태
     pendingSpawns: 10,
     activeEnemyCount: 0,
     activeProjectileCount: 0,
-    shelterHp: 100,
+    shelterHp: 1000,
+    shelterMaxHp: 1000,
     snacks: 0,
-    skills: { bark: 1, scold: 0, aquaBeam: 0, deokbaeHowl: 0, safetyReport: 0 },
+    nextSkillCost: 15,
+    learnedSkills: { tailSwipe: false, aquaBeam: false, safetyReport: false },
     skillStates: {
-      bark: { level: 1, cooldownRemainingMs: 0, ready: true, progress: 1 },
-      scold: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
-      aquaBeam: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
-      deokbaeHowl: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
-      safetyReport: { level: 0, cooldownRemainingMs: 0, ready: false, progress: 0 },
+      tailSwipe: { learned: false, cooldownRemainingMs: 0, ready: false, progress: 0, activeCastId: null },
+      aquaBeam: { learned: false, cooldownRemainingMs: 0, ready: false, progress: 0, activeCastId: null },
+      safetyReport: { learned: false, cooldownRemainingMs: 0, ready: false, progress: 0, activeCastId: null },
     },
-    barkState: { ready: true, phase: 'ready', elapsedMs: 0, lockedTargetId: null },
+    companion: { companion: 'deokbae', active: true, cooldownRemainingMs: 0 },
     enemies: [],
     projectiles: [],
   });

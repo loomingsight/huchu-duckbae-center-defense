@@ -1,131 +1,157 @@
-import type { TestScenarioId } from './TestContract';
-import type {
-  ScenarioEnemySeed,
-  ScenarioWaveSchedule,
-} from './ScenarioSessionPort';
 import type { ProjectileSpawn } from '../combat/ProjectileSystem';
 import type { PathId } from '../types/GameTypes';
+import type { ScenarioEnemySeed, ScenarioWaveSchedule } from './ScenarioSessionPort';
+import type { TestScenarioId } from './TestContract';
 
 export interface SessionScenarioRuntime {
   stopScenarioMaintainers(): void;
   resetManualScheduler(): void;
   resetEventLog(): void;
   resetSession(): void;
-  suppressWaveSpawns(): void;
+  resetScenarioPresentation(): void;
   resetPlayer(x: number, y: number): void;
   seedEnemy(seed: ScenarioEnemySeed): number;
   useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void;
-  damageShelter(damage: number): void;
-  replaceShelter(currentHp: number, maxHp?: number): void;
+  grantSnacks(amount: number): void;
   seedProjectile(seed: ProjectileSpawn): void;
-  seedEffectPool(active: number): void;
-  enableStressMaintenance(): void;
+  enableStressMaintenance(): Promise<void>;
+  enablePresentationStress(): void;
   resetSimulationClock(): void;
   enableWaveAutoClear(): void;
-  advanceWorldTicks(ticks: number): void;
 }
 
-export function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId): void {
+export const TEST_SCENARIO_IDS = [
+  'empty-run', 'wave-schedule', 'full-run', 'bark-cone', 'skill-dock',
+  'impact-feedback', 'health-bar-colors', 'boss-rig-p1', 'boss-rig-p2',
+  'boss-rig-p3', 'boss-rig-p4', 'boss-rig-p5', 'boss-rig-p6',
+  'boss-rig-corner-p2', 'boss-rig-attack-p2', 'boss-rig-feedback',
+  'audio', 'stress',
+] as const satisfies readonly TestScenarioId[];
+
+export async function loadScenario(runtime: SessionScenarioRuntime, id: TestScenarioId): Promise<void> {
   resetRun(runtime);
   switch (id) {
     case 'empty-run':
+    case 'audio':
+      runtime.useWaveSchedule(1, 'held');
       break;
     case 'wave-schedule':
       runtime.useWaveSchedule(1, 'real');
       runtime.enableWaveAutoClear();
       break;
-    case 'canonical-combat-progression':
-      runtime.useWaveSchedule(1, 'relaxedCombat');
+    case 'full-run':
+      runtime.useWaveSchedule(1, 'real');
+      break;
+    case 'bark-cone':
+      runtime.useWaveSchedule(1, 'exhausted');
+      seedBarkCone(runtime);
+      break;
+    case 'skill-dock':
+      runtime.useWaveSchedule(1, 'held');
+      runtime.grantSnacks(80);
+      seedHeld(runtime, { kind: 'poopGuardian', variant: 'male', pathId: 'P3', x: 270, y: 260, hp: 60 });
+      break;
+    case 'impact-feedback':
+      runtime.useWaveSchedule(1, 'held');
+      seedHeld(runtime, { kind: 'poopGuardian', variant: 'male', pathId: 'P6', x: 270, y: 590, hp: 18 });
       break;
     case 'health-bar-colors':
-      seedHealthBarColors(runtime);
-      break;
-    case 'bark-targeting':
-      runtime.useWaveSchedule(1, 'real');
-      seedBarkTargets(runtime);
-      break;
-    case 'skill-selection':
-      seedSkillSelection(runtime);
-      break;
-    case 'skill-selection-wave-clear':
-      seedSkillSelectionWaveClear(runtime);
-      break;
-    case 'all-skills':
-      seedAllSkills(runtime);
-      break;
-    case 'poop-attack':
-      runtime.suppressWaveSpawns();
-      seedPoopAttack(runtime);
-      break;
-    case 'boss':
-      runtime.useWaveSchedule(3, 'exhausted');
-      seedBossAttack(runtime);
-      break;
-    case 'shelter-defeat':
       runtime.useWaveSchedule(1, 'held');
-      runtime.damageShelter(100);
+      seedHealthBars(runtime);
       break;
-    case 'final-enemy':
-      runtime.useWaveSchedule(5, 'exhausted');
-      seedFinalEnemy(runtime);
+    case 'boss-rig-p1': seedBoss(runtime, 'P1', -70, true); break;
+    case 'boss-rig-p2': seedBoss(runtime, 'P2', -70, true); break;
+    case 'boss-rig-p3': seedBoss(runtime, 'P3', -70, true); break;
+    case 'boss-rig-p4': seedBoss(runtime, 'P4', -70, true); break;
+    case 'boss-rig-p5': seedBoss(runtime, 'P5', -70, true); break;
+    case 'boss-rig-p6': seedBoss(runtime, 'P6', -70, true); break;
+    case 'boss-rig-corner-p2': seedBoss(runtime, 'P2', 150, false); break;
+    case 'boss-rig-attack-p2':
+      runtime.useWaveSchedule(1, 'exhausted');
+      runtime.seedEnemy({
+        kind: 'dogTrader', variant: 'male', pathId: 'P2', placement: { kind: 'attackBoundary' },
+      });
+      break;
+    case 'boss-rig-feedback':
+      runtime.useWaveSchedule(1, 'held');
+      seedHeld(runtime, { kind: 'dogTrader', variant: 'male', pathId: 'P6', x: 270, y: 590, hp: 18 });
       break;
     case 'stress':
+      runtime.useWaveSchedule(1, 'held');
+      runtime.enablePresentationStress();
       seedStress(runtime);
+      await runtime.enableStressMaintenance();
       break;
-    default:
-      throw new RangeError(`Unknown test scenario: ${String(id)}`);
   }
   runtime.resetSimulationClock();
-}
-
-export function loadEmptyRun(runtime: SessionScenarioRuntime): void {
-  resetRun(runtime);
-}
-
-export function loadWaveSchedule(runtime: SessionScenarioRuntime): void {
-  resetRun(runtime);
-  runtime.enableWaveAutoClear();
-}
-
-export function loadHealthBarColors(runtime: SessionScenarioRuntime): void {
-  resetRun(runtime);
-  seedHealthBarColors(runtime);
-}
-
-export function loadBarkTargeting(runtime: SessionScenarioRuntime): void {
-  resetRun(runtime);
-  seedBarkTargets(runtime);
 }
 
 function resetRun(runtime: SessionScenarioRuntime): void {
   runtime.stopScenarioMaintainers();
   runtime.resetManualScheduler();
   runtime.resetSession();
+  runtime.resetScenarioPresentation();
   runtime.resetEventLog();
   runtime.resetPlayer(270, 650);
-  runtime.useWaveSchedule(1, 'held');
+}
+
+function seedBarkCone(runtime: SessionScenarioRuntime): void {
+  const inputs = [
+    { pathId: 'P6' as const, x: 270, y: 625 },
+    { pathId: 'P4' as const, x: 220, y: 480 },
+    { pathId: 'P5' as const, x: 320, y: 480 },
+    { pathId: 'P6' as const, x: 270, y: 790 },
+  ];
+  inputs.forEach(({ pathId, x, y }, index) => seedHeld(runtime, {
+    kind: 'poopGuardian', variant: index % 2 === 0 ? 'male' : 'female', pathId, x, y, hp: 60,
+  }));
+}
+
+function seedHealthBars(runtime: SessionScenarioRuntime): void {
+  const inputs = [
+    { kind: 'poopGuardian' as const, pathId: 'P4' as const, x: 170, y: 445, hp: 60, maxHp: 60 },
+    { kind: 'offLeashGuardian' as const, pathId: 'P5' as const, x: 370, y: 445, hp: 55, maxHp: 110 },
+    { kind: 'illegalBreeder' as const, pathId: 'P6' as const, x: 270, y: 625, hp: 150, maxHp: 1500 },
+  ];
+  inputs.forEach((input, index) => seedHeld(runtime, {
+    variant: index % 2 === 0 ? 'male' : 'female', ...input,
+  }));
+}
+
+function seedBoss(runtime: SessionScenarioRuntime, pathId: PathId, progress: number, heldForDebug: boolean): void {
+  runtime.useWaveSchedule(1, 'exhausted');
+  runtime.seedEnemy({
+    kind: 'dogTrader',
+    variant: 'male',
+    pathId,
+    placement: { kind: 'pathProgress', value: progress },
+    heldForDebug,
+  });
 }
 
 function seedStress(runtime: SessionScenarioRuntime): void {
-  runtime.replaceShelter(1_000_000, 1_000_000);
   for (let index = 0; index < 60; index += 1) {
     runtime.seedEnemy({
       kind: index % 2 === 0 ? 'poopGuardian' : 'offLeashGuardian',
       variant: index % 2 === 0 ? 'male' : 'female',
-      pathId: `P${index % 6 + 1}` as PathId,
+      pathId: `P${index % 3 + 1}` as PathId,
       placement: {
         kind: 'worldPoint',
-        x: 40 + index % 10 * 50,
-        y: 120 + Math.floor(index / 10) * 90,
+        x: 60 + index % 12 * 38,
+        y: 130 + Math.floor(index / 12) * 50,
       },
       currentHp: 1_000_000,
       maxHp: 1_000_000,
+      heldForDebug: true,
     });
   }
   for (let index = 0; index < 80; index += 1) {
     runtime.seedProjectile({
       id: index,
-      kind: 'poop',
+      castId: `e2e-stress-projectile:${index}`,
+      enemyId: index,
+      kind: 'poopGuardian',
+      projectileKind: 'poop',
       from: { x: 24 + index % 20 * 26, y: 24 + Math.floor(index / 20) * 72 },
       to: { x: 270, y: 480 },
       speed: 1,
@@ -133,197 +159,24 @@ function seedStress(runtime: SessionScenarioRuntime): void {
       lifeMs: 60_000,
     });
   }
-  runtime.seedEffectPool(120);
-  runtime.enableStressMaintenance();
 }
 
-function seedHealthBarColors(runtime: SessionScenarioRuntime): void {
-  const placements = [
-    { pathId: 'P4' as const, x: 170, y: 445 },
-    { pathId: 'P5' as const, x: 370, y: 445 },
-    { pathId: 'P6' as const, x: 270, y: 625 },
-  ];
-  [35, 17, 6].forEach((currentHp, index) => {
-    const placement = placements[index]!;
-    runtime.seedEnemy({
-      kind: 'poopGuardian',
-      variant: index % 2 === 0 ? 'male' : 'female',
-      pathId: placement.pathId,
-      placement: { kind: 'worldPoint', x: placement.x, y: placement.y },
-      currentHp,
-      maxHp: 35,
-      state: 'stunned',
-      stunnedMs: 60_000,
-    });
-  });
-}
-
-function seedBarkTargets(runtime: SessionScenarioRuntime): void {
+function seedHeld(runtime: SessionScenarioRuntime, input: {
+  readonly kind: 'poopGuardian' | 'offLeashGuardian' | 'dogTrader' | 'illegalBreeder';
+  readonly variant: 'male' | 'female';
+  readonly pathId: PathId;
+  readonly x: number;
+  readonly y: number;
+  readonly hp: number;
+  readonly maxHp?: number;
+}): void {
   runtime.seedEnemy({
-    kind: 'poopGuardian',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'worldPoint', x: 270, y: 625 },
-    currentHp: 20,
-    maxHp: 35,
-    state: 'stunned',
-    stunnedMs: 60_000,
-  });
-  runtime.seedEnemy({
-    kind: 'poopGuardian',
-    variant: 'female',
-    pathId: 'P6',
-    placement: { kind: 'worldPoint', x: 270, y: 704 },
-    currentHp: 35,
-    maxHp: 35,
-    state: 'stunned',
-    stunnedMs: 60_000,
-  });
-}
-
-function seedPoopAttack(runtime: SessionScenarioRuntime): void {
-  runtime.seedEnemy({
-    kind: 'poopGuardian',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'attackBoundary' },
-  });
-}
-
-function seedBossAttack(runtime: SessionScenarioRuntime): void {
-  runtime.seedEnemy({
-    kind: 'dogTrader',
-    variant: 'male',
-    pathId: 'P3',
-    placement: { kind: 'attackBoundary' },
-  });
-}
-
-function seedFinalEnemy(runtime: SessionScenarioRuntime): void {
-  runtime.seedEnemy({
-    kind: 'illegalBreeder',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'worldPoint', x: 270, y: 625 },
-    currentHp: 10,
-    maxHp: 1000,
-    state: 'stunned',
-    stunnedMs: 60_000,
-  });
-}
-
-function seedSkillSelection(runtime: SessionScenarioRuntime): void {
-  runtime.suppressWaveSpawns();
-  runtime.resetPlayer(270, 750);
-  seedSkillRewardTargets(runtime);
-  runtime.advanceWorldTicks(102);
-  seedAttackBoundary(runtime, 'poopGuardian', 'male');
-  runtime.advanceWorldTicks(15);
-  seedAttackBoundary(runtime, 'offLeashGuardian', 'female');
-  seedAttackBoundary(runtime, 'poopGuardian', 'female');
-  runtime.advanceWorldTicks(15);
-  seedBarkDamageTarget(runtime);
-}
-
-function seedSkillSelectionWaveClear(runtime: SessionScenarioRuntime): void {
-  runtime.suppressWaveSpawns();
-  runtime.resetPlayer(270, 750);
-  seedSkillRewardTargets(runtime);
-  runtime.advanceWorldTicks(132);
-}
-
-function seedAllSkills(runtime: SessionScenarioRuntime): void {
-  runtime.suppressWaveSpawns();
-  runtime.resetPlayer(270, 905);
-  // 31 × 2 snacks lands exactly on the fourth threshold (62), so the final
-  // combat window cannot be interrupted by the fifth skill selection.
-  for (let index = 0; index < 31; index += 1) {
-    runtime.seedEnemy({
-      kind: 'offLeashGuardian',
-      variant: index % 2 === 0 ? 'male' : 'female',
-      pathId: 'P6',
-      placement: { kind: 'worldPoint', x: 270, y: 960 },
-      currentHp: 10,
-      maxHp: 65,
-      state: 'stunned',
-      stunnedMs: 60_000,
-    });
-  }
-  // Safety Report has global threat targeting. This target is outside every
-  // local auto-skill range and dies to its exact 90 damage, which keeps the
-  // lethal damage-before-status path covered while the visual targets remain.
-  runtime.seedEnemy({
-    kind: 'poopGuardian',
-    variant: 'male',
-    pathId: 'P3',
-    placement: { kind: 'attackBoundary' },
-    currentHp: 90,
-    maxHp: 90,
-    state: 'stunned',
-    stunnedMs: 120_000,
-  });
-  for (let index = 0; index < 4; index += 1) {
-    runtime.seedEnemy({
-      kind: 'poopGuardian',
-      variant: index % 2 === 0 ? 'male' : 'female',
-      pathId: 'P1',
-      placement: { kind: 'worldPoint', x: 110, y: 0 },
-      currentHp: 10_000,
-      maxHp: 10_000,
-      state: 'stunned',
-      stunnedMs: 120_000,
-    });
-  }
-  runtime.seedEnemy({
-    kind: 'illegalBreeder',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'worldPoint', x: 270, y: 960 },
-    currentHp: 10_000,
-    maxHp: 10_000,
-    state: 'stunned',
-    stunnedMs: 120_000,
-  });
-  runtime.advanceWorldTicks(132);
-}
-
-function seedSkillRewardTargets(runtime: SessionScenarioRuntime): void {
-  for (let index = 0; index < 4; index += 1) {
-    runtime.seedEnemy({
-      kind: 'offLeashGuardian',
-      variant: index % 2 === 0 ? 'male' : 'female',
-      pathId: 'P6',
-      placement: { kind: 'worldPoint', x: 270 + index, y: 725 },
-      currentHp: 10,
-      maxHp: 65,
-      state: 'stunned',
-      stunnedMs: 60_000,
-    });
-  }
-}
-
-function seedAttackBoundary(
-  runtime: SessionScenarioRuntime,
-  kind: 'poopGuardian' | 'offLeashGuardian',
-  variant: 'male' | 'female',
-): void {
-  runtime.seedEnemy({
-    kind,
-    variant,
-    pathId: 'P6',
-    placement: { kind: 'attackBoundary' },
-  });
-}
-
-function seedBarkDamageTarget(runtime: SessionScenarioRuntime): void {
-  runtime.seedEnemy({
-    kind: 'illegalBreeder',
-    variant: 'male',
-    pathId: 'P6',
-    placement: { kind: 'worldPoint', x: 270, y: 725 },
-    currentHp: 1000,
-    maxHp: 1000,
-    state: 'stunned',
-    stunnedMs: 60_000,
+    kind: input.kind,
+    variant: input.variant,
+    pathId: input.pathId,
+    placement: { kind: 'worldPoint', x: input.x, y: input.y },
+    currentHp: input.hp,
+    maxHp: input.maxHp ?? input.hp,
+    heldForDebug: true,
   });
 }

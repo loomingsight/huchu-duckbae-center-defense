@@ -16,24 +16,30 @@ export class E2eCombatEffectPool extends CombatEffectPool {
     super(scene);
   }
 
-  seedEffects(active: number): void {
+  seedEffects(active: number): number {
     assertActiveCount(active);
     this.releaseAll();
     this.nextPositionIndex = 0;
+    let activated = 0;
     for (let index = 0; index < active; index += 1) {
-      this.activateStressImpact(index, index * EFFECT_LIFETIME_MS / active);
+      if (!this.activateStressImpact(index, index * EFFECT_LIFETIME_MS / active)) break;
+      activated += 1;
     }
+    return activated;
   }
 
-  maintainEffects(active: number): void {
+  maintainEffects(active: number): number {
     assertActiveCount(active);
-    while (this.snapshot().active < active) {
-      this.activateStressImpact(this.nextPositionIndex, 0);
+    let activated = 0;
+    while (this.workloadCounters().impactActive < active) {
+      if (!this.activateStressImpact(this.nextPositionIndex, 0)) break;
+      activated += 1;
       this.nextPositionIndex = (this.nextPositionIndex + 1) % active;
     }
+    return activated;
   }
 
-  private activateStressImpact(index: number, initialAgeMs: number): void {
+  private activateStressImpact(index: number, initialAgeMs: number): boolean {
     const payload: EffectPayload = {
       type: 'projectileImpact',
       projectileId: this.nextProjectileId,
@@ -41,9 +47,7 @@ export class E2eCombatEffectPool extends CombatEffectPool {
       position: effectPosition(index),
     };
     this.nextProjectileId += 1;
-    if (!this.activate(payload, initialAgeMs)) {
-      throw new Error('Combat effect pool exhausted during workload refill');
-    }
+    return this.activate(payload, initialAgeMs);
   }
 }
 

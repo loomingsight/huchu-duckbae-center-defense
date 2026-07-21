@@ -48,10 +48,12 @@ export class CompanionSystem {
 
   step(stepMs: number, context: CompanionContext): readonly CompanionEvent[] {
     assertFiniteNonNegative(stepMs, 'Companion stepMs');
-    const firstTarget = selectThreatTarget(context.player, context.enemies, ATTACK_RANGE);
     const events: CompanionEvent[] = [];
     if (this.pending === null && this.cooldownRemainingMs === 0) {
-      if (!this.start(firstTarget, events)) return events;
+      if (!this.start(
+        selectThreatTarget(context.player, context.enemies, ATTACK_RANGE),
+        events,
+      )) return events;
     }
 
     let remainingMs = stepMs;

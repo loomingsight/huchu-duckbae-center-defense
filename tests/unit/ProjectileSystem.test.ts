@@ -156,3 +156,63 @@ it('invalid step과 spawn 입력은 상태 변경 전에 거부한다', () => {
   }
   expect(projectiles.activeCount).toBe(0);
 });
+
+it('reports stable logical workload counters across capacity rejection, clear, and reuse', () => {
+  const projectiles = new ProjectileSystem(1, 0);
+  const counters = projectiles.workloadCounters();
+  const poolInstanceId = projectiles.poolSnapshot().instanceId;
+
+  expect(counters).toEqual({
+    poolInstanceId,
+    active: 0,
+    logicalStepPasses: 0,
+    logicalActorVisits: 0,
+    activations: 0,
+    releases: 0,
+    rejected: 0,
+  });
+  expect(projectiles.workloadCounters()).toBe(counters);
+
+  const initialCounters = { ...counters };
+  expect(() => projectiles.step(Number.NaN)).toThrow(RangeError);
+  expect(() => projectiles.spawn(projectile({ speed: Number.NaN }))).toThrow(RangeError);
+  expect(counters).toEqual(initialCounters);
+
+  projectiles.spawn(projectile());
+  projectiles.spawn(projectile({ id: 2 }));
+  projectiles.step(1);
+
+  expect(counters).toMatchObject({
+    poolInstanceId,
+    active: 1,
+    logicalStepPasses: 1,
+    logicalActorVisits: 1,
+    activations: 1,
+    releases: 0,
+    rejected: 1,
+  });
+
+  projectiles.clear();
+  projectiles.spawn(projectile({ id: 3 }));
+  projectiles.step(1200);
+
+  expect(counters).toEqual({
+    poolInstanceId,
+    active: 0,
+    logicalStepPasses: 2,
+    logicalActorVisits: 2,
+    activations: 2,
+    releases: 2,
+    rejected: 1,
+  });
+  expect(projectiles.workloadCounters()).toBe(counters);
+  expect(projectiles.poolSnapshot().instanceId).toBe(poolInstanceId);
+
+  projectiles.step(0);
+
+  expect(counters).toMatchObject({
+    active: 0,
+    logicalStepPasses: 3,
+    logicalActorVisits: 2,
+  });
+});

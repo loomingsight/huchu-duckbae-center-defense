@@ -130,10 +130,6 @@ export class WebGlRecoveryController {
     this.recoveryState.phase = 'restoredAwaitingConfirmation';
     this.runtime.setContextLostVisible?.(false);
     if (!this.coordinator.has('webgl')) return;
-    if (this.coordinator.originalMode === 'skillSelection') {
-      this.restoreMode();
-      return;
-    }
     this.showRestorePrompt();
   };
 

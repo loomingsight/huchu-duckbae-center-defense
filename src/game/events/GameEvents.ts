@@ -58,7 +58,8 @@ export type EnemyCombatEvent = EnemySystemCombatEvent;
 
 export type SessionLifecycleEvent =
   | { readonly type: 'modeChanged'; readonly mode: GameMode }
-  | { readonly type: 'runEnded' | 'resultReady'; readonly outcome: 'won' | 'lost' }
+  | { readonly type: 'runEnded'; readonly outcome: 'won' | 'lost' }
+  | { readonly type: 'resultReady'; readonly outcome: 'won' | 'lost' }
   | { readonly type: 'enemySpawnRequested'; readonly request: EnemySpawnRequest }
   | {
     readonly type: 'enemySpawned';

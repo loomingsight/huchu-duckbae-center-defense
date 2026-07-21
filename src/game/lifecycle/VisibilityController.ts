@@ -44,12 +44,6 @@ export class VisibilityController {
 
   visible(): void {
     if (!this.coordinator.has('visibility')) return;
-    if (this.coordinator.originalMode === 'skillSelection') {
-      this.awaitingConfirmation = false;
-      this.runtime.setResumePromptVisible(false);
-      this.coordinator.release('visibility');
-      return;
-    }
     this.awaitingConfirmation = true;
     this.runtime.setResumePromptVisible(true);
   }

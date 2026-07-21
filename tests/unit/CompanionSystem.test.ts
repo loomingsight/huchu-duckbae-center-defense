@@ -65,6 +65,23 @@ describe('CompanionSystem', () => {
     expect(companion.step(0, context).at(0)).toMatchObject({ castId: 'deokbae:1' });
   });
 
+  it('cooldown 중에는 다음 attack이 ready가 될 때까지 target ranking을 수행하지 않는다', () => {
+    const companion = new CompanionSystem();
+    const context = {
+      player: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, position: { x: 100, y: 0 } })],
+    };
+    companion.step(250, context);
+    const unreadableEnemies = new Proxy([] as ReturnType<typeof enemy>[], {
+      get: () => { throw new Error('cooldown enemies were read'); },
+    });
+
+    expect(() => companion.step(100, {
+      player: context.player,
+      enemies: unreadableEnemies,
+    })).not.toThrow();
+  });
+
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
     'invalid stepMs %s는 state 변경 전에 거부한다',
     (stepMs) => {

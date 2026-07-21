@@ -6,9 +6,9 @@ import { PathSystem } from '../world/PathSystem';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import type { ScenarioEnemySeed } from './ScenarioSessionPort';
 
-const ENEMY_STATE_SET = new Set<string>(['moving', 'windup', 'holding', 'stunned', 'dead']);
-
 export class E2eEnemySystem extends EnemySystem {
+  private readonly heldForDebug = new Set<number>();
+
   static override createDefault(): E2eEnemySystem {
     return new E2eEnemySystem(Object.fromEntries(
       Object.entries(PATH_DEFINITIONS).map(([id, points]) => [id, new PathSystem(points)]),
@@ -31,36 +31,47 @@ export class E2eEnemySystem extends EnemySystem {
     const maxHp = seed.maxHp ?? defaultHp;
     const currentHp = seed.currentHp ?? maxHp;
     assertHp(currentHp, maxHp);
-    const state = seed.state ?? 'moving';
-    const stunnedMs = seed.stunnedMs ?? 0;
-    if (state === 'dead') throw new RangeError('Seeded enemy state must be active');
-    if (state === 'stunned' ? stunnedMs <= 0 : stunnedMs !== 0) {
-      throw new RangeError('Seeded enemy stun state is inconsistent');
-    }
-
     const path = this.paths[request.pathId];
     const pathProgress = seed.placement.kind === 'attackBoundary'
       ? path.firstProgressWithinCircle(
         { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
         BALANCE.shelter.hitRadius + BALANCE.enemies[request.kind].range,
       )
-      : path.closestProgressTo({ x: seed.placement.x, y: seed.placement.y });
+      : seed.placement.kind === 'pathProgress'
+        ? seed.placement.value
+        : path.closestProgressTo({ x: seed.placement.x, y: seed.placement.y });
     const enemyId = this.spawn(request);
     const enemy = this.enemies.get(enemyId)!;
     enemy.pathProgress = pathProgress;
     enemy.currentHp = currentHp;
     enemy.maxHp = maxHp;
-    enemy.state = state;
-    enemy.stunnedMs = stunnedMs;
+    enemy.state = seed.state ?? 'moving';
     enemy.animationElapsedMs = 0;
+    if (seed.heldForDebug) this.heldForDebug.add(enemyId);
     return { enemyId, request };
   }
 
-  spawnForScenario(seed: ScenarioEnemySeed): {
-    readonly enemyId: number;
-    readonly request: EnemySpawnRequest;
-  } {
-    return this.spawnSeed(seed);
+  override step(stepMs: number): void {
+    const held = new Map<number, number>();
+    for (const id of this.heldForDebug) {
+      const enemy = this.enemies.get(id);
+      if (enemy !== undefined) held.set(id, enemy.pathProgress);
+    }
+    super.step(stepMs);
+    for (const [id, pathProgress] of held) {
+      const enemy = this.enemies.get(id);
+      if (enemy !== undefined) enemy.pathProgress = pathProgress;
+    }
+  }
+
+  override removeWithoutReward(enemyId: number): void {
+    this.heldForDebug.delete(enemyId);
+    super.removeWithoutReward(enemyId);
+  }
+
+  override clear(): void {
+    this.heldForDebug.clear();
+    super.clear();
   }
 }
 
@@ -69,30 +80,17 @@ function validateSeed(seed: ScenarioEnemySeed): void {
     assertFinite(seed.placement.x, 'Seeded enemy x');
     assertFinite(seed.placement.y, 'Seeded enemy y');
   }
-  if (seed.state !== undefined && !ENEMY_STATE_SET.has(seed.state)) {
-    throw new RangeError(`Unknown enemy state ${String(seed.state)}`);
+  if (seed.placement.kind === 'pathProgress') {
+    assertFinite(seed.placement.value, 'Seeded enemy path progress');
   }
-  if (seed.stunnedMs !== undefined) assertFiniteNonNegative(seed.stunnedMs, 'Seeded enemy stun');
 }
 
 function assertHp(currentHp: number, maxHp: number): void {
-  if (
-    !Number.isFinite(currentHp)
-    || !Number.isFinite(maxHp)
-    || maxHp <= 0
-    || currentHp <= 0
-    || currentHp > maxHp
-  ) {
+  if (!Number.isFinite(currentHp) || !Number.isFinite(maxHp) || maxHp <= 0 || currentHp <= 0 || currentHp > maxHp) {
     throw new RangeError('Invalid seeded enemy HP');
   }
 }
 
 function assertFinite(value: number, label: string): void {
   if (!Number.isFinite(value)) throw new RangeError(`${label} must be finite`);
-}
-
-function assertFiniteNonNegative(value: number, label: string): void {
-  if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError(`${label} must be finite and non-negative`);
-  }
 }

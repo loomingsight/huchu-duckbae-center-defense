@@ -1,10 +1,17 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
-import { characterOutput, characterSheets, mapAsset, shelterAsset } from './manifest.mjs';
+import {
+  animationManifest,
+  characterOutput,
+  characterSheets,
+  isSourceAnimationEntry,
+  mapAsset,
+  shelterAsset,
+  validateAnimationManifestEntry,
+} from './manifest.mjs';
 
-const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
 const pngOptions = { compressionLevel: 9, palette: false };
 
 async function resizedRow(source, top) {
@@ -41,36 +48,9 @@ export async function buildCharacter(entry, output = characterOutput(entry.key))
   await writeFile(output, await buildCharacterBuffer(entry));
 }
 
-async function mapMask() {
-  const core = `<svg width="${mapAsset.width}" height="${mapAsset.height}" xmlns="http://www.w3.org/2000/svg">
-    <ellipse cx="${mapAsset.centerX}" cy="${mapAsset.centerY}" rx="${mapAsset.radiusX}" ry="${mapAsset.radiusY}" fill="white"/>
-  </svg>`;
-  const outer = `<svg width="${mapAsset.width}" height="${mapAsset.height}" xmlns="http://www.w3.org/2000/svg">
-    <ellipse cx="${mapAsset.centerX}" cy="${mapAsset.centerY}" rx="${mapAsset.radiusX + mapAsset.feather}" ry="${mapAsset.radiusY + mapAsset.feather}" fill="white"/>
-  </svg>`;
-  const blurred = await sharp(Buffer.from(core)).blur(mapAsset.feather / 3).png().toBuffer();
-  return sharp(blurred)
-    .composite([{ input: Buffer.from(outer), blend: 'dest-in' }])
-    .png()
-    .toBuffer();
-}
-
 export async function buildMaskedMapBuffer() {
-  const [mask, edit] = await Promise.all([
-    mapMask(),
-    sharp(mapAsset.edit)
-      .resize(mapAsset.width, mapAsset.height, { fit: 'fill' })
-      .ensureAlpha()
-      .png()
-      .toBuffer(),
-  ]);
-  const maskedEdit = await sharp(edit)
-    .composite([{ input: mask, blend: 'dest-in' }])
-    .png()
-    .toBuffer();
   return sharp(mapAsset.source)
-    .ensureAlpha()
-    .composite([{ input: maskedEdit, left: 0, top: 0, blend: 'over' }])
+    .resize(mapAsset.width, mapAsset.height, { fit: 'fill' })
     .removeAlpha()
     .png()
     .toBuffer();
@@ -88,58 +68,16 @@ export async function buildMap(output = mapAsset.output) {
   await writeFile(output, await buildMapBuffer());
 }
 
-async function extractShelterFrames() {
-  const metadata = await sharp(shelterAsset.source).metadata();
-  if (metadata.width === undefined || metadata.height === undefined || metadata.width % 4 !== 0) {
-    throw new Error('shelter-states-edit.png must contain four equal columns');
-  }
-  const sourceCellWidth = metadata.width / 4;
-  return Promise.all(
-    Array.from({ length: 4 }, async (_, index) => {
-      const cell = await sharp(shelterAsset.source)
-        .extract({
-          left: index * sourceCellWidth,
-          top: 0,
-          width: sourceCellWidth,
-          height: metadata.height,
-        })
-        .ensureAlpha()
-        .png()
-        .toBuffer();
-      const result = await sharp(cell)
-        .trim({ background: transparent, threshold: 8 })
-        .png()
-        .toBuffer({ resolveWithObject: true });
-      if (result.info.width === 0 || result.info.height === 0) {
-        throw new Error(`shelter frame ${index} is empty`);
-      }
-      return result;
-    }),
-  );
-}
-
 export async function buildShelterBuffer() {
-  const frames = await extractShelterFrames();
-  const maxWidth = Math.max(...frames.map((frame) => frame.info.width));
-  const maxHeight = Math.max(...frames.map((frame) => frame.info.height));
-  const scale = Math.min(224 / maxWidth, 208 / maxHeight);
-  const composites = await Promise.all(
-    frames.map(async (frame, index) => {
-      const width = Math.max(1, Math.round(frame.info.width * scale));
-      const height = Math.max(1, Math.round(frame.info.height * scale));
-      const input = await sharp(frame.data)
-        .resize(width, height, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
-        .png(pngOptions)
-        .toBuffer();
-      return {
-        input,
-        left: index * shelterAsset.cellWidth + shelterAsset.anchorX - Math.round(width / 2),
-        top: shelterAsset.anchorY - height,
-      };
-    }),
-  );
-  return sharp({ create: { width: 1024, height: 256, channels: 4, background: transparent } })
-    .composite(composites)
+  const metadata = await sharp(shelterAsset.source).metadata();
+  if (
+    metadata.width !== shelterAsset.frameCount * shelterAsset.cellWidth ||
+    metadata.height !== shelterAsset.cellHeight ||
+    metadata.channels !== 4
+  ) {
+    throw new Error('V2 shelter source must be a 1024x256 RGBA sheet');
+  }
+  return sharp(shelterAsset.source)
     .png(pngOptions)
     .toBuffer();
 }
@@ -149,12 +87,52 @@ export async function buildShelter(output = shelterAsset.output) {
   await writeFile(output, await buildShelterBuffer());
 }
 
+export async function buildAnimationSheet(
+  entry,
+  { sourceRoot = '.', outputRoot = '.' } = {},
+) {
+  validateAnimationManifestEntry(entry);
+  if (!isSourceAnimationEntry(entry)) {
+    throw new Error(`Cannot build logical mirror animation ${entry.key}`);
+  }
+  const source = path.resolve(sourceRoot, entry.source);
+  try {
+    await access(source);
+  } catch {
+    throw new Error(`V2 candidate missing: ${entry.source}`);
+  }
+  const metadata = await sharp(source).metadata();
+  if (
+    metadata.width !== entry.frameCount * entry.frameWidth ||
+    metadata.height !== entry.frameHeight ||
+    metadata.channels !== 4 ||
+    metadata.format !== 'png'
+  ) {
+    throw new Error(
+      `${entry.key} source must be ${entry.frameCount * entry.frameWidth}x${entry.frameHeight} RGBA PNG`,
+    );
+  }
+  const output = path.resolve(outputRoot, `public${entry.url}`);
+  await mkdir(path.dirname(output), { recursive: true });
+  await writeFile(output, await sharp(source).png(pngOptions).toBuffer());
+}
+
+export async function buildAnimationAssets(
+  entries = animationManifest,
+  options = {},
+) {
+  entries.forEach(validateAnimationManifestEntry);
+  for (const entry of entries) {
+    if (isSourceAnimationEntry(entry)) await buildAnimationSheet(entry, options);
+  }
+}
+
 export async function buildAssets({ outputRoot = '.' } = {}) {
   const outputPath = (relative) => path.resolve(outputRoot, relative);
-  for (const entry of characterSheets) {
-    await buildCharacter(entry, outputPath(characterOutput(entry.key)));
-  }
+  await buildAnimationAssets(animationManifest, { sourceRoot: '.', outputRoot });
   await Promise.all([
+    ...characterSheets.map((entry) =>
+      buildCharacter(entry, outputPath(characterOutput(entry.key)))),
     buildMap(outputPath(mapAsset.output)),
     buildShelter(outputPath(shelterAsset.output)),
   ]);

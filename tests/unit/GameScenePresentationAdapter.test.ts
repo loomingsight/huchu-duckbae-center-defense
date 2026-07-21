@@ -1,0 +1,109 @@
+import { readFileSync } from 'node:fs';
+import { expect, it } from 'vitest';
+
+it('protected adapter getter는 preallocated damage pool의 같은 identity만 반환한다', () => {
+  const source = gameSceneSource();
+  expect(source).toContain('protected damageFeedbackPoolForAdapters(): DamageFeedbackPool');
+  const getter = source.slice(
+    source.indexOf('protected damageFeedbackPoolForAdapters'),
+    source.indexOf('protected renderHud'),
+  );
+  expect(getter).toContain('return this.damageFeedbackPool;');
+  expect(getter).not.toContain('new DamageFeedbackPool');
+});
+
+it('Scene adapter는 damage/shelter를 ImpactFeedbackSystem에 전달하고 lethal actor lookup을 먼저 제거한다', () => {
+  const source = gameSceneSource();
+  const apply = source.slice(
+    source.indexOf('protected applySessionEvents'),
+    source.indexOf('private showResult'),
+  );
+  expect(apply).toContain("event.type === 'damageApplied'");
+  expect(apply).toContain('this.impactFeedback.handle(event)');
+  expect(apply).toContain("event.type === 'shelterDamaged'");
+  expect(apply).not.toContain('this.shelterView?.showDamage()');
+});
+
+it('Scene adapter는 active pooled label의 damageAnchor resolver를 impact feedback에 연결한다', () => {
+  const source = gameSceneSource();
+  const constructor = source.slice(
+    source.indexOf('this.impactFeedback = new ImpactFeedbackSystem'),
+    source.indexOf('this.presentationTelemetry = new PresentationTelemetry'),
+  );
+  expect(constructor).toContain(
+    'enemyDamageAnchor: (targetId) => this.enemyActors?.damageAnchor(targetId)',
+  );
+});
+
+it('Scene adapter는 exact event ownership을 공용 CombatEffectPool에 연결한다', () => {
+  const source = gameSceneSource();
+  for (const call of [
+    'startAquaBeam',
+    'retargetAquaBeam',
+    'showTailImpact',
+    'showAquaImpact',
+    'startSafetyReport',
+    'showSafetyImpact',
+    'showDoorPush',
+    'showBreederWarning',
+    'showElectricWave',
+    'showSnackFly',
+  ]) {
+    expect(source).toContain(call);
+  }
+  expect(source).toContain("event.type === 'projectileRequested'");
+});
+
+it('resetSession은 telemetry가 shared effect/damage producer를 한 번만 reset하고 dedupe를 별도로 비운다', () => {
+  const source = gameSceneSource();
+  const reset = source.slice(source.indexOf('resetSession(seed'), source.indexOf('restartRunFromResult'));
+  expect(reset).toContain('this.presentationTelemetry.reset()');
+  expect(reset).toContain('this.impactFeedback.resetDedupe()');
+  expect(reset).not.toContain('this.playerView.resetCombatVisuals()');
+  expect(reset).not.toContain('this.projectileActors?.releaseAll()');
+  expect(reset).not.toContain('this.combatEffects.releaseAll()');
+  expect(reset).not.toContain('this.impactFeedback.reset()');
+});
+
+it('zero-effective lethal event는 snack fly를 시작하지 않는다', () => {
+  const source = gameSceneSource();
+  const damage = source.slice(
+    source.indexOf("event.type === 'damageApplied'"),
+    source.indexOf("event.type === 'attackStarted'"),
+  );
+  expect(damage).toContain('event.lethal && event.effectiveAmount > 0');
+});
+
+it('Task5 audio adapter는 모든 GameEvent를 한 번 전달하고 dog-trader session dependency를 보존한다', () => {
+  const source = gameSceneSource();
+  const apply = source.slice(
+    source.indexOf('protected applySessionEvents'),
+    source.indexOf('private showResult'),
+  );
+  expect(apply.match(/this\.audio\.handle\(event\)/g)).toHaveLength(1);
+  expect(source).toContain('projectileOriginByKind: { dogTrader: dogTraderAttackOrigin }');
+});
+
+it('GameScene은 exact MutePort와 lifecycle audio adapter를 쓰고 result restart를 첫 bar에서 시작한다', () => {
+  const source = gameSceneSource();
+  expect(source).toContain('muted: () => this.audio.muted()');
+  expect(source).toContain('toggle: () => this.audio.setMuted(!this.audio.muted())');
+  expect(source).toContain('subscribe: (listener) => this.audio.subscribeMute(listener)');
+  expect(source).toContain('setAudioLifecyclePaused: (paused) =>');
+  const restart = source.slice(
+    source.indexOf('restartRunFromResult'),
+    source.indexOf('resetPlayer('),
+  );
+  expect(restart).toContain('this.audio.beginRun()');
+});
+
+it('Boot는 context를 만들지 않는 AudioSystem factory를 registry에 한 번만 설치한다', () => {
+  const source = readFileSync(new URL('../../src/game/scenes/BootScene.ts', import.meta.url), 'utf8');
+  expect(source).toContain('() => new AudioContext(),');
+  expect(source.match(/registry\.set\(GAME_AUDIO_REGISTRY_KEY/g)).toHaveLength(1);
+  expect(source).toContain("import.meta.env.MODE === 'e2e' ? new E2eAudioTestPort() : undefined");
+});
+
+function gameSceneSource(): string {
+  return readFileSync(new URL('../../src/game/scenes/GameScene.ts', import.meta.url), 'utf8');
+}

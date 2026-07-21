@@ -84,6 +84,23 @@ describe('BarkSystem', () => {
     }]);
   });
 
+  it('cooldown 중에는 다음 cast가 ready가 될 때까지 target ranking을 수행하지 않는다', () => {
+    const bark = new BarkSystem();
+    const context = {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
+    };
+    bark.step(250, context);
+    const unreadableEnemies = new Proxy([] as ReturnType<typeof enemy>[], {
+      get: () => { throw new Error('cooldown enemies were read'); },
+    });
+
+    expect(() => bark.step(100, {
+      origin: context.origin,
+      enemies: unreadableEnemies,
+    })).not.toThrow();
+  });
+
   it('한 큰 step과 같은 duration의 분할 step은 같은 event와 snapshot을 만든다', () => {
     const single = new BarkSystem();
     const split = new BarkSystem();
@@ -132,7 +149,7 @@ describe('BarkSystem', () => {
 });
 
 describe('PlayerView bark presentation', () => {
-  it('wave cone은 70도 이하이고 alpha/radius는 simulation age만으로 결정한다', () => {
+  it('wave는 gameplay과 같은 exact 120도/3H 경계까지 simulation age로 확장한다', () => {
     const atStart = barkWaveVisualAt(0, { x: 10, y: 20 }, { x: 110, y: 20 });
     const halfway = barkWaveVisualAt(
       BARK_WAVE_DURATION_MS / 2,
@@ -146,12 +163,13 @@ describe('PlayerView bark presentation', () => {
     );
 
     expect((atStart.arcEnd - atStart.arcStart) * 180 / Math.PI)
-      .toBeLessThanOrEqual(BARK_WAVE_CONE_DEGREES);
+      .toBeCloseTo(BARK_WAVE_CONE_DEGREES, 12);
     expect(atStart).toMatchObject({ alpha: 1, rotation: 0 });
     expect(halfway.alpha).toBeCloseTo(0.5, 12);
     expect(halfway.rotation).toBeCloseTo(Math.PI / 2, 12);
     expect(halfway.radius).toBeGreaterThan(atStart.radius);
     expect(atEnd.alpha).toBe(0);
+    expect(atEnd.radius).toBe(216);
   });
 
   it.each([
@@ -163,7 +181,7 @@ describe('PlayerView bark presentation', () => {
     expect(() => barkWaveVisualAt(ageMs, origin, target)).toThrow(RangeError);
   });
 
-  it('attack 중에도 새 player 위치를 쓰고 frame 4..7 one-shot을 직접 설정한다', () => {
+  it('attack 중에도 새 player 위치와 V2 manifest texture/frame을 직접 설정한다', () => {
     const fake = createPlayerFakeScene();
     const effects = new CombatEffectPool(fake.scene as never);
     const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
@@ -178,7 +196,8 @@ describe('PlayerView bark presentation', () => {
     });
 
     expect(lastPlayerCall(sprite, 'setPosition')).toEqual([55, 66]);
-    expect(lastPlayerCall(sprite, 'setFrame')).toEqual([5]);
+    expect(lastPlayerCall(sprite, 'setTexture')).toEqual(['huchu-attack']);
+    expect(lastPlayerCall(sprite, 'setFrame')).toEqual([1]);
     expect(lastPlayerCall(sprite, 'setDepth')).toEqual([66]);
     expect(sprite.calls.has('on')).toBe(false);
     expect(sprite.calls.has('once')).toBe(false);
@@ -190,10 +209,11 @@ describe('PlayerView bark presentation', () => {
     const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
     const initial = view.effectPoolSnapshot();
 
-    expect(fake.graphics).toHaveLength(BARK_WAVE_POOL_CAPACITY);
+    expect(fake.graphics).toHaveLength(0);
     expect(Array.from({ length: BARK_WAVE_POOL_CAPACITY }, (_, index) => (
       view.showBarkWave({ x: 10, y: 20 }, { x: 100 + index, y: 20 })
     )).every(Boolean)).toBe(true);
+    expect(fake.graphics).toHaveLength(BARK_WAVE_POOL_CAPACITY);
     expect(view.showBarkWave({ x: 10, y: 20 }, { x: 999, y: 20 })).toBe(false);
     expect(view.effectPoolSnapshot()).toEqual({
       ...initial,
@@ -209,7 +229,7 @@ describe('PlayerView bark presentation', () => {
     expect(view.effectPoolSnapshot()).toEqual({ ...initial, active: 0, available: BARK_WAVE_POOL_CAPACITY });
   });
 
-  it('reset과 shutdown은 active wave와 listener를 초기화하고 pool identity를 유지한다', () => {
+  it('explicit reset은 active wave를 반환하고 destroy는 local listener를 정리한다', () => {
     const fake = createPlayerFakeScene();
     const effects = new CombatEffectPool(fake.scene as never);
     const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
@@ -224,6 +244,7 @@ describe('PlayerView bark presentation', () => {
       .toBe(true);
 
     view.showBarkWave({ x: 10, y: 20 }, { x: 100, y: 20 });
+    view.resetCombatVisuals();
     view.destroy();
     expect(view.effectPoolSnapshot()).toEqual({ ...initial, active: 0, available: BARK_WAVE_POOL_CAPACITY });
     expect(fake.sprites.at(-1)!.listenerCount).toBe(0);
@@ -241,9 +262,11 @@ function createPlayerFakeScene(): {
   readonly scene: object;
   readonly sprites: PlayerFakeGameObject[];
   readonly graphics: PlayerFakeGameObject[];
+  readonly bobs: PlayerFakeGameObject[];
 } {
   const sprites: PlayerFakeGameObject[] = [];
   const graphics: PlayerFakeGameObject[] = [];
+  const bobs: PlayerFakeGameObject[] = [];
   const create = (collection: PlayerFakeGameObject[]): object => {
     const fake = createPlayerFakeGameObject();
     collection.push(fake);
@@ -254,11 +277,34 @@ function createPlayerFakeScene(): {
       add: {
         sprite: () => create(sprites),
         graphics: () => create(graphics),
+        blitter: () => createPlayerFakeBlitter(bobs).object,
       },
     },
     sprites,
     graphics,
+    bobs,
   };
+}
+
+function createPlayerFakeBlitter(bobs: PlayerFakeGameObject[]): PlayerFakeGameObject {
+  const calls = new Map<string, unknown[][]>();
+  const fake: PlayerFakeGameObject = { object: {}, calls, listenerCount: 0 };
+  const object = new Proxy({}, {
+    get: (_target, property) => (...args: unknown[]) => {
+      const name = String(property);
+      const history = calls.get(name) ?? [];
+      history.push(args);
+      calls.set(name, history);
+      if (name === 'create') {
+        const bob = createPlayerFakeGameObject();
+        bobs.push(bob);
+        return bob.object;
+      }
+      return object;
+    },
+  });
+  Object.defineProperty(fake, 'object', { value: object });
+  return fake;
 }
 
 function createPlayerFakeGameObject(): PlayerFakeGameObject {

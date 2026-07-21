@@ -1,17 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import {
-  imageAssets,
-  requiredAssetFailureCount,
-  requiredTextureKeys,
-  spriteSheetAssets,
-} from '../../src/game/assets/assetManifest';
+import { requiredAssetFailureCount, requiredTextureKeys } from '../../src/game/assets/assetManifest';
+
+const exactRequiredTextureKeys = [
+  'map-background',
+  'shelter-states',
+  'enemy-trader',
+  'huchu-walk',
+  'huchu-attack',
+  'huchu-tail-swipe',
+  'deokbae-walk',
+  'deokbae-attack',
+  'poop-male-walk',
+  'poop-male-attack',
+  'poop-female-walk',
+  'poop-female-attack',
+  'offleash-male-walk',
+  'offleash-male-attack',
+  'offleash-female-walk',
+  'offleash-female-attack',
+  'breeder-male-walk',
+  'breeder-male-attack',
+  'breeder-female-walk',
+  'breeder-female-attack',
+  'dog-trader-human-walk-north',
+  'dog-trader-human-walk-north-west',
+  'dog-trader-human-walk-west',
+  'dog-trader-human-walk-south-west',
+  'dog-trader-human-walk-south',
+  'dog-trader-human-attack-north',
+  'dog-trader-human-attack-north-west',
+  'dog-trader-human-attack-west',
+  'dog-trader-human-attack-south-west',
+  'dog-trader-human-attack-south',
+  'dog-trader-truck-roll-north',
+  'dog-trader-truck-roll-north-west',
+  'dog-trader-truck-roll-west',
+  'dog-trader-truck-roll-south-west',
+  'dog-trader-truck-roll-south',
+] as const;
 
 describe('required asset status', () => {
   it('모든 manifest texture key를 검사 대상으로 사용한다', () => {
-    expect(requiredTextureKeys).toEqual([
-      ...imageAssets.map(({ key }) => key),
-      ...spriteSheetAssets.map(({ key }) => key),
-    ]);
+    expect(requiredTextureKeys).toEqual(exactRequiredTextureKeys);
   });
 
   it('network load error가 있으면 texture가 있어도 실패한다', () => {

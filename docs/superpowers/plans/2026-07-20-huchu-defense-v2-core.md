@@ -618,11 +618,11 @@ git commit -m "feat: add deterministic V2 auto skill timelines"
 ```ts
 it('다섯 wave의 시간과 계열 총계를 exact하게 보존한다',()=>{
   expect(summarize(WAVE_DEFINITIONS)).toEqual([
-    {poopGuardian:10,offLeashGuardian:0,dogTrader:0,illegalBreeder:0,times:[0,7,14,21,28]},
-    {poopGuardian:6,offLeashGuardian:8,dogTrader:0,illegalBreeder:0,times:[0,7,14,21,28,35,42]},
-    {poopGuardian:8,offLeashGuardian:10,dogTrader:0,illegalBreeder:0,times:[0,8,16,24,32,40]},
-    {poopGuardian:4,offLeashGuardian:6,dogTrader:1,illegalBreeder:0,times:[0,12,24,32]},
-    {poopGuardian:6,offLeashGuardian:8,dogTrader:0,illegalBreeder:1,times:[0,12,24,32,42]},
+    {poopGuardian:10,offLeashGuardian:0,dogTrader:0,illegalBreeder:0,times:[0,10,20,30,40]},
+    {poopGuardian:6,offLeashGuardian:8,dogTrader:0,illegalBreeder:0,times:[0,9,18,27,36,45,56]},
+    {poopGuardian:8,offLeashGuardian:10,dogTrader:0,illegalBreeder:0,times:[0,13,26,39,52,65]},
+    {poopGuardian:4,offLeashGuardian:6,dogTrader:1,illegalBreeder:0,times:[0,20,40,68]},
+    {poopGuardian:6,offLeashGuardian:8,dogTrader:0,illegalBreeder:1,times:[0,20,40,80,110]},
   ]);
 });
 it('한 event는 path를 중복하지 않고 deck 소진 뒤 seeded reshuffle한다',()=>{
@@ -640,11 +640,11 @@ Expected: FAIL with old sub-second schedules, wrong boss waves and missing `Path
 
 ```ts
 export const WAVE_DEFINITIONS=[
-  {wave:1,pathIds:['P1','P2'],groups:[[0,2,0],[7,2,0],[14,2,0],[21,2,0],[28,2,0]]},
-  {wave:2,pathIds:['P1','P2','P3','P4'],groups:[[0,1,1],[7,1,1],[14,1,1],[21,1,1],[28,1,1],[35,1,1],[42,0,2]]},
-  {wave:3,pathIds:['P1','P2','P3','P4','P5','P6'],groups:[[0,1,2],[8,2,1],[16,1,2],[24,1,2],[32,2,1],[40,1,2]]},
-  {wave:4,pathIds:['P1','P2','P3','P4','P5','P6'],groups:[[0,2,2],[12,1,2],[24,1,2],[32,0,0,'dogTrader']]},
-  {wave:5,pathIds:['P1','P2','P3','P4','P5','P6'],groups:[[0,2,2],[12,1,2],[24,1,2],[32,0,0,'illegalBreeder'],[42,2,2]]},
+  {wave:1,pathIds:['P1','P2'],groups:[[0,2,0],[10,2,0],[20,2,0],[30,2,0],[40,2,0]]},
+  {wave:2,pathIds:['P1','P2','P3','P4'],groups:[[0,1,1],[9,1,1],[18,1,1],[27,1,1],[36,1,1],[45,1,1],[56,0,2]]},
+  {wave:3,pathIds:['P1','P2','P3','P4','P5','P6'],groups:[[0,1,2],[13,2,1],[26,1,2],[39,1,2],[52,2,1],[65,1,2]]},
+  {wave:4,pathIds:['P1','P2','P3','P4','P5','P6'],groups:[[0,2,2],[20,1,2],[40,1,2],[68,0,0,'dogTrader']]},
+  {wave:5,pathIds:['P1','P2','P3','P4','P5','P6'],groups:[[0,2,2],[20,1,2],[40,1,2],[80,0,0,'illegalBreeder'],[110,2,2]]},
 ] as const satisfies readonly WaveDefinition[];
 export class PathDeck {
   private deck:PathId[]=[];

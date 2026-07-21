@@ -258,7 +258,7 @@ it('경계 +12도 안에서는 west를 유지하고 넘으면 northWest로 바�
   expect(resolveDirection8(rad(-157.5+12.1), 'west')).toBe('northWest');
 });
 it('5 originals와 3 mirrors가 socket을 frameWidth-x로 바꾼다', () => {
-  expect(resolveDogTraderAsset('attack','east')).toMatchObject({ flipX:true, eventSocket:{x:92,y:130} });
+  expect(resolveDogTraderAsset('attack','east')).toMatchObject({ flipX:true, eventSocket:{x:155,y:136} });
   expect(DOG_TRADER_ENTRIES.filter((e)=>e.source).length).toBe(15);
   expect(DOG_TRADER_ENTRIES.filter((e)=>e.mirrorOf).length).toBe(9);
   const bytes=DOG_TRADER_ENTRIES.filter((e)=>e.source).reduce((n,e)=>n+e.frameCount*256*256*4,0);
@@ -290,9 +290,9 @@ export function resolveDirection8(headingRad:number, previous?:Direction8):Direc
 
 ```ts
 export const ATTACK_SOCKETS = {
-  north:{x:140,y:112}, northWest:{x:151,y:119}, west:{x:164,y:130},
+  north:{x:140,y:112}, northWest:{x:151,y:119}, west:{x:101,y:136},
   southWest:{x:154,y:137}, south:{x:143,y:143},
-  northEast:{x:105,y:119}, east:{x:92,y:130}, southEast:{x:102,y:137},
+  northEast:{x:105,y:119}, east:{x:155,y:136}, southEast:{x:102,y:137},
 } as const;
 export const MIRROR_OF={northEast:'northWest',east:'west',southEast:'southWest'} as const;
 export function resolveDogTraderAsset(action:'walk'|'attack'|'truckRoll',direction:Direction8) {

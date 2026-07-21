@@ -1,6 +1,12 @@
 import type Phaser from 'phaser';
+import { AssetKeys } from '../assets/AssetKeys';
+import { projectileShapeFrame } from '../assets/CombatShapeAtlas';
 import { BALANCE } from '../data/balance';
 import { ObjectPool, type PoolSnapshot } from '../pooling/ObjectPool';
+import {
+  PROJECTILE_WORKLOAD_TOPOLOGY,
+  type ProjectileViewWorkloadCounters,
+} from '../presentation/PresentationWorkloadTelemetry';
 import type { Point } from '../world/Geometry';
 import {
   CombatEffectPool,
@@ -23,6 +29,11 @@ export interface ProjectileVisualTransform {
   readonly angle: number;
 }
 
+interface ProjectileActorTelemetry {
+  readonly stateChanged: () => void;
+  readonly visibilityChanged: (visible: boolean) => void;
+}
+
 export function projectileVisualTransform(
   kind: ProjectileKind,
   start: Point,
@@ -42,16 +53,38 @@ export function projectileVisualTransform(
 }
 
 class ProjectileActor {
-  readonly container: Phaser.GameObjects.Container;
-  private readonly projectileGraphics: Phaser.GameObjects.Graphics;
+  readonly image: Phaser.GameObjects.Image;
   private projectileId = -1;
   private projectileKind: ProjectileKind | undefined;
+  private imageFrame: ReturnType<typeof projectileShapeFrame> | undefined;
   private start: Point = { x: 0, y: 0 };
+  private imageX = 0;
+  private imageY = 0;
+  private imageAngle = 0;
+  private imageDepth = 0;
+  private imageAlpha = 1;
+  private imageActive = false;
+  private imageVisible = false;
 
-  constructor(scene: Phaser.Scene) {
-    this.projectileGraphics = scene.add.graphics();
-    this.container = scene.add.container(0, 0, [this.projectileGraphics]);
-    this.resetProjectile();
+  constructor(
+    scene: Phaser.Scene,
+    private readonly telemetry: ProjectileActorTelemetry,
+  ) {
+    this.image = scene.add.image(0, 0, AssetKeys.combatShapes);
+    try {
+      this.image.setOrigin(0.5, 0.5);
+      this.resetProjectile();
+    } catch (initializationError) {
+      try {
+        this.image.destroy();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [initializationError, cleanupError],
+          'Projectile actor initialization and cleanup both failed',
+        );
+      }
+      throw initializationError;
+    }
   }
 
   render(snapshot: ProjectileSnapshot): void {
@@ -67,85 +100,146 @@ class ProjectileActor {
       SHELTER_CENTER,
     );
     if (this.projectileKind !== snapshot.kind) {
-      this.drawProjectile(snapshot.kind);
+      const frame = projectileShapeFrame(snapshot.kind);
+      if (this.imageFrame !== frame) {
+        this.image.setFrame(frame);
+        this.imageFrame = frame;
+        this.telemetry.stateChanged();
+      }
       this.projectileKind = snapshot.kind;
+      this.setImageAlpha(1);
+      this.setImageActive(true);
+      this.setImageVisible(true);
     }
-    this.container
-      .setPosition(snapshot.x, snapshot.y + transform.offsetY)
-      .setAngle(transform.angle)
-      .setDepth(snapshot.y + 1)
-      .setAlpha(1)
-      .setActive(true)
-      .setVisible(true);
+    this.setImagePosition(snapshot.x, snapshot.y + transform.offsetY);
+    this.setImageAngle(transform.angle);
+    this.setImageDepth(snapshot.y + 1);
+    this.setImageAlpha(1);
+    this.setImageActive(true);
+    this.setImageVisible(true);
   }
 
   resetProjectile(): void {
     this.projectileId = -1;
     this.projectileKind = undefined;
     this.start = { x: 0, y: 0 };
-    this.projectileGraphics.removeAllListeners();
-    this.projectileGraphics.clear();
-    this.projectileGraphics.setAlpha(1).setActive(false).setVisible(false);
-    this.container.removeAllListeners();
-    this.container
-      .setPosition(0, 0)
-      .setDepth(0)
-      .setAlpha(1)
-      .setAngle(0)
-      .setScale(1)
-      .setActive(false)
-      .setVisible(false);
+    runEveryStep([
+      () => this.image.removeAllListeners(),
+      () => this.setImagePosition(0, 0, true),
+      () => this.setImageAngle(0, true),
+      () => this.image.setScale(1),
+      () => this.setImageDepth(0, true),
+      () => this.setImageAlpha(1, true),
+      () => this.setImageActive(false, true),
+      () => this.setImageVisible(false, true),
+    ]);
   }
 
-  private drawProjectile(kind: ProjectileKind): void {
-    this.projectileGraphics.clear().setAlpha(1).setActive(true).setVisible(true);
-    if (kind === 'poop') {
-      this.projectileGraphics
-        .fillStyle(0x75421f, 1)
-        .fillCircle(-3, 2, 5)
-        .fillCircle(2, 0, 5)
-        .fillStyle(0xd39b5d, 0.8)
-        .fillCircle(1, -2, 1.5);
-      return;
-    }
-    if (kind === 'net') {
-      this.projectileGraphics
-        .lineStyle(2, 0xf1d57a, 1)
-        .strokeCircle(0, 0, 10)
-        .beginPath()
-        .moveTo(-7, -7)
-        .lineTo(7, 7)
-        .moveTo(7, -7)
-        .lineTo(-7, 7)
-        .strokePath();
-      return;
-    }
-    this.projectileGraphics
-      .lineStyle(4, 0x55f4ef, 1)
-      .beginPath()
-      .moveTo(-10, -4)
-      .lineTo(-3, -1)
-      .lineTo(-6, 8)
-      .lineTo(10, -5)
-      .lineTo(3, -1)
-      .lineTo(6, -8)
-      .strokePath();
+  destroy(): void {
+    this.image.destroy();
   }
 
+  get isResetSafeForReuse(): boolean {
+    return this.projectileId === -1
+      && this.projectileKind === undefined
+      && !this.imageActive
+      && !this.imageVisible;
+  }
+
+  private setImagePosition(x: number, y: number, force = false): void {
+    const changed = this.imageX !== x || this.imageY !== y;
+    if (!changed && !force) return;
+    this.image.setPosition(x, y);
+    if (!changed) return;
+    this.imageX = x;
+    this.imageY = y;
+    this.telemetry.stateChanged();
+  }
+
+  private setImageAngle(angle: number, force = false): void {
+    const changed = this.imageAngle !== angle;
+    if (!changed && !force) return;
+    this.image.setAngle(angle);
+    if (!changed) return;
+    this.imageAngle = angle;
+    this.telemetry.stateChanged();
+  }
+
+  private setImageDepth(depth: number, force = false): void {
+    const changed = this.imageDepth !== depth;
+    if (!changed && !force) return;
+    this.image.setDepth(depth);
+    if (!changed) return;
+    this.imageDepth = depth;
+    this.telemetry.stateChanged();
+  }
+
+  private setImageAlpha(alpha: number, force = false): void {
+    const changed = this.imageAlpha !== alpha;
+    if (!changed && !force) return;
+    this.image.setAlpha(alpha);
+    if (!changed) return;
+    this.imageAlpha = alpha;
+    this.telemetry.stateChanged();
+  }
+
+  private setImageActive(active: boolean, force = false): void {
+    const changed = this.imageActive !== active;
+    if (!changed && !force) return;
+    this.image.setActive(active);
+    if (!changed) return;
+    this.imageActive = active;
+    this.telemetry.stateChanged();
+  }
+
+  private setImageVisible(visible: boolean, force = false): void {
+    const changed = this.imageVisible !== visible;
+    if (!changed && !force) return;
+    this.image.setVisible(visible);
+    if (!changed) return;
+    this.imageVisible = visible;
+    this.telemetry.visibilityChanged(visible);
+  }
 }
 
 export class ProjectileActorPool {
   private readonly pool: ObjectPool<ProjectileActor>;
   private readonly activeActors = new Map<number, ProjectileActor>();
+  private readonly counters: Mutable<ProjectileViewWorkloadCounters>;
 
   constructor(
     scene: Phaser.Scene,
     private readonly effects: CombatEffectPool,
   ) {
-    this.pool = new ObjectPool(
-      BALANCE.caps.projectiles,
-      () => new ProjectileActor(scene),
-    );
+    this.counters = {
+      topology: PROJECTILE_WORKLOAD_TOPOLOGY,
+      poolInstanceId: 0,
+      allocatedRoots: BALANCE.caps.projectiles,
+      allocatedChildren: 0,
+      active: 0,
+      visibleRoots: 0,
+      visibleLeaves: 0,
+      renderPasses: 0,
+      requestedVisits: 0,
+      visibleRootVisits: 0,
+      stateVersion: 0,
+      activations: 0,
+      releases: 0,
+      rejected: 0,
+    };
+    const telemetry: ProjectileActorTelemetry = {
+      stateChanged: () => {
+        this.counters.stateVersion += 1;
+      },
+      visibilityChanged: (visible) => {
+        this.counters.visibleRoots += visible ? 1 : -1;
+        this.counters.visibleLeaves += visible ? 1 : -1;
+        this.counters.stateVersion += 1;
+      },
+    };
+    this.pool = createProjectileActors(scene, telemetry);
+    this.counters.poolInstanceId = this.pool.snapshot().instanceId;
+    this.counters.stateVersion = 0;
   }
 
   render(snapshots: readonly ProjectileSnapshot[]): void {
@@ -154,10 +248,43 @@ export class ProjectileActorPool {
       if (!desiredIds.has(projectileId)) this.release(projectileId);
     }
     for (const snapshot of snapshots) {
-      const actor = this.acquire(snapshot.id);
-      if (actor === undefined) throw new Error('Projectile actor pool exhausted');
-      actor.render(snapshot);
+      const active = this.activeActors.get(snapshot.id);
+      if (active !== undefined) {
+        active.render(snapshot);
+        continue;
+      }
+      const actor = this.pool.acquire();
+      if (actor === undefined) {
+        this.counters.rejected += 1;
+        throw new Error('Projectile actor pool exhausted');
+      }
+      try {
+        actor.render(snapshot);
+      } catch (renderError) {
+        this.counters.rejected += 1;
+        const rollback = this.resetForRelease(actor);
+        if (rollback.safe) this.pool.release(actor);
+        if (rollback.failed) {
+          throw new AggregateError(
+            [renderError, rollback.error],
+            'Projectile actor render and rollback both failed',
+          );
+        }
+        if (!rollback.safe) {
+          throw new AggregateError(
+            [renderError, new Error('Projectile actor quarantined after render rollback')],
+            'Projectile actor render and rollback both failed',
+          );
+        }
+        throw renderError;
+      }
+      this.activeActors.set(snapshot.id, actor);
+      this.counters.active = this.activeActors.size;
+      this.counters.activations += 1;
     }
+    this.counters.renderPasses += 1;
+    this.counters.requestedVisits += snapshots.length;
+    this.counters.visibleRootVisits += this.counters.visibleRoots;
   }
 
   showHit(projectileId: number, kind: ProjectileKind, position: Point): void {
@@ -184,13 +311,24 @@ export class ProjectileActorPool {
   }
 
   releaseAll(): void {
-    this.activeActors.clear();
-    this.pool.releaseAll((actor) => actor.resetProjectile());
+    this.reset();
     this.effects.releaseType('projectileImpact');
+  }
+
+  reset(): void {
+    runEveryStep(
+      [...this.activeActors.keys()].map((projectileId) => (
+        () => this.release(projectileId)
+      )),
+    );
   }
 
   snapshot(): PoolSnapshot {
     return this.pool.snapshot();
+  }
+
+  workloadCounters(): Readonly<ProjectileViewWorkloadCounters> {
+    return this.counters;
   }
 
   impactPoolSnapshot(): PoolSnapshot {
@@ -205,19 +343,82 @@ export class ProjectileActorPool {
     return this.effects.effectAges('projectileImpact');
   }
 
-  private acquire(projectileId: number): ProjectileActor | undefined {
-    const active = this.activeActors.get(projectileId);
-    if (active !== undefined) return active;
-    const actor = this.pool.acquire();
-    if (actor !== undefined) this.activeActors.set(projectileId, actor);
-    return actor;
-  }
-
   private release(projectileId: number): void {
     const actor = this.activeActors.get(projectileId);
     if (actor === undefined) return;
     this.activeActors.delete(projectileId);
-    actor.resetProjectile();
-    this.pool.release(actor);
+    this.counters.active = this.activeActors.size;
+    const reset = this.resetForRelease(actor);
+    if (reset.safe && this.pool.release(actor)) this.counters.releases += 1;
+    if (reset.failed) throw reset.error;
+    if (!reset.safe) {
+      throw new Error('Projectile actor quarantined after incomplete reset');
+    }
+  }
+
+  private resetForRelease(actor: ProjectileActor): {
+    readonly failed: boolean;
+    readonly error: unknown;
+    readonly safe: boolean;
+  } {
+    let failed = false;
+    let error: unknown;
+    try {
+      actor.resetProjectile();
+    } catch (resetError) {
+      failed = true;
+      error = resetError;
+    }
+    if (failed && !actor.isResetSafeForReuse) {
+      try {
+        actor.resetProjectile();
+      } catch (cleanupError) {
+        error = new AggregateError(
+          [error, cleanupError],
+          'Projectile actor reset and cleanup retry both failed',
+        );
+      }
+    }
+    return { failed, error, safe: actor.isResetSafeForReuse };
+  }
+}
+
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
+
+function runEveryStep(steps: readonly (() => void)[]): void {
+  let failed = false;
+  let firstFailure: unknown;
+  for (const step of steps) {
+    try {
+      step();
+    } catch (error) {
+      if (!failed) firstFailure = error;
+      failed = true;
+    }
+  }
+  if (failed) throw firstFailure;
+}
+
+function createProjectileActors(
+  scene: Phaser.Scene,
+  telemetry: ProjectileActorTelemetry,
+): ObjectPool<ProjectileActor> {
+  const actors: ProjectileActor[] = [];
+  try {
+    return new ObjectPool(BALANCE.caps.projectiles, () => {
+      const actor = new ProjectileActor(scene, telemetry);
+      actors.push(actor);
+      return actor;
+    });
+  } catch (creationError) {
+    try {
+      runEveryStep(actors.map((actor) => () => actor.destroy()));
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [creationError, cleanupError],
+        'Projectile actor allocation and cleanup both failed',
+      );
+    }
+    throw creationError;
   }
 }

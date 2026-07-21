@@ -1,13 +1,12 @@
 import { TIME_EPSILON_MS } from '../constants';
-import { BALANCE, attackImpactMs } from '../data/balance';
+import { attackImpactMs } from '../data/balance';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { Point } from '../world/Geometry';
+import { BARK_CONE_DEGREES, BARK_RANGE_LOGICAL } from './BarkRules';
 import { inCone, selectThreatTarget } from './TargetingSystem';
 
 const WINDUP_MS = attackImpactMs('normal');
 const CADENCE_MS = 800;
-const BARK_RADIUS = BALANCE.player.opaqueHeightLogical * 3;
-const BARK_CONE_DEGREES = 120;
 const DEFAULT_DIRECTION: Point = { x: 0, y: -1 };
 
 type BarkPhase = 'ready' | 'windup' | 'cooldown';
@@ -50,10 +49,15 @@ export class BarkSystem {
 
   step(stepMs: number, context: BarkContext): readonly BarkEvent[] {
     assertFiniteNonNegative(stepMs, 'Bark stepMs');
-    const firstTarget = selectThreatTarget(context.origin, context.enemies, BARK_RADIUS);
-
     const events: BarkEvent[] = [];
-    if (this.phase === 'ready' && !this.start(firstTarget, context.origin, events)) return events;
+    if (
+      this.phase === 'ready'
+      && !this.start(
+        selectThreatTarget(context.origin, context.enemies, BARK_RANGE_LOGICAL),
+        context.origin,
+        events,
+      )
+    ) return events;
 
     let remainingMs = stepMs;
     while (this.phase !== 'ready') {
@@ -82,7 +86,7 @@ export class BarkSystem {
         this.cycleElapsedMs = 0;
         this.lockedTargetId = null;
         this.castId = null;
-        const target = selectThreatTarget(context.origin, context.enemies, BARK_RADIUS);
+        const target = selectThreatTarget(context.origin, context.enemies, BARK_RANGE_LOGICAL);
         if (!this.start(target, context.origin, events)) break;
         if (remainingMs === 0) break;
       }
@@ -145,7 +149,7 @@ export class BarkSystem {
           context.origin,
           this.lastDirection,
           enemy.position,
-          BARK_RADIUS,
+          BARK_RANGE_LOGICAL,
           BARK_CONE_DEGREES,
         )
       ))

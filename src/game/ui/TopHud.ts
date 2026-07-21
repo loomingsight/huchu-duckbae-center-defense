@@ -1,66 +1,96 @@
-import type Phaser from 'phaser';
+import type { MutePort } from './MutePort';
 
 export interface TopHudModel {
-  readonly shelterHp: number;
   readonly wave: number;
-  readonly snacks: number;
+  readonly simulationMs: number;
 }
 
 export interface TopHudSnapshot {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-  readonly text: string;
-  readonly interactive: boolean;
+  readonly waveText: string;
+  readonly timeText: string;
+  readonly muted: boolean;
 }
 
-export function formatTopHud(model: TopHudModel): string {
-  if (
-    !Number.isFinite(model.shelterHp)
-    || !Number.isSafeInteger(model.wave)
-    || !Number.isSafeInteger(model.snacks)
-  ) {
-    throw new RangeError('Invalid top HUD model');
+export function formatElapsedTime(simulationMs: number): string {
+  if (!Number.isFinite(simulationMs) || simulationMs < 0) {
+    throw new RangeError('HUD simulationMs must be finite and non-negative');
   }
-  return `보호소 HP ${model.shelterHp}/100   WAVE ${model.wave}/5   간식 ${model.snacks}`;
+  const totalSeconds = Math.floor(simulationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 export class TopHud {
-  private readonly text: Phaser.GameObjects.Text;
-  private renderedText = '';
+  private readonly element: HTMLElement;
+  private readonly wave: HTMLElement;
+  private readonly time: HTMLElement;
+  private readonly mute: HTMLButtonElement;
+  private readonly onToggle = (): void => this.mutePort.toggle();
+  private readonly unsubscribe: () => void;
+  private model: TopHudSnapshot = { waveText: 'WAVE 1/5', timeText: '00:00', muted: false };
+  private renderedWaveText: string | null = null;
+  private renderedTimeText: string | null = null;
+  private renderedMuted: boolean | null = null;
+  private destroyed = false;
 
-  constructor(scene: Phaser.Scene) {
-    this.text = scene.add.text(12, 12, '', {
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '14px',
-      color: '#ffffff',
-      stroke: '#34291f',
-      strokeThickness: 3,
-    }).setDepth(1800).setName('top-hud');
+  constructor(
+    parent: HTMLElement,
+    documentRef: Document,
+    private readonly mutePort: MutePort,
+  ) {
+    this.element = documentRef.createElement('div');
+    this.element.className = 'top-hud';
+    this.wave = documentRef.createElement('span');
+    this.wave.className = 'top-hud__wave';
+    this.time = documentRef.createElement('time');
+    this.time.className = 'top-hud__time';
+    this.mute = documentRef.createElement('button');
+    this.mute.className = 'top-hud__mute';
+    this.mute.setAttribute('type', 'button');
+    this.mute.addEventListener('click', this.onToggle);
+    this.element.append(this.wave, this.time, this.mute);
+    parent.appendChild(this.element);
+    this.unsubscribe = mutePort.subscribe((muted) => this.renderMute(muted));
+    this.renderMute(mutePort.muted());
   }
 
-  render(model: TopHudModel): void {
-    const nextText = formatTopHud(model);
-    if (nextText === this.renderedText) return;
-    this.renderedText = nextText;
-    this.text.setText(nextText);
+  render(input: TopHudModel): void {
+    if (this.destroyed) return;
+    if (!Number.isSafeInteger(input.wave) || input.wave < 1 || input.wave > 5) {
+      throw new RangeError('HUD wave must be an integer from 1 to 5');
+    }
+    const waveText = `WAVE ${input.wave}/5`;
+    const timeText = formatElapsedTime(input.simulationMs);
+    this.model = { waveText, timeText, muted: this.model.muted };
+    if (this.renderedWaveText !== waveText) {
+      this.renderedWaveText = waveText;
+      this.wave.textContent = waveText;
+    }
+    if (this.renderedTimeText !== timeText) {
+      this.renderedTimeText = timeText;
+      this.time.textContent = timeText;
+    }
+    this.renderMute(this.mutePort.muted());
   }
 
   snapshot(): TopHudSnapshot {
-    const bounds = this.text.getBounds();
-    return {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-      text: this.text.text,
-      interactive: this.text.input?.enabled === true,
-    };
+    return { ...this.model };
   }
 
   destroy(): void {
-    this.text.removeAllListeners();
-    this.text.destroy();
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.mute.removeEventListener('click', this.onToggle);
+    this.unsubscribe();
+    this.element.remove();
+  }
+
+  private renderMute(muted: boolean): void {
+    this.model = { ...this.model, muted };
+    if (this.renderedMuted === muted) return;
+    this.renderedMuted = muted;
+    this.mute.textContent = muted ? '소리 켜기' : '음소거';
+    this.mute.setAttribute('aria-pressed', String(muted));
   }
 }

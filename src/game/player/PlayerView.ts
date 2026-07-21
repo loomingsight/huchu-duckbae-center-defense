@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { animationEntry, animationFrameAt } from '../assets/AnimationManifest';
 import { AssetKeys } from '../assets/AssetKeys';
 import {
   BARK_WAVE_CONE_DEGREES,
@@ -10,16 +11,14 @@ import {
 import { BALANCE } from '../data/balance';
 import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { Point } from '../world/Geometry';
-import {
-  attackFrameAt,
-  idleBreathScale,
-  loopFrame,
-} from '../world/AnimationFrameResolver';
+import { idleBreathScale } from '../world/AnimationFrameResolver';
+import { HUCHU_PRESENTATION } from '../presentation/PresentationConfig';
 import type { PlayerSnapshot } from './PlayerTypes';
 
-const SOURCE_FRAME_HEIGHT = 256;
-const DISPLAY_HEIGHT = 72;
-const BASE_SCALE = DISPLAY_HEIGHT / SOURCE_FRAME_HEIGHT;
+const WALK_ENTRY = animationEntry(AssetKeys.huchuWalk);
+const ATTACK_ENTRY = animationEntry(AssetKeys.huchuAttack);
+const TAIL_ENTRY = animationEntry(AssetKeys.huchuTailSwipe);
+const BASE_SCALE = HUCHU_PRESENTATION.dogOpaqueHeightLogical / WALK_ENTRY.opaqueHeightPx;
 export const BARK_WAVE_POOL_CAPACITY = BALANCE.caps.particles;
 export { BARK_WAVE_CONE_DEGREES, BARK_WAVE_DURATION_MS, barkWaveVisualAt };
 export type { BarkWaveVisual };
@@ -28,6 +27,10 @@ export interface PlayerRenderSnapshot extends PlayerSnapshot {
   readonly worldAnimationMs: number;
   readonly moving: boolean;
   readonly barkElapsedMs?: number;
+  readonly bodyAction?: {
+    readonly kind: 'tailSwipe' | 'aquaBeam';
+    readonly elapsedMs: number;
+  };
 }
 
 export class PlayerView {
@@ -39,24 +42,30 @@ export class PlayerView {
     private readonly effects: CombatEffectPool,
   ) {
     this.sprite = scene.add
-      .sprite(initial.x, initial.y, AssetKeys.huchu, 0)
+      .sprite(initial.x, initial.y, AssetKeys.huchuWalk, 0)
       .setOrigin(0.5, 1)
       .setScale(BASE_SCALE)
       .setDepth(initial.y);
   }
 
   render(snapshot: PlayerRenderSnapshot): void {
-    const attacking = snapshot.barkElapsedMs !== undefined;
-    const frame = attacking
-      ? attackFrameAt(snapshot.barkElapsedMs)
-      : snapshot.moving
-        ? loopFrame(snapshot.worldAnimationMs, 6, 0, 4)
-        : 0;
+    const attacking = snapshot.bodyAction !== undefined || snapshot.barkElapsedMs !== undefined;
+    const entry = snapshot.bodyAction?.kind === 'tailSwipe'
+      ? TAIL_ENTRY
+      : attacking ? ATTACK_ENTRY : WALK_ENTRY;
+    const frame = animationFrameAt(
+      entry,
+      snapshot.bodyAction?.elapsedMs
+        ?? (snapshot.barkElapsedMs !== undefined
+          ? snapshot.barkElapsedMs
+          : snapshot.moving ? snapshot.worldAnimationMs : 0),
+    );
     const breathScale = snapshot.moving || attacking
       ? 1
       : idleBreathScale(snapshot.worldAnimationMs);
     this.sprite
       .setPosition(snapshot.x, snapshot.y)
+      .setTexture(entry.key)
       .setFrame(frame)
       .setScale(BASE_SCALE * breathScale)
       .setDepth(snapshot.y);
@@ -83,7 +92,6 @@ export class PlayerView {
   }
 
   destroy(): void {
-    this.resetCombatVisuals();
     this.sprite.removeAllListeners();
   }
 }

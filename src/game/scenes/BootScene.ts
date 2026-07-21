@@ -1,9 +1,21 @@
 import Phaser from 'phaser';
-import { ensureSkillIconTextures } from '../assets/SkillIconTextures';
+import { GAME_AUDIO_REGISTRY_KEY } from '../audio/AudioRegistry';
+import { AudioSystem } from '../audio/AudioSystem';
+import {
+  E2E_AUDIO_TEST_PORT_REGISTRY_KEY,
+  E2eAudioTestPort,
+} from '../debug/E2eAudioTestPort';
+import { installE2eTitleAudioProbe } from '../debug/E2eTitleAudioProbe';
 import { PATH_DEFINITIONS } from '../data/pathDefinitions';
 import { validateGameData } from '../data/validateGameData';
 import { WAVE_DEFINITIONS } from '../data/waveDefinitions';
 import { RuntimeErrorOverlay } from '../ui/RuntimeErrorOverlay';
+import type { StoragePort } from '../audio/AudioTypes';
+
+const UNAVAILABLE_STORAGE: StoragePort = {
+  getItem: () => null,
+  setItem: () => undefined,
+};
 
 export class BootScene extends Phaser.Scene {
   private generation = 0;
@@ -18,6 +30,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.installAudioSystem();
     const generation = this.generation;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.generation += 1;
@@ -48,7 +61,30 @@ export class BootScene extends Phaser.Scene {
       return;
     }
 
-    ensureSkillIconTextures(this);
     this.scene.start('Preload');
+  }
+
+  private installAudioSystem(): void {
+    if (this.registry === undefined || this.registry.get(GAME_AUDIO_REGISTRY_KEY) !== undefined) return;
+    const audioPort = import.meta.env.MODE === 'e2e' ? new E2eAudioTestPort() : undefined;
+    const audio = new AudioSystem(
+      () => new AudioContext(),
+      this.resolveStorage(),
+      audioPort === undefined ? {} : { bgmTransportFactory: audioPort },
+    );
+    audioPort?.bindTickTransport(() => audio.tickTransport());
+    this.registry.set(GAME_AUDIO_REGISTRY_KEY, audio);
+    if (audioPort !== undefined) {
+      this.registry.set(E2E_AUDIO_TEST_PORT_REGISTRY_KEY, audioPort);
+      installE2eTitleAudioProbe(audio);
+    }
+  }
+
+  private resolveStorage(): StoragePort {
+    try {
+      return window.localStorage;
+    } catch {
+      return UNAVAILABLE_STORAGE;
+    }
   }
 }

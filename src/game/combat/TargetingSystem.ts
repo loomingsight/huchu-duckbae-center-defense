@@ -9,12 +9,12 @@ export interface RankedTarget {
 const ENEMY_STATES = new Set<string>(['moving', 'windup', 'holding', 'dead']);
 
 export function compareThreat(left: RankedTarget, right: RankedTarget): number {
-  return left.enemy.etaMs - right.enemy.etaMs
-    || Number(isAttacking(right.enemy)) - Number(isAttacking(left.enemy))
-    || Number(right.enemy.isBoss) - Number(left.enemy.isBoss)
-    || left.distanceToOrigin - right.distanceToOrigin
-    || left.enemy.spawnSequence - right.enemy.spawnSequence
-    || left.enemy.id - right.enemy.id;
+  return compareThreatValues(
+    left.enemy,
+    left.distanceToOrigin,
+    right.enemy,
+    right.distanceToOrigin,
+  );
 }
 
 export function selectThreatTarget(
@@ -22,7 +22,22 @@ export function selectThreatTarget(
   enemies: readonly EnemySnapshot[],
   range = Number.POSITIVE_INFINITY,
 ): EnemySnapshot | undefined {
-  return rankThreatTargets(origin, enemies, range).at(0)?.enemy;
+  assertPoint(origin, 'Targeting origin');
+  let selected: EnemySnapshot | undefined;
+  let selectedDistance = 0;
+  for (const enemy of enemies) {
+    const distanceToOrigin = candidateDistance(origin, enemy);
+    if (enemy.state === 'dead' || distanceToOrigin > range) continue;
+    if (
+      selected === undefined
+      || compareThreatValues(enemy, distanceToOrigin, selected, selectedDistance) < 0
+    ) {
+      selected = enemy;
+      selectedDistance = distanceToOrigin;
+    }
+  }
+  assertRange(range);
+  return selected;
 }
 
 export function rankThreatTargets(
@@ -43,11 +58,38 @@ export function rankHighestHpTargets(
 ): readonly RankedTarget[] {
   return rankedCandidates(origin, enemies)
     .filter(({ enemy }) => enemy.state !== 'dead')
-    .sort((left, right) => (
-      right.enemy.currentHp - left.enemy.currentHp
-      || Number(right.enemy.isBoss) - Number(left.enemy.isBoss)
-      || compareThreat(left, right)
-    ));
+    .sort(compareHighestHp);
+}
+
+export function selectHighestHpTarget(
+  origin: Point,
+  enemies: readonly EnemySnapshot[],
+): EnemySnapshot | undefined {
+  assertPoint(origin, 'Targeting origin');
+  let selected: EnemySnapshot | undefined;
+  let selectedDistance = 0;
+  for (const enemy of enemies) {
+    const distanceToOrigin = candidateDistance(origin, enemy);
+    if (enemy.state === 'dead') continue;
+    if (
+      selected === undefined
+      || compareHighestHpValues(enemy, distanceToOrigin, selected, selectedDistance) < 0
+    ) {
+      selected = enemy;
+      selectedDistance = distanceToOrigin;
+    }
+  }
+  return selected;
+}
+
+export function validateTargetingCandidates(
+  origin: Point,
+  enemies: readonly EnemySnapshot[],
+): void {
+  assertPoint(origin, 'Targeting origin');
+  for (const enemy of enemies) {
+    candidateDistance(origin, enemy);
+  }
 }
 
 export function inCone(
@@ -81,17 +123,55 @@ function rankedCandidates(
 ): RankedTarget[] {
   assertPoint(origin, 'Targeting origin');
   return enemies.map((enemy): RankedTarget => {
-    assertCandidate(enemy);
-    const distanceToOrigin = distance(origin, enemy.position);
-    if (!Number.isFinite(distanceToOrigin)) {
-      throw new RangeError('Targeting distance must be finite');
-    }
-    return { enemy, distanceToOrigin };
+    return { enemy, distanceToOrigin: candidateDistance(origin, enemy) };
   });
 }
 
 function isAttacking(enemy: EnemySnapshot): boolean {
   return enemy.state === 'windup' || enemy.state === 'holding';
+}
+
+function compareHighestHp(left: RankedTarget, right: RankedTarget): number {
+  return compareHighestHpValues(
+    left.enemy,
+    left.distanceToOrigin,
+    right.enemy,
+    right.distanceToOrigin,
+  );
+}
+
+function compareHighestHpValues(
+  left: EnemySnapshot,
+  leftDistance: number,
+  right: EnemySnapshot,
+  rightDistance: number,
+): number {
+  return right.currentHp - left.currentHp
+    || Number(right.isBoss) - Number(left.isBoss)
+    || compareThreatValues(left, leftDistance, right, rightDistance);
+}
+
+function compareThreatValues(
+  left: EnemySnapshot,
+  leftDistance: number,
+  right: EnemySnapshot,
+  rightDistance: number,
+): number {
+  return left.etaMs - right.etaMs
+    || Number(isAttacking(right)) - Number(isAttacking(left))
+    || Number(right.isBoss) - Number(left.isBoss)
+    || leftDistance - rightDistance
+    || left.spawnSequence - right.spawnSequence
+    || left.id - right.id;
+}
+
+function candidateDistance(origin: Point, enemy: EnemySnapshot): number {
+  assertCandidate(enemy);
+  const distanceToOrigin = distance(origin, enemy.position);
+  if (!Number.isFinite(distanceToOrigin)) {
+    throw new RangeError('Targeting distance must be finite');
+  }
+  return distanceToOrigin;
 }
 
 function assertCandidate(enemy: EnemySnapshot): void {

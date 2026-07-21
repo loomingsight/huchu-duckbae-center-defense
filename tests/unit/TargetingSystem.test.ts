@@ -2,6 +2,7 @@ import {
   inCone,
   rankHighestHpTargets,
   rankThreatTargets,
+  selectHighestHpTarget,
   selectThreatTarget,
 } from '../../src/game/combat/TargetingSystem';
 import { enemy } from './fixtures';
@@ -32,6 +33,22 @@ describe('TargetingSystem', () => {
     expect(ranked.map(({ enemy: target }) => target.id)).toEqual([2, 9]);
   });
 
+  it('단일 threat 선택은 전체 정렬 없이 같은 최상위 대상을 반환한다', () => {
+    const candidates = [
+      enemy({ id: 3, etaMs: 500, position: { x: 10, y: 0 } }),
+      enemy({ id: 2, etaMs: 400, position: { x: 100, y: 0 } }),
+      enemy({ id: 1, etaMs: 400, state: 'dead', currentHp: 0, position: { x: 1, y: 0 } }),
+    ];
+    const sort = vi.spyOn(Array.prototype, 'sort');
+
+    try {
+      expect(selectThreatTarget({ x: 0, y: 0 }, candidates, 216)?.id).toBe(2);
+      expect(sort).not.toHaveBeenCalled();
+    } finally {
+      sort.mockRestore();
+    }
+  });
+
   it('아쿠아빔 표적은 최고 HP 뒤 boss와 보호소 위협도로 동률을 푼다', () => {
     const ranked = rankHighestHpTargets({ x: 0, y: 0 }, [
       enemy({ id: 1, currentHp: 200, isBoss: false, etaMs: 100 }),
@@ -50,6 +67,27 @@ describe('TargetingSystem', () => {
     ]);
 
     expect(ranked.map(({ enemy: target }) => target.id)).toEqual([2, 3, 4]);
+  });
+
+  it('단일 최고 HP 선택은 전체 정렬 없이 HP -> boss -> threat 동률 규칙을 그대로 따른다', () => {
+    const candidates = [
+      enemy({ id: 9, currentHp: 999, state: 'dead', position: { x: 1, y: 0 } }),
+      enemy({ id: 8, currentHp: 200, isBoss: false, etaMs: 1, position: { x: 1, y: 0 } }),
+      enemy({ id: 7, currentHp: 200, isBoss: true, etaMs: 20, position: { x: 1, y: 0 } }),
+      enemy({ id: 6, currentHp: 200, isBoss: true, etaMs: 10, position: { x: 10, y: 0 } }),
+      enemy({ id: 5, currentHp: 200, isBoss: true, etaMs: 10, position: { x: 5, y: 0 }, spawnSequence: 2 }),
+      enemy({ id: 4, currentHp: 200, isBoss: true, etaMs: 10, position: { x: 5, y: 0 }, spawnSequence: 1 }),
+    ];
+    const originalOrder = candidates.map(({ id }) => id);
+    const sort = vi.spyOn(Array.prototype, 'sort');
+
+    try {
+      expect(selectHighestHpTarget({ x: 0, y: 0 }, candidates)).toBe(candidates[5]);
+      expect(sort).not.toHaveBeenCalled();
+      expect(candidates.map(({ id }) => id)).toEqual(originalOrder);
+    } finally {
+      sort.mockRestore();
+    }
   });
 
   it('사거리 경계를 포함하고 밖의 적과 dead 적은 제외한다', () => {

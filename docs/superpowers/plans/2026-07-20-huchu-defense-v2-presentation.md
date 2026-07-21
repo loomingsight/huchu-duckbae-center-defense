@@ -150,7 +150,7 @@ Replace every visible title/root label with:
 
 ```html
 <title>후추덕배 디펜스</title>
-<main id="game-root" aria-label="후추덕배 디펜스 게임"></main>
+<main id="game-root" aria-label="후추덕배 디펜스"></main>
 ```
 
 Title heading and both initial/restart buttons are `후추덕배 디펜스` and `보호소 지키기`; ResultScene includes the game title above the outcome. `MapView` remains one `540 × 960` image with no runtime tint/filter.

@@ -2,7 +2,7 @@ import { GameStateMachine } from '../../src/game/core/GameStateMachine';
 import { WorldPauseController } from '../../src/game/lifecycle/WorldPauseController';
 
 describe('WorldPauseController', () => {
-  it('selection은 world runtime을 멈추고 countdown 종료만 다시 움직인다', () => {
+  it('playing 외 네 mode는 world runtime을 멈춘다', () => {
     const calls: boolean[] = [];
     const state = new GameStateMachine('playing');
     const controller = new WorldPauseController(
@@ -10,15 +10,13 @@ describe('WorldPauseController', () => {
       { setPaused: (value) => calls.push(value) },
     );
 
-    state.transition('skillSelection');
-    controller.sync();
-    state.transition('countdown');
-    controller.sync();
-    expect(calls).toEqual([true]);
-    state.transition('playing');
-    controller.sync();
-
-    expect(calls).toEqual([true, false]);
+    for (const mode of ['countdown', 'visibilityPause', 'won', 'lost'] as const) {
+      state.reset(mode);
+      controller.sync();
+      state.reset('playing');
+      controller.sync();
+    }
+    expect(calls).toEqual([true, false, true, false, true, false, true, false]);
   });
 
   it('playing에서 countdown으로 바로 들어가도 world를 멈춘다', () => {
@@ -41,7 +39,7 @@ describe('WorldPauseController', () => {
     const controller = new WorldPauseController(state, {
       setPaused: (value) => calls.push(value),
     });
-    state.transition('skillSelection');
+    state.transition('countdown');
     controller.sync();
 
     controller.reset();

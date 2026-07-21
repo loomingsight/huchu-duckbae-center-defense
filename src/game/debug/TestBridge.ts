@@ -1,143 +1,165 @@
+import type { AudioSnapshot } from '../audio/AudioTypes';
 import { FIXED_STEP_MS } from '../constants';
-import type { GameMode } from '../core/GameMode';
-import {
-  ENEMY_HP_BAR_HEIGHT,
-  ENEMY_HP_BAR_WIDTH,
-  enemyHpColor,
-  enemyHpRatio,
-} from '../enemies/EnemyHpBar';
+import type { DogTraderRigTelemetrySnapshot } from '../enemies/DogTraderRigTelemetry';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
+import type { PresentationTelemetrySnapshot } from '../presentation/PresentationTelemetry';
+import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
-import type { PoolSnapshot } from '../pooling/ObjectPool';
-import type { ProjectileImpactSnapshot } from '../combat/ProjectileActorPool';
+import type { PurchasableSkillId } from '../types/GameTypes';
 import type { HudSnapshot } from '../ui/HudSystem';
-import { shelterFrameFor } from '../shelter/ShelterView';
-import { shelterVisualState } from '../shelter/ShelterSystem';
-import type {
-  ScenarioEnemySeed,
-  ScenarioScenePort,
-  ScenarioWaveSchedule,
-} from './ScenarioSessionPort';
+import { runCleanupSteps } from '../scenes/SceneRuntimeLifecycle';
+import type { E2eAudioStressSnapshot } from './E2eAudioStressLoadController';
+import type { E2ePresentationStressSnapshot } from './E2ePresentationStressController';
 import { ManualStepScheduler } from './ManualStepScheduler';
 import { loadScenario, type SessionScenarioRuntime } from './ScenarioFactory';
-import type {
-  GameDebugEvent,
-  GameDebugSnapshot,
-  HuchuTestBridge,
-  TestScenarioId,
-} from './TestContract';
-
-type DebugEventPayload<T extends GameDebugEvent = GameDebugEvent> = T extends GameDebugEvent
-  ? Omit<T, 'sequence' | 'atMs'>
-  : never;
+import type { ScenarioEnemySeed, ScenarioScenePort, ScenarioWaveSchedule } from './ScenarioSessionPort';
+import type { GameDebugEvent, GameDebugSnapshot, HuchuTestBridge, TestScenarioId } from './TestContract';
 
 interface SessionScenePort {
   readonly scene: { restart(): void };
-  advanceSimulationStep(stepMs: number): readonly GameEvent[];
+  advanceSimulationStep(
+    stepMs: number,
+    renderHudAfterStep?: boolean,
+  ): readonly GameEvent[];
+  advanceLogicalBatchForTest(
+    stepCount: number,
+    input: Readonly<{ x: number; y: number }>,
+  ): readonly LogicalBatchEvent[];
   resetSession(seed: number): void;
   resetPlayer(x: number, y: number): void;
   playerSnapshot(): PlayerSnapshot;
   sessionSnapshot(): RunSnapshot;
-  currentModeSnapshot(): GameMode;
+  currentModeSnapshot(): RunSnapshot['mode'];
   simulationMsSnapshot(): number;
-  enemyActorPoolSnapshot(): PoolSnapshot;
-  projectileActorPoolSnapshot(): PoolSnapshot;
-  projectileImpactSnapshots(): readonly ProjectileImpactSnapshot[];
-  shelterShakeOffsetSnapshot(): number;
-  combatEffectsSnapshot(): PoolSnapshot;
-  combatEffectPoolSnapshot(): PoolSnapshot;
   hudSnapshot(): HudSnapshot;
-  skillCardsSnapshot(): GameDebugSnapshot['cards'];
-  skillCooldownProgressSnapshot(): GameDebugSnapshot['cooldownProgress'];
-  countdownSnapshot(): GameDebugSnapshot['countdown'];
-  worldClocksSnapshot(): GameDebugSnapshot['worldClocks'];
+  presentationTelemetryForTest(): PresentationTelemetrySnapshot;
+  renderedVisibleEnemyLabelCount(): number;
+  dogTraderRigTelemetry(): DogTraderRigTelemetrySnapshot;
+  audioSnapshot(): AudioSnapshot;
+  audioStressSnapshot(): E2eAudioStressSnapshot | null;
+  presentationStressSnapshot(): E2ePresentationStressSnapshot | null;
+  armPresentationStress(): void;
+  startAudioStress(): Promise<void>;
+  resetAudioStress(): void;
+  startPresentationStress(): void;
+  setAcceleratedAudio(enabled: boolean): void;
+  advanceAudioFromGameMs(gameMs: number): void;
+  queueSkillPurchaseForTest(skillId: PurchasableSkillId): SkillPurchaseResult;
   scenarioAdapter(): ScenarioScenePort;
   onSessionReset(listener: () => void): () => void;
   setVisibilityForTest(hidden: boolean): void;
-  forceModeForTest(mode: GameMode): void;
   waitForRenderFlush(): Promise<void>;
 }
 
-class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
+export interface LogicalBatchEvent {
+  readonly event: GameEvent;
+  readonly atSimulationMs: number;
+}
+
+export class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   readonly ready: Promise<void>;
   private readonly scheduler = new ManualStepScheduler();
   private readonly eventLog: GameDebugEvent[] = [];
   private nextSequence = 1;
   private waveAutoClear = false;
   private stressMaintenance = false;
+  private activeScenario: TestScenarioId = 'empty-run';
+  private loadingScenario = false;
   private readonly removeSessionResetListener: () => void;
   private readonly scenario: ScenarioScenePort;
 
-  constructor(
-    private readonly scene: SessionScenePort,
-    readonly seed: number,
-  ) {
-    this.scenario = scene.scenarioAdapter();
-    this.removeSessionResetListener = scene.onSessionReset(() => {
-      this.stopScenarioMaintainers();
+  constructor(private readonly scenePort: SessionScenePort, readonly seed: number) {
+    this.scenario = scenePort.scenarioAdapter();
+    this.removeSessionResetListener = scenePort.onSessionReset(() => {
+      if (this.loadingScenario) return;
+      runCleanupSteps([
+        () => this.stopScenarioMaintainers(),
+        () => this.scenario.resetScenarioPresentation(),
+      ]);
     });
-    this.ready = scene.waitForRenderFlush();
+    this.ready = scenePort.waitForRenderFlush();
   }
 
   dispose(): void {
-    this.removeSessionResetListener();
+    runCleanupSteps([
+      () => this.stopScenarioMaintainers(),
+      () => this.removeSessionResetListener(),
+    ]);
   }
 
   async loadScenario(id: TestScenarioId): Promise<void> {
-    loadScenario(this, id);
-    await this.scene.waitForRenderFlush();
+    this.loadingScenario = true;
+    this.activeScenario = 'empty-run';
+    try {
+      await loadScenario(this, id);
+      this.activeScenario = id;
+      await this.scenePort.waitForRenderFlush();
+    } catch (error) {
+      this.failCloseScenario();
+      throw error;
+    } finally {
+      this.loadingScenario = false;
+    }
   }
 
   async advance(ms: number): Promise<void> {
-    this.advanceTicks(ms);
-    await this.scene.waitForRenderFlush();
+    const gameMs = this.advanceTicks(ms);
+    this.scenePort.advanceAudioFromGameMs(gameMs);
+    await this.scenePort.waitForRenderFlush();
   }
 
   advanceWithoutFlush(ms: number): void {
     if (!this.stressMaintenance) {
       throw new Error('advanceWithoutFlush is only available for the stress scenario');
     }
-    this.advanceTicks(ms);
+    const gameMs = this.advanceTicks(ms);
+    this.scenePort.advanceAudioFromGameMs(gameMs);
+  }
+
+  async advanceSimulationBatch(
+    stepCount: number,
+    input: Readonly<{ x: number; y: number }>,
+  ): Promise<void> {
+    if (this.activeScenario !== 'full-run') {
+      throw new Error('advanceSimulationBatch is only available for the full-run scenario');
+    }
+    const events = this.scenePort.advanceLogicalBatchForTest(stepCount, input);
+    events.forEach(({ event, atSimulationMs }) => this.appendSessionEvent(event, atSimulationMs));
+    this.scenePort.advanceAudioFromGameMs(stepCount * FIXED_STEP_MS);
+  }
+
+  prepareTerminalTieForTest(): void {
+    if (this.activeScenario !== 'full-run') {
+      throw new Error('prepareTerminalTieForTest is only available for the full-run scenario');
+    }
+    this.scenario.prepareTerminalTie();
+  }
+
+  async purchaseSkill(id: PurchasableSkillId): Promise<SkillPurchaseResult> {
+    return this.scenePort.queueSkillPurchaseForTest(id);
   }
 
   snapshot(): GameDebugSnapshot {
-    const run = this.scene.sessionSnapshot();
-    const enemyPool = this.scene.enemyActorPoolSnapshot();
-    const projectilePool = this.scene.projectileActorPoolSnapshot();
-    const simulationProjectilePool = this.scenario.projectilePoolTelemetry();
-    const effectPool = this.scene.combatEffectPoolSnapshot();
+    const presentation = this.scenePort.presentationTelemetryForTest();
     return {
-      ...run,
-      enemies: run.enemies.map((enemy) => ({
-        ...enemy,
-        hpBar: {
-          visible: true,
-          width: ENEMY_HP_BAR_WIDTH,
-          height: ENEMY_HP_BAR_HEIGHT,
-          color: enemyHpColor(enemyHpRatio(enemy.currentHp, enemy.maxHp)),
-        },
-      })),
-      player: this.scene.playerSnapshot(),
-      enemyPool,
-      projectilePool,
-      projectileImpacts: this.scene.projectileImpactSnapshots(),
-      shelterShakeOffset: this.scene.shelterShakeOffsetSnapshot(),
-      barkWavePool: this.scene.combatEffectsSnapshot(),
-      combatEffectPool: effectPool,
-      combatEffectImpacts: this.scenario.effectImpacts(),
+      run: this.scenePort.sessionSnapshot(),
+      player: this.scenePort.playerSnapshot(),
+      hud: this.scenePort.hudSnapshot(),
+      audio: this.scenePort.audioSnapshot(),
+      audioStress: this.stressMaintenance ? this.scenePort.audioStressSnapshot() : null,
+      presentationStress: this.scenePort.presentationStressSnapshot(),
+      traderRig: this.scenePort.dogTraderRigTelemetry(),
       pools: {
-        enemies: enemyPool,
-        projectiles: simulationProjectilePool,
-        effects: effectPool,
+        enemies: presentation.enemies,
+        labels: presentation.labels,
+        projectiles: presentation.projectiles,
+        effects: presentation.effects,
+        damageNumbers: presentation.damageNumbers,
       },
-      runtime: { sessionInstanceId: objectIdentity(this.scenario.sessionIdentity()) },
-      shelterFrame: shelterFrameFor(shelterVisualState(run.shelterHp, 100)),
-      hud: this.scene.hudSnapshot(),
-      cards: this.scene.skillCardsSnapshot(),
-      cooldownProgress: this.scene.skillCooldownProgressSnapshot(),
-      countdown: this.scene.countdownSnapshot(),
-      worldClocks: this.scene.worldClocksSnapshot(),
+      labelBindings: presentation.labelBindings,
+      renderedVisibleEnemyLabels: this.scenePort.renderedVisibleEnemyLabelCount(),
+      listenerCount: presentation.listenerCount,
     };
   }
 
@@ -146,34 +168,36 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
   }
 
   async simulateVisibility(hidden: boolean): Promise<void> {
-    const previousMode = this.scene.currentModeSnapshot();
-    this.scene.setVisibilityForTest(hidden);
-    const currentMode = this.scene.currentModeSnapshot();
-    if (currentMode !== previousMode) {
-      this.appendEvent({ type: 'modeChanged', mode: currentMode });
-    }
-    await this.scene.waitForRenderFlush();
+    this.scenePort.setVisibilityForTest(hidden);
+    await this.scenePort.waitForRenderFlush();
   }
 
   stepSceneOnceForTest(): void {
-    this.scene.advanceSimulationStep(FIXED_STEP_MS);
-  }
-
-  forceModeForTest(mode: GameMode): void {
-    this.scene.forceModeForTest(mode);
+    const events = this.scenePort.advanceSimulationStep(FIXED_STEP_MS);
+    events.forEach((event) => this.appendSessionEvent(event));
+    this.scenePort.advanceAudioFromGameMs(FIXED_STEP_MS);
   }
 
   restartScene(): void {
-    this.scene.scene.restart();
+    this.activeScenario = 'empty-run';
+    this.scheduler.reset();
+    runCleanupSteps([
+      () => this.stopScenarioMaintainers(),
+      () => this.scenario.resetScenarioPresentation(),
+      () => this.scenePort.scene.restart(),
+    ]);
   }
 
-  resetManualScheduler(): void {
-    this.scheduler.reset();
+  async setAcceleratedAudio(enabled: boolean): Promise<void> {
+    this.scenePort.setAcceleratedAudio(enabled);
   }
+
+  resetManualScheduler(): void { this.scheduler.reset(); }
 
   stopScenarioMaintainers(): void {
     this.waveAutoClear = false;
     this.stressMaintenance = false;
+    this.scenePort.resetAudioStress();
   }
 
   resetEventLog(): void {
@@ -181,218 +205,92 @@ class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntime {
     this.nextSequence = 1;
   }
 
-  resetSession(): void {
-    this.scene.resetSession(this.seed);
+  resetSession(): void { this.scenePort.resetSession(this.seed); }
+  resetScenarioPresentation(): void { this.scenario.resetScenarioPresentation(); }
+  resetPlayer(x: number, y: number): void { this.scenePort.resetPlayer(x, y); }
+  useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void { this.scenario.useWaveSchedule(wave, schedule); }
+  grantSnacks(amount: number): void { this.scenario.grantSnacks(amount); }
+  seedEnemy(seed: ScenarioEnemySeed): number { return this.scenario.seedEnemy(seed); }
+  seedProjectile(seed: Parameters<ScenarioScenePort['seedProjectile']>[0]): void {
+    this.scenario.seedProjectile(seed);
   }
+  enableWaveAutoClear(): void { this.waveAutoClear = true; }
+  enablePresentationStress(): void { this.scenePort.startPresentationStress(); }
 
-  resetPlayer(x: number, y: number): void {
-    this.scene.resetPlayer(x, y);
-  }
-
-  suppressWaveSpawns(): void {
-    this.scenario.suppressWaveSpawns();
-  }
-
-  useWaveSchedule(wave: number, schedule: ScenarioWaveSchedule): void {
-    this.scenario.useWaveSchedule(wave, schedule);
-  }
-
-  damageShelter(damage: number): void {
-    this.scenario.damageShelter(damage).forEach((event) => this.appendSessionEvent(event));
-  }
-
-  enableWaveAutoClear(): void {
-    this.waveAutoClear = true;
-  }
-
-  enableStressMaintenance(): void {
+  async enableStressMaintenance(): Promise<void> {
+    this.stressMaintenance = false;
+    try {
+      this.scenePort.armPresentationStress();
+      await this.scenePort.startAudioStress();
+    } catch (error) {
+      this.failCloseScenario();
+      throw error;
+    }
     this.stressMaintenance = true;
   }
 
-  seedEnemy(seed: ScenarioEnemySeed): number {
-    return this.scenario.seedEnemy(seed);
-  }
+  resetSimulationClock(): void { this.scenario.resetSimulationClock(); }
 
-  replaceShelter(currentHp: number, maxHp?: number): void {
-    this.scenario.replaceShelter(currentHp, maxHp);
-  }
-
-  seedProjectile(seed: Parameters<ScenarioScenePort['seedProjectile']>[0]): void {
-    this.scenario.seedProjectile(seed).forEach((event) => this.appendSessionEvent(event));
-  }
-
-  seedEffectPool(active: number): void {
-    this.scenario.seedEffectPool(active);
-  }
-
-  resetSimulationClock(): void {
-    this.scenario.resetSimulationClock();
-    for (const event of this.eventLog) {
-      (event as { atMs: number }).atMs = 0;
-    }
-  }
-
-  advanceWorldTicks(ticks: number): void {
-    if (!Number.isSafeInteger(ticks) || ticks < 0 || ticks > 10_000) {
-      throw new RangeError('Scenario ticks must be an integer from 0 to 10000');
-    }
-    for (let index = 0; index < ticks; index += 1) {
-      if (this.scene.currentModeSnapshot() !== 'playing') {
-        throw new Error('Scenario world ticks require playing mode');
-      }
-      this.stepOneTick();
-    }
-  }
-
-  private advanceTicks(ms: number): void {
+  private advanceTicks(ms: number): number {
     if (!Number.isFinite(ms) || ms < 0) {
       throw new RangeError('advance duration must be finite and non-negative');
     }
-    const entryMode = this.scene.currentModeSnapshot();
-    if (entryMode !== 'playing' && entryMode !== 'countdown' && entryMode !== 'lost') return;
+    const entryMode = this.scenePort.currentModeSnapshot();
+    if (entryMode === 'visibilityPause' || entryMode === 'won') return 0;
+    let advanced = 0;
     for (let ticks = this.scheduler.take(ms); ticks > 0; ticks -= 1) {
       this.stepOneTick();
-      const mode = this.scene.currentModeSnapshot();
-      if (mode === 'skillSelection' || mode === 'visibilityPause' || mode === 'won') {
+      advanced += FIXED_STEP_MS;
+      const mode = this.scenePort.currentModeSnapshot();
+      if (mode === 'visibilityPause' || mode === 'won') {
         this.scheduler.reset();
         break;
       }
     }
+    return advanced;
   }
 
   private stepOneTick(): void {
-    const before = this.scene.playerSnapshot();
-    const sessionEvents = this.scene.advanceSimulationStep(FIXED_STEP_MS);
-    const after = this.scene.playerSnapshot();
-    if (after.x !== before.x || after.y !== before.y) {
-      this.appendEvent({ type: 'playerMoved' });
-    }
-    sessionEvents.forEach((event) => this.appendSessionEvent(event));
-    if (this.waveAutoClear) {
-      for (const event of sessionEvents) {
-        if (event.type === 'enemySpawned') {
-          this.scenario.removeEnemyWithoutReward(event.enemyId);
+    const stressStep = this.stressMaintenance;
+    try {
+      const events = this.scenePort.advanceSimulationStep(
+        FIXED_STEP_MS,
+        stressStep ? false : undefined,
+      );
+      events.forEach((event) => this.appendSessionEvent(event));
+      if (this.waveAutoClear) {
+        for (const event of events) {
+          if (event.type === 'enemySpawned') this.scenario.removeEnemyWithoutReward(event.enemyId);
         }
       }
-    }
-    if (this.stressMaintenance) {
-      this.scenario.maintainStressPools()
-        .forEach((event) => this.appendSessionEvent(event));
-    }
-  }
-
-  private appendSessionEvent(event: GameEvent): void {
-    switch (event.type) {
-      case 'enemySpawnRequested':
-        this.appendEvent({ type: event.type, request: event.request });
-        return;
-      case 'enemySpawned':
-        this.appendEvent({ type: event.type, enemyId: event.enemyId });
-        return;
-      case 'barkStarted':
-      case 'barkReleased':
-        this.appendEvent({
-          type: event.type,
-          attackId: event.attackId,
-          targetId: event.targetId,
-        });
-        return;
-      case 'attackStarted':
-      case 'attackCancelled':
-      case 'attackHolding':
-        this.appendEvent({ type: event.type, enemyId: event.enemyId });
-        return;
-      case 'projectileSpawned':
-        this.appendEvent({
-          type: event.type,
-          projectileId: event.projectileId,
-          kind: event.kind,
-        });
-        return;
-      case 'projectileHit':
-        this.appendEvent({
-          type: event.type,
-          projectileId: event.projectileId,
-          kind: event.kind,
-          position: event.position,
-        });
-        return;
-      case 'projectileDropped':
-        this.appendEvent({
-          type: event.type,
-          projectileId: event.projectileId,
-          kind: event.kind,
-          reason: event.reason,
-        });
-        return;
-      case 'shelterDamaged':
-        this.appendEvent({
-          type: event.type,
-          hp: event.hp,
-          visual: event.visual,
-        });
-        return;
-      case 'projectileRequested':
-      case 'shelterDamageRequested':
-        return;
-      case 'enemyDied':
-        this.appendEvent({ type: event.type, enemyId: event.enemyId });
-        return;
-      case 'snackEarned':
-        this.appendEvent({
-          type: event.type,
-          enemyId: event.enemyId,
-          amount: event.amount,
-        });
-        return;
-      case 'waveCountdownChanged':
-        this.appendEvent({ type: event.type, remainingMs: event.remainingMs });
-        return;
-      case 'waveStarted':
-        this.appendEvent({ type: event.type, wave: event.wave });
-        return;
-      case 'waveTransition':
-        this.appendEvent({
-          type: event.type,
-          fromWave: event.fromWave,
-          toWave: event.toWave,
-          countdownMs: event.countdownMs,
-        });
-        return;
-      case 'skillSelectionOpened':
-        this.appendEvent({ type: event.type, request: event.request, cards: event.cards });
-        return;
-      case 'skillLearned':
-        this.appendEvent({
-          type: event.type,
-          skillId: event.skillId,
-          level: event.level,
-        });
-        return;
-      case 'skillCast':
-        this.appendEvent({
-          type: event.type,
-          skillId: event.skillId,
-          targetIds: event.targetIds,
-        });
-        return;
-      case 'modeChanged':
-        this.appendEvent({ type: event.type, mode: event.mode });
-        return;
-      case 'runEnded':
-      case 'resultReady':
-        this.appendEvent({ type: event.type, outcome: event.outcome });
-        return;
+      if (stressStep) {
+        this.scenario.maintainStressPools();
+      }
+    } catch (error) {
+      if (stressStep) this.failCloseScenario();
+      throw error;
     }
   }
 
-  private appendEvent(event: DebugEventPayload): void {
-    const loggedEvent = {
-      sequence: this.nextSequence,
-      atMs: this.scene.simulationMsSnapshot(),
+  private failCloseScenario(): void {
+    this.activeScenario = 'empty-run';
+    this.scheduler.reset();
+    try {
+      runCleanupSteps([
+        () => this.stopScenarioMaintainers(),
+        () => this.scenario.resetScenarioPresentation(),
+      ]);
+    } catch {
+      // The scenario producer failure remains authoritative over cleanup failures.
+    }
+  }
+
+  private appendSessionEvent(event: GameEvent, atSimulationMs = this.scenePort.simulationMsSnapshot()): void {
+    this.eventLog.push({
       ...event,
-    };
-    this.eventLog.push(loggedEvent);
+      sequence: this.nextSequence,
+      atSimulationMs,
+    } as GameDebugEvent);
     this.nextSequence += 1;
   }
 }
@@ -401,13 +299,12 @@ export function installTestBridge(scene: SessionScenePort): () => void {
   if (import.meta.env.MODE !== 'e2e') return NOOP;
   const params = new URLSearchParams(window.location.search);
   if (params.get('e2e') !== '1' || params.get('clock') !== 'manual') return NOOP;
-  const seed = parseSeed(params.get('seed'));
-  const bridge = new SessionTestBridge(scene, seed);
+  const bridge = new SessionTestBridge(scene, parseSeed(params.get('seed')));
   const removeOwnedBridge = installOwnedTestBridge(window, bridge);
-  return () => {
-    bridge.dispose();
-    removeOwnedBridge();
-  };
+  return () => runCleanupSteps([
+    () => bridge.dispose(),
+    removeOwnedBridge,
+  ]);
 }
 
 export function installOwnedTestBridge(
@@ -424,18 +321,6 @@ export function installOwnedTestBridge(
 }
 
 const NOOP = (): void => {};
-
-const OBJECT_IDS = new WeakMap<object, number>();
-let nextObjectId = 1;
-
-function objectIdentity(value: object): number {
-  const existing = OBJECT_IDS.get(value);
-  if (existing !== undefined) return existing;
-  const id = nextObjectId;
-  nextObjectId += 1;
-  OBJECT_IDS.set(value, id);
-  return id;
-}
 
 function parseSeed(value: string | null): number {
   if (value === null) return 424242;
