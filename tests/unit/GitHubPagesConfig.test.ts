@@ -23,7 +23,9 @@ describe('GitHub Pages deployment', () => {
     const workflow = readFileSync(workflowUrl, 'utf8');
 
     expect(workflow).toContain("branches: ['main']");
-    expect(workflow).toContain('PAGES_BASE_PATH: /huchu-defense-v1/');
+    expect(workflow).toContain('id: pages');
+    expect(workflow).toContain('PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}/');
+    expect(workflow).not.toContain('/huchu-defense-v1/');
     expect(workflow).toContain('npm ci');
     expect(workflow).toContain('npm run build');
     expect(workflow).toContain('actions/upload-pages-artifact');
