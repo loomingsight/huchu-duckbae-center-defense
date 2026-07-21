@@ -54,6 +54,18 @@ it('Scene adapter는 exact event ownership을 공용 CombatEffectPool에 연결�
   expect(source).toContain("event.type === 'projectileRequested'");
 });
 
+it('짖기와 아쿠아빔은 후추 입 좌표를 시각 효과 시작점으로 사용한다', () => {
+  const source = gameSceneSource();
+  const apply = source.slice(
+    source.indexOf('protected applySessionEvents'),
+    source.indexOf('private showResult'),
+  );
+
+  expect(apply.match(/this\.playerView\.attackOrigin/g)).toHaveLength(2);
+  expect(apply).toContain('this.playerView.showBarkWave(origin, target)');
+  expect(apply).toContain('this.combatEffects.startAquaBeam(event.castId, origin, target)');
+});
+
 it('resetSession은 telemetry가 shared effect/damage producer를 한 번만 reset하고 dedupe를 별도로 비운다', () => {
   const source = gameSceneSource();
   const reset = source.slice(source.indexOf('resetSession(seed'), source.indexOf('restartRunFromResult'));

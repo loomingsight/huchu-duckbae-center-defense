@@ -19,6 +19,8 @@ const WALK_ENTRY = animationEntry(AssetKeys.huchuWalk);
 const ATTACK_ENTRY = animationEntry(AssetKeys.huchuAttack);
 const TAIL_ENTRY = animationEntry(AssetKeys.huchuTailSwipe);
 const BASE_SCALE = HUCHU_PRESENTATION.dogOpaqueHeightLogical / WALK_ENTRY.opaqueHeightPx;
+const HUCHU_MOUTH_OFFSET_X = 32;
+const HUCHU_MOUTH_OFFSET_Y = -45;
 export const BARK_WAVE_POOL_CAPACITY = BALANCE.caps.particles;
 export { BARK_WAVE_CONE_DEGREES, BARK_WAVE_DURATION_MS, barkWaveVisualAt };
 export type { BarkWaveVisual };
@@ -73,6 +75,15 @@ export class PlayerView {
 
   showBarkWave(origin: Point, target: Point): boolean {
     return this.effects.showBarkWave(origin, target);
+  }
+
+  attackOrigin(origin: Point, target: Point): Point {
+    const flipX = target.x < origin.x;
+    this.sprite.setFlipX(flipX);
+    return {
+      x: origin.x + (flipX ? -HUCHU_MOUTH_OFFSET_X : HUCHU_MOUTH_OFFSET_X),
+      y: origin.y + HUCHU_MOUTH_OFFSET_Y,
+    };
   }
 
   stepSimulation(stepMs: number): void {

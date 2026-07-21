@@ -626,14 +626,22 @@ export class GameScene extends Phaser.Scene {
         this.companionView.syncAttackImpact(event.castId);
       }
       if (event.type === 'barkImpact') {
-        this.playerView.showBarkWave(event.origin, {
+        const aimTarget = {
           x: event.origin.x + event.direction.x * 100,
           y: event.origin.y + event.direction.y * 100,
-        });
+        };
+        const origin = this.playerView.attackOrigin(event.origin, aimTarget);
+        const target = {
+          x: origin.x + event.direction.x * 100,
+          y: origin.y + event.direction.y * 100,
+        };
+        this.playerView.showBarkWave(origin, target);
       }
       if (event.type === 'skillCastStarted') {
         if (event.skillId === 'aquaBeam' && event.targets[0] !== undefined) {
-          this.combatEffects.startAquaBeam(event.castId, event.origin, event.targets[0]);
+          const target = event.targets[0];
+          const origin = this.playerView.attackOrigin(event.origin, target.position);
+          this.combatEffects.startAquaBeam(event.castId, origin, target);
         } else if (event.skillId === 'safetyReport') {
           this.combatEffects.startSafetyReport(event.castId, event.origin, event.targets);
         }

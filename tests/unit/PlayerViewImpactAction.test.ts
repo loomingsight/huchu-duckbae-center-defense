@@ -29,6 +29,28 @@ it('tail body action은 전용 sheet를 쓰고 aqua body action은 attack sheet�
   expect(fake.last('setFrame')).toEqual([3]);
 });
 
+it('공격 시각 효과는 좌우 대상에 맞춘 후추 입에서 시작한다', () => {
+  const fake = createScene();
+  const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
+  const attackOrigin = (view as unknown as {
+    attackOrigin?: (
+      origin: { readonly x: number; readonly y: number },
+      target: { readonly x: number; readonly y: number },
+    ) => { readonly x: number; readonly y: number };
+  }).attackOrigin;
+
+  expect(attackOrigin).toBeTypeOf('function');
+  if (attackOrigin === undefined) return;
+
+  expect(attackOrigin.call(view, { x: 270, y: 650 }, { x: 370, y: 650 }))
+    .toEqual({ x: 302, y: 605 });
+  expect(fake.last('setFlipX')).toEqual([false]);
+
+  expect(attackOrigin.call(view, { x: 270, y: 650 }, { x: 170, y: 650 }))
+    .toEqual({ x: 238, y: 605 });
+  expect(fake.last('setFlipX')).toEqual([true]);
+});
+
 it('shutdown은 shared effect pool을 telemetry에서 한 번만 reset한다', () => {
   const fake = createScene();
   const sharedEffects = {
