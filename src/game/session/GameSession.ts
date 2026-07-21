@@ -25,6 +25,7 @@ import type { PlayerSnapshot } from '../player/PlayerTypes';
 import {
   assertPurchasableSkillId,
   ProgressionSystem,
+  skillPurchaseCost,
 } from '../progression/ProgressionSystem';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import { ShelterSystem } from '../shelter/ShelterSystem';
@@ -166,7 +167,7 @@ export class GameSession {
     return {
       status: 'queueBusy',
       skillId,
-      cost: snapshot.nextCost,
+      cost: skillPurchaseCost(skillId, snapshot.nextCost),
       spent: 0,
       snacks: snapshot.snacks,
       nextCost: snapshot.nextCost,

@@ -3,6 +3,6 @@ export type EnemyKind = 'poopGuardian' | 'offLeashGuardian' | 'dogTrader' | 'ill
 export type EnemyVariant = 'male' | 'female';
 export type EnemyState = 'moving' | 'windup' | 'holding' | 'dead';
 export type PurchasableSkillId = 'tailSwipe' | 'aquaBeam' | 'safetyReport';
-export type SkillCost = 15 | 25 | 40;
+export type SkillCost = 15 | 20 | 25 | 30 | 40 | 45;
 export type DamageSource = 'bark' | 'deokbae' | PurchasableSkillId;
 export type ImpactStrength = 'light' | 'medium' | 'heavy';

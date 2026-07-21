@@ -83,7 +83,7 @@ it('exact 18 scenario와 full-run/skill-dock/boss/stress seed 규칙을 고정�
       expect(enemies).toEqual([]);
     }
     if (id === 'skill-dock') {
-      expect(runtime.grantSnacks).toHaveBeenCalledWith(80);
+      expect(runtime.grantSnacks).toHaveBeenCalledWith(85);
       expect(enemies).toHaveLength(1);
       expect(enemies[0]).toMatchObject({ heldForDebug: true });
     }

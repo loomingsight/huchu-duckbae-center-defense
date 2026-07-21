@@ -9,7 +9,10 @@ import type { Point } from '../world/Geometry';
 import type { CompositeEnemyRig } from './CompositeEnemyRig';
 import { DEFAULT_PATH_POSE_SAMPLERS } from './DogTraderAttackGeometry';
 import type { DogTraderRigTelemetry } from './DogTraderRigTelemetry';
-import { EnemyMovementAnimationClock } from './EnemyActor';
+import {
+  EnemyMovementAnimationClock,
+  enemyMovementAnimationRate,
+} from './EnemyActor';
 import type { EnemySnapshot } from './EnemyTypes';
 
 const TRUCK_BACK_PX = 70;
@@ -129,7 +132,10 @@ export class DogTraderRig implements CompositeEnemyRig {
       );
     }
 
-    const effectiveAnimationElapsedMs = this.movementAnimationClock.elapsedFor(snapshot);
+    const movementAnimationElapsedMs = this.movementAnimationClock.elapsedFor(snapshot);
+    const effectiveAnimationElapsedMs = snapshot.state === 'moving'
+      ? movementAnimationElapsedMs * enemyMovementAnimationRate(snapshot.kind)
+      : movementAnimationElapsedMs;
 
     this.visual.renderHuman(
       humanPose.position,

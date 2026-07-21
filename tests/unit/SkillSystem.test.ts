@@ -16,10 +16,10 @@ import { enemy, learnedSkillSystem } from './fixtures';
 describe('SkillSystem timeline', () => {
   it('고정 cooldown과 impact 시각 및 source별 피드백 강도를 제공한다', () => {
     expect(SKILL_DEFINITIONS).toEqual({
-      tailSwipe: { cooldownMs: 8000, impactMs: 250, damage: 14 },
+      tailSwipe: { cooldownMs: 6000, impactMs: 250, damage: 14 },
       aquaBeam: { cooldownMs: 10_000, impactMs: 600, damage: 160 },
       safetyReport: {
-        cooldownMs: 22_000,
+        cooldownMs: 19_000,
         impactMs: 300,
         regularDamage: 90,
         bossDamage: 45,
@@ -55,9 +55,9 @@ describe('SkillSystem timeline', () => {
     tied.learn('tailSwipe', 14_000);
     tied.learn('aquaBeam', 12_000);
     tied.learn('safetyReport', 0);
-    expect(startedIds(tied.step(22_000, context))).toEqual(['tailSwipe']);
+    expect(startedIds(tied.step(22_000, context))).toEqual(['safetyReport']);
     expect(startedIds(tied.step(22_200, context))).toEqual(['aquaBeam']);
-    expect(startedIds(tied.step(22_400, context))).toEqual(['safetyReport']);
+    expect(startedIds(tied.step(22_400, context))).toEqual(['tailSwipe']);
   });
 
   it('readyAt이 다르면 priority보다 먼저 ready였던 스킬을 선택한다', () => {
@@ -128,14 +128,14 @@ describe('SkillSystem timeline', () => {
 
     expect(system.snapshot('tailSwipe')).toEqual({
       learned: true,
-      cooldownRemainingMs: 8000,
+      cooldownRemainingMs: 6000,
       ready: false,
       progress: 0,
       activeCastId: 'tailSwipe:1',
     });
     system.step(8250, context);
     expect(system.snapshot('tailSwipe')).toMatchObject({
-      cooldownRemainingMs: 7750,
+      cooldownRemainingMs: 5750,
       activeCastId: null,
     });
   });

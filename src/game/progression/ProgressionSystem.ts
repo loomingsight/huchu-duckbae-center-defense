@@ -4,6 +4,7 @@ import type { ProgressionSnapshot, SkillPurchaseResult } from './ProgressionType
 const COSTS = [15, 25, 40] as const;
 const PURCHASABLE_SKILL_IDS = ['tailSwipe', 'aquaBeam', 'safetyReport'] as const;
 const PURCHASABLE_SKILL_ID_SET = new Set<string>(PURCHASABLE_SKILL_IDS);
+const SAFETY_REPORT_SURCHARGE = 5;
 
 export function assertPurchasableSkillId(
   skillId: unknown,
@@ -11,6 +12,20 @@ export function assertPurchasableSkillId(
   if (typeof skillId !== 'string' || !PURCHASABLE_SKILL_ID_SET.has(skillId)) {
     throw new RangeError(`Unknown purchasable skill ${String(skillId)}`);
   }
+}
+
+export function skillPurchaseCost(
+  skillId: PurchasableSkillId,
+  baseCost: SkillCost | null,
+): SkillCost | null {
+  assertPurchasableSkillId(skillId);
+  if (baseCost === null) return null;
+  if (!(COSTS as readonly number[]).includes(baseCost)) {
+    throw new RangeError(`Unknown base skill cost ${String(baseCost)}`);
+  }
+  return skillId === 'safetyReport'
+    ? (baseCost + SAFETY_REPORT_SURCHARGE) as SkillCost
+    : baseCost;
 }
 
 export class ProgressionSystem {
@@ -31,7 +46,7 @@ export class ProgressionSystem {
 
   queuePurchase(skillId: PurchasableSkillId): SkillPurchaseResult {
     assertPurchasableSkillId(skillId);
-    const cost = COSTS[this.learned.size] ?? null;
+    const cost = skillPurchaseCost(skillId, COSTS[this.learned.size] ?? null);
     if (this.learned.has(skillId)) {
       return this.result('alreadyLearned', skillId, cost, 0);
     }
@@ -50,7 +65,7 @@ export class ProgressionSystem {
     if (this.queued === null) return undefined;
 
     const skillId = this.queued;
-    const cost = COSTS[this.learned.size]!;
+    const cost = skillPurchaseCost(skillId, COSTS[this.learned.size]!)!;
     this.queued = null;
     this.snacks -= cost;
     this.learned.add(skillId);

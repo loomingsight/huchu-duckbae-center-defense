@@ -3,7 +3,7 @@ import type { DamageSource, ImpactStrength } from '../types/GameTypes';
 
 export const SKILL_DEFINITIONS = {
   tailSwipe: {
-    cooldownMs: 8000,
+    cooldownMs: 6000,
     impactMs: attackImpactMs('normal') as 250,
     damage: 14,
   },
@@ -13,7 +13,7 @@ export const SKILL_DEFINITIONS = {
     damage: 160,
   },
   safetyReport: {
-    cooldownMs: 22_000,
+    cooldownMs: 19_000,
     impactMs: 300,
     regularDamage: 90,
     bossDamage: 45,

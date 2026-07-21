@@ -24,6 +24,7 @@ export const ENEMY_FRAME_WIDTH = 256;
 export const ENEMY_FRAME_HEIGHT = 256;
 const DEFAULT_TEXTURE = AssetKeys.poopMaleWalk;
 const DEFAULT_DISPLAY_HEIGHT = HUCHU_PRESENTATION.regularEnemyOpaqueHeightLogical;
+export const BOSS_MOVEMENT_ANIMATION_RATE = 1.2;
 
 export type EnemyAnimationAction = 'walk' | 'attack';
 
@@ -94,6 +95,12 @@ export function enemyAttackFrameAt(elapsedMs: number, frameCount = 8, fps = 10):
   return frameAtFps(elapsedMs, frameCount, fps, false);
 }
 
+export function enemyMovementAnimationRate(kind: EnemyKind): number {
+  return kind === 'dogTrader' || kind === 'illegalBreeder'
+    ? BOSS_MOVEMENT_ANIMATION_RATE
+    : 1;
+}
+
 export function enemyFrameAt(state: EnemyState, elapsedMs: number): number {
   switch (state) {
     case 'moving':
@@ -152,14 +159,18 @@ export function enemyTextureKey(
 
 export function enemyAnimation(
   snapshot: EnemySnapshot,
-  movementElapsedMs = snapshot.animationElapsedMs * snapshot.moveSpeedMultiplier,
+  movementElapsedMs = snapshot.animationElapsedMs
+    * snapshot.moveSpeedMultiplier
+    * enemyMovementAnimationRate(snapshot.kind),
 ): EnemyAnimationSnapshot {
   validateElapsed(snapshot.animationElapsedMs);
   validateElapsed(movementElapsedMs);
   const action: EnemyAnimationAction = snapshot.state === 'moving' ? 'walk' : 'attack';
   const textureKey = enemyTextureKey(snapshot.kind, snapshot.variant, action);
   if (snapshot.kind === 'dogTrader') {
-    const fps = action === 'walk' ? 10 * snapshot.moveSpeedMultiplier : 10;
+    const fps = action === 'walk'
+      ? 10 * snapshot.moveSpeedMultiplier * enemyMovementAnimationRate(snapshot.kind)
+      : 10;
     return {
       action,
       textureKey,
@@ -172,7 +183,9 @@ export function enemyAnimation(
     };
   }
   const entry = animationEntry(textureKey);
-  const fps = action === 'walk' ? entry.fps * snapshot.moveSpeedMultiplier : entry.fps;
+  const fps = action === 'walk'
+    ? entry.fps * snapshot.moveSpeedMultiplier * enemyMovementAnimationRate(snapshot.kind)
+    : entry.fps;
   const frame = snapshot.state === 'dead'
     ? entry.frameCount - 1
     : action === 'walk'
@@ -230,7 +243,10 @@ export class EnemyActor implements ImpactFeedbackTarget {
   render(snapshot: EnemySnapshot, deltaMs = 0): void {
     this.bind(snapshot);
     const displayHeight = enemyDisplayHeight(snapshot.kind);
-    const effectiveAnimationElapsedMs = this.movementAnimationClock.elapsedFor(snapshot);
+    const movementAnimationElapsedMs = this.movementAnimationClock.elapsedFor(snapshot);
+    const effectiveAnimationElapsedMs = snapshot.state === 'moving'
+      ? movementAnimationElapsedMs * enemyMovementAnimationRate(snapshot.kind)
+      : movementAnimationElapsedMs;
     const animation = enemyAnimation(snapshot, effectiveAnimationElapsedMs);
     const activeRig = this.activeCompositeRig();
     const usesComposite = activeRig !== undefined;

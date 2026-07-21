@@ -130,9 +130,9 @@ describe('DogTraderRig', () => {
   });
 
   it.each([
-    { multiplier: 1, humanFrames: [0, 1, 2, 5, 4], truckFrames: [0, 1, 2, 1, 2] },
-    { multiplier: 0.7, humanFrames: [0, 0, 1, 3, 1], truckFrames: [0, 0, 1, 3, 3] },
-    { multiplier: 0.5, humanFrames: [0, 0, 1, 2, 5], truckFrames: [0, 0, 1, 2, 1] },
+    { multiplier: 1, humanFrames: [0, 1, 2, 0, 0], truckFrames: [0, 1, 2, 2, 0] },
+    { multiplier: 0.7, humanFrames: [0, 0, 1, 4, 2], truckFrames: [0, 0, 1, 0, 0] },
+    { multiplier: 0.5, humanFrames: [0, 0, 1, 3, 0], truckFrames: [0, 0, 1, 3, 2] },
   ])(
     '이동 multiplier $multiplier는 human walk와 truck roll의 10fps frame을 함께 늦춘다',
     ({ multiplier, humanFrames, truckFrames }) => {
@@ -194,15 +194,15 @@ describe('DogTraderRig', () => {
   it.each([
     {
       multiplier: 0.7,
-      effectiveElapsed: [500, 500, 570, 640, 640, 740],
-      humanFrames: [5, 5, 5, 0, 0, 1],
-      truckFrames: [1, 1, 1, 2, 2, 3],
+      effectiveElapsed: [600, 600, 684, 768, 768, 888],
+      humanFrames: [0, 0, 0, 1, 1, 2],
+      truckFrames: [2, 2, 2, 3, 3, 0],
     },
     {
       multiplier: 0.5,
-      effectiveElapsed: [500, 500, 550, 600, 600, 700],
-      humanFrames: [5, 5, 5, 0, 0, 1],
-      truckFrames: [1, 1, 1, 2, 2, 3],
+      effectiveElapsed: [600, 600, 660, 720, 720, 840],
+      humanFrames: [0, 0, 0, 1, 1, 2],
+      truckFrames: [2, 2, 2, 3, 3, 0],
     },
   ])(
     '이동 중 1→$multiplier→1 전환은 human/truck phase를 역행하거나 raw clock으로 점프하지 않는다',
@@ -251,8 +251,8 @@ describe('DogTraderRig', () => {
         slowRemainingMs: 1_900,
       }), 0);
 
-      expect(visual.humanElapsedHistory).toEqual([500, 500, 500 + 100 * multiplier]);
-      expect(visual.truckElapsedHistory).toEqual([500, 500, 500 + 100 * multiplier]);
+      expect(visual.humanElapsedHistory).toEqual([600, 600, (500 + 100 * multiplier) * 1.2]);
+      expect(visual.truckElapsedHistory).toEqual([600, 600, (500 + 100 * multiplier) * 1.2]);
     },
   );
 
@@ -271,10 +271,10 @@ describe('DogTraderRig', () => {
       slowRemainingMs: 0,
     }), 16);
 
-    expect(visual.humanElapsedHistory).toEqual([250, 325]);
-    expect(visual.truckElapsedHistory).toEqual([250, 325]);
-    expect(visual.humanFrames).toEqual([2, 3]);
-    expect(visual.truckFrames).toEqual([2, 3]);
+    expect(visual.humanElapsedHistory).toEqual([300, 390]);
+    expect(visual.truckElapsedHistory).toEqual([300, 390]);
+    expect(visual.humanFrames).toEqual([3, 3]);
+    expect(visual.truckFrames).toEqual([3, 3]);
   });
 
   it('raw clock 감소·pause resync·새 bind·reset 경계는 movement clock을 명시적으로 다시 맞춘다', () => {
@@ -304,8 +304,8 @@ describe('DogTraderRig', () => {
     rig.reset();
     renderMoving(99, 300, 0.7, 16);
 
-    expect(visual.humanElapsedHistory).toEqual([250, 300, 0, 50, 150, 150, 200, 210]);
-    expect(visual.truckElapsedHistory).toEqual([250, 300, 0, 50, 150, 150, 200, 210]);
+    expect(visual.humanElapsedHistory).toEqual([300, 360, 0, 60, 180, 180, 240, 252]);
+    expect(visual.truckElapsedHistory).toEqual([300, 360, 0, 60, 180, 180, 240, 252]);
   });
 
   it('slow 중 pause는 frame을 고정하고 death는 마지막 frame, reset은 초기 frame으로 복귀한다', () => {
@@ -316,16 +316,16 @@ describe('DogTraderRig', () => {
       moveSpeedMultiplier: 0.5,
     });
     rig.render(moving, 16);
-    expect(visual.lastHumanRender.frame).toBe(2);
-    expect(visual.lastTruckRender.frame).toBe(2);
+    expect(visual.lastHumanRender.frame).toBe(3);
+    expect(visual.lastTruckRender.frame).toBe(3);
 
     rig.render(moving, 0);
-    expect(visual.lastHumanRender.frame).toBe(2);
-    expect(visual.lastTruckRender.frame).toBe(2);
+    expect(visual.lastHumanRender.frame).toBe(3);
+    expect(visual.lastTruckRender.frame).toBe(3);
 
     rig.render({ ...moving, state: 'dead', animationElapsedMs: 900 }, 0);
     expect(visual.lastHumanRender.frame).toBe(7);
-    expect(visual.lastTruckRender.frame).toBe(2);
+    expect(visual.lastTruckRender.frame).toBe(3);
 
     rig.reset();
     rig.render({ ...moving, animationElapsedMs: 0 }, 0);

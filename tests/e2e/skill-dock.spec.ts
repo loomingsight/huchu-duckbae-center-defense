@@ -33,18 +33,18 @@ test('간식이 차도 멈추지 않고 먼저 누른 기술 하나를 배운다
   await expect(page.locator('.auto-skill-row[data-visible="true"]')).toHaveCount(3);
 });
 
-test('stable skill button으로 직접 구매하면 비용이 15→25→40 순서로 차감된다', async ({ page }) => {
+test('stable skill button으로 직접 구매하면 안전신문고 가산 비용까지 차감된다', async ({ page }) => {
   await openScenario(page, 'skill-dock');
   const purchases = [
-    { skillId: 'tailSwipe', cost: 15, snacksAfter: 65, nextCost: 25 },
-    { skillId: 'aquaBeam', cost: 25, snacksAfter: 40, nextCost: 40 },
-    { skillId: 'safetyReport', cost: 40, snacksAfter: 0, nextCost: null },
+    { skillId: 'tailSwipe', cost: 15, baseCost: 15, snacksAfter: 70, nextCost: 25 },
+    { skillId: 'aquaBeam', cost: 25, baseCost: 25, snacksAfter: 45, nextCost: 40 },
+    { skillId: 'safetyReport', cost: 45, baseCost: 40, snacksAfter: 0, nextCost: null },
   ] as const;
 
   const activations = ['click', 'Enter', 'Space'] as const;
   for (const [index, purchase] of purchases.entries()) {
     const before = await snapshot(page);
-    expect(before.run.nextSkillCost).toBe(purchase.cost);
+    expect(before.run.nextSkillCost).toBe(purchase.baseCost);
     const button = page.locator(`[data-skill="${purchase.skillId}"]`);
     await expect(button).toHaveCount(1);
     await expect(button).toHaveAttribute('data-affordable', 'true');

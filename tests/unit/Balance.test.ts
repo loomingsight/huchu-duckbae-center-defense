@@ -12,7 +12,7 @@ it('V2 canonical ID와 값 타입을 고정한다', () => {
   expectTypeOf<EnemyState>().toEqualTypeOf<'moving' | 'windup' | 'holding' | 'dead'>();
   expectTypeOf<PurchasableSkillId>()
     .toEqualTypeOf<'tailSwipe' | 'aquaBeam' | 'safetyReport'>();
-  expectTypeOf<SkillCost>().toEqualTypeOf<15 | 25 | 40>();
+  expectTypeOf<SkillCost>().toEqualTypeOf<15 | 20 | 25 | 30 | 40 | 45>();
   expectTypeOf<DamageSource>()
     .toEqualTypeOf<'bark' | 'deokbae' | PurchasableSkillId>();
   expectTypeOf<ImpactStrength>().toEqualTypeOf<'light' | 'medium' | 'heavy'>();
@@ -46,7 +46,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
       dogTrader: {
         displayName: '개장수',
         hp: 900,
-        speed: 25,
+        speed: 30,
         damage: 120,
         attackIntervalMs: 2400,
         snack: 20,
@@ -56,7 +56,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
       illegalBreeder: {
         displayName: '불법번식업자',
         hp: 1500,
-        speed: 23,
+        speed: 27.6,
         damage: 160,
         attackIntervalMs: 2100,
         snack: 35,

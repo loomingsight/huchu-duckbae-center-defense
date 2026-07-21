@@ -1,4 +1,5 @@
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
+import { skillPurchaseCost } from '../progression/ProgressionSystem';
 import type { PurchasableSkillId, SkillCost } from '../types/GameTypes';
 import { SKILL_COPY, skillIconSvg } from './SkillIconSvg';
 
@@ -25,13 +26,14 @@ export function dockButtons(
 ): readonly DockButtonModel[] {
   return (['tailSwipe', 'aquaBeam', 'safetyReport'] as const).map((id) => {
     const learned = state.learnedSkills[id];
+    const cost = skillPurchaseCost(id, state.nextSkillCost);
     return {
       id,
       skillId: id,
       name: SKILL_COPY[id].name,
-      cost: state.nextSkillCost,
+      cost,
       learned,
-      affordable: !learned && state.nextSkillCost !== null && state.snacks >= state.nextSkillCost,
+      affordable: !learned && cost !== null && state.snacks >= cost,
       queued: queuedSkillId === id,
       snacks: state.snacks,
     };

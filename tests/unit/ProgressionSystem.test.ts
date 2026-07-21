@@ -53,13 +53,13 @@ describe('ProgressionSystem', () => {
     });
   });
 
-  it('습득 순서와 무관하게 비용을 15, 25, 40 순서로 적용하고 모두 배우면 null을 반환한다', () => {
+  it('안전신문고만 현재 단계 비용에 5를 더하고 다음 단계에는 누적하지 않는다', () => {
     const progression = new ProgressionSystem();
-    progression.addSnacks(80);
+    progression.addSnacks(85);
 
-    expect(progression.queuePurchase('safetyReport').cost).toBe(15);
+    expect(progression.queuePurchase('safetyReport').cost).toBe(20);
     expect(progression.consumeQueuedPurchase()).toMatchObject({
-      status: 'learned', skillId: 'safetyReport', spent: 15, nextCost: 25,
+      status: 'learned', skillId: 'safetyReport', spent: 20, nextCost: 25,
     });
     expect(progression.queuePurchase('tailSwipe').cost).toBe(25);
     expect(progression.consumeQueuedPurchase()).toMatchObject({

@@ -35,6 +35,7 @@ export const AUTO_SKILL_IDS = [
 ] as const satisfies readonly PurchasableSkillId[];
 
 export type AutoSkillId = PurchasableSkillId;
+export const INITIAL_SKILL_COOLDOWN_MS = 1000;
 
 export interface SkillContext {
   readonly player: Point;
@@ -84,6 +85,11 @@ export class SkillSystem {
     aquaBeam: 0,
     safetyReport: 0,
   };
+  private readonly cooldownWindowMs: Record<PurchasableSkillId, number> = {
+    tailSwipe: SKILL_DEFINITIONS.tailSwipe.cooldownMs,
+    aquaBeam: SKILL_DEFINITIONS.aquaBeam.cooldownMs,
+    safetyReport: SKILL_DEFINITIONS.safetyReport.cooldownMs,
+  };
   private readonly castSequence: Record<PurchasableSkillId, number> = {
     tailSwipe: 1,
     aquaBeam: 1,
@@ -98,12 +104,13 @@ export class SkillSystem {
     assertSkillId(skillId);
     assertTimestamp(learnedAtMs, 'Skill learnedAtMs');
     if (this.learned.has(skillId)) return;
-    const readyAtMs = learnedAtMs + SKILL_DEFINITIONS[skillId].cooldownMs;
+    const readyAtMs = learnedAtMs + INITIAL_SKILL_COOLDOWN_MS;
     if (!Number.isFinite(readyAtMs)) {
       throw new RangeError('Skill ready timestamp must be finite');
     }
     this.learned.add(skillId);
     this.readyAt[skillId] = readyAtMs;
+    this.cooldownWindowMs[skillId] = INITIAL_SKILL_COOLDOWN_MS;
   }
 
   step(nowMs: number, context: SkillContext): readonly SkillTimelineEvent[] {
@@ -133,6 +140,7 @@ export class SkillSystem {
       if (cast === undefined) continue;
       this.pending.push(cast.pending);
       this.readyAt[skillId] = nowMs + SKILL_DEFINITIONS[skillId].cooldownMs;
+      this.cooldownWindowMs[skillId] = SKILL_DEFINITIONS[skillId].cooldownMs;
       this.nextGlobalCastAtMs = nowMs + GLOBAL_CAST_LOCK_MS;
       events.push(cast.started);
       break;
@@ -152,13 +160,12 @@ export class SkillSystem {
         activeCastId: null,
       };
     }
-    const cooldownMs = SKILL_DEFINITIONS[skillId].cooldownMs;
     const cooldownRemainingMs = Math.max(0, this.readyAt[skillId] - this.lastNowMs);
     return {
       learned: true,
       cooldownRemainingMs,
       ready: cooldownRemainingMs <= TIME_EPSILON_MS,
-      progress: clampUnit(1 - cooldownRemainingMs / cooldownMs),
+      progress: clampUnit(1 - cooldownRemainingMs / this.cooldownWindowMs[skillId]),
       activeCastId: this.pending.find((cast) => cast.skillId === skillId)?.castId ?? null,
     };
   }
@@ -175,6 +182,7 @@ export class SkillSystem {
     this.learned.clear();
     for (const skillId of AUTO_SKILL_IDS) {
       this.readyAt[skillId] = 0;
+      this.cooldownWindowMs[skillId] = SKILL_DEFINITIONS[skillId].cooldownMs;
       this.castSequence[skillId] = 1;
     }
     this.pending = [];

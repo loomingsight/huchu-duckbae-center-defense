@@ -48,7 +48,7 @@ export async function loadScenario(runtime: SessionScenarioRuntime, id: TestScen
       break;
     case 'skill-dock':
       runtime.useWaveSchedule(1, 'held');
-      runtime.grantSnacks(80);
+      runtime.grantSnacks(85);
       seedHeld(runtime, { kind: 'poopGuardian', variant: 'male', pathId: 'P3', x: 270, y: 260, hp: 60 });
       break;
     case 'impact-feedback':
