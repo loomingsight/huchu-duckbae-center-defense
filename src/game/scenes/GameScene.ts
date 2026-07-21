@@ -50,6 +50,8 @@ import {
   PresentationTelemetry,
   type PresentationTelemetrySnapshot,
 } from '../presentation/PresentationTelemetry';
+import { bossSpawnFeedback } from '../presentation/BossSpawnFeedback';
+import { WaveEndPresentationGate } from '../presentation/WaveEndPresentationGate';
 import { VirtualJoystick } from '../player/VirtualJoystick';
 import {
   GameSession,
@@ -81,6 +83,7 @@ export class GameScene extends Phaser.Scene {
   private readonly fixedClock = new FixedStepClock(FIXED_STEP_MS, MAX_CATCH_UP_STEPS);
   private readonly runtimeLifecycle = new SceneRuntimeLifecycle();
   private readonly dogTraderTelemetry = new DogTraderRigTelemetry();
+  private readonly waveEndPresentationGate = new WaveEndPresentationGate();
   private audio!: AudioSystem;
   protected session!: GameSession;
   private playerController!: PlayerController;
@@ -137,6 +140,7 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.style.zIndex = '0';
 
     this.fixedClock.reset();
+    this.waveEndPresentationGate.reset();
     this.audio = this.registry.get(GAME_AUDIO_REGISTRY_KEY) as AudioSystem;
     this.session = this.createSession(DEFAULT_RUN_SEED);
     this.manualClock = isE2eManualClock();
@@ -325,6 +329,7 @@ export class GameScene extends Phaser.Scene {
     const canStepWorld = this.session.modeStateForControllers().canStepWorld();
     const intent = this.movementIntent.read();
     if (!canStepWorld) {
+      if (this.waveEndPresentationGate.blocking) this.advanceWaveEndPresentation(stepMs);
       const events = this.stepLogicalWorld(stepMs, intent);
       this.hud.step(stepMs);
       if (entryMode === 'lost') this.shelterView?.stepFailedHold(stepMs);
@@ -376,6 +381,7 @@ export class GameScene extends Phaser.Scene {
     this.lastMovementFacing = { ...DEFAULT_PLAYER_FACING };
     this.barkAnimationElapsedMs = undefined;
     this.playerBodyAction = undefined;
+    this.waveEndPresentationGate.reset();
     this.countdownOverlay.reset();
     this.hud.reset();
     this.resetCompanion();
@@ -603,10 +609,12 @@ export class GameScene extends Phaser.Scene {
       if (event.type === 'modeChanged') {
         this.worldPauseController.sync();
         if (event.mode === 'playing') {
+          this.waveEndPresentationGate.reset();
           this.countdownOverlay.reset();
         } else if (event.mode === 'countdown') {
-          this.renderCountdown();
+          this.waveEndPresentationGate.defer({ kind: 'countdown' });
         } else if (event.mode === 'lost') {
+          this.waveEndPresentationGate.reset();
           this.shelterView?.showFailedHold();
         }
       }
@@ -618,6 +626,10 @@ export class GameScene extends Phaser.Scene {
         if (snapshot === undefined) throw new Error(`Spawned enemy ${event.enemyId} has no snapshot`);
         const actor = this.enemyActors?.acquire(snapshot);
         if (actor === undefined) throw new Error('Enemy actor pool exhausted');
+        const feedback = bossSpawnFeedback(event.request.kind, this.reducedMotion);
+        if (feedback !== null) {
+          this.cameras.main.shake(feedback.durationMs, feedback.intensity);
+        }
       }
       if (event.type === 'companionAttackStarted') {
         this.companionView.startAttack(event.castId);
@@ -691,9 +703,43 @@ export class GameScene extends Phaser.Scene {
         this.impactFeedback.handle(event);
       }
       if (event.type === 'enemyDied') this.enemyActors?.release(event.enemyId);
-      if (event.type === 'waveCountdownChanged') this.renderCountdown();
-      if (event.type === 'resultReady') this.showResult(event.outcome);
+      if (event.type === 'waveCountdownChanged' && !this.waveEndPresentationGate.blocking) {
+        this.renderCountdown();
+      }
+      if (event.type === 'resultReady') {
+        if (event.outcome === 'won') {
+          this.waveEndPresentationGate.defer({ kind: 'result', outcome: 'won' });
+        } else {
+          this.showResult('lost');
+        }
+      }
     });
+    this.flushWaveEndPresentation();
+  }
+
+  private advanceWaveEndPresentation(stepMs: number): void {
+    this.combatEffects.step(stepMs);
+    this.impactFeedback.step(stepMs);
+    this.enemyActors?.step(stepMs);
+  }
+
+  private flushWaveEndPresentation(): void {
+    if (!this.waveEndPresentationGate.blocking) return;
+    const intent = this.waveEndPresentationGate.releaseIf(
+      this.waveEndPresentationSettled(),
+    );
+    if (intent === null) return;
+    if (intent.kind === 'countdown') {
+      this.renderCountdown();
+      return;
+    }
+    this.showResult(intent.outcome);
+  }
+
+  private waveEndPresentationSettled(): boolean {
+    return (this.enemyActors?.dyingCount ?? 0) === 0
+      && this.damageFeedbackPool.snapshot().active === 0
+      && this.combatEffects.effectAges('snackFly').length === 0;
   }
 
   private showResult(outcome: 'won' | 'lost'): void {

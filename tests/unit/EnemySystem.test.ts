@@ -3,7 +3,6 @@ import { FIXED_STEP_MS } from '../../src/game/constants';
 import { BALANCE } from '../../src/game/data/balance';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
 import type { EnemySpawnRequest } from '../../src/game/waves/WaveTypes';
-import { PathSystem } from '../../src/game/world/PathSystem';
 
 const spawnRequest = (
   spawnSequence: number,
@@ -136,13 +135,10 @@ it('slow의 sub-epsilon 경계에서는 배율을 풀되 위치를 건너뛰지 
     .toBeCloseTo((42 + 64 / 4) * 0.6 * 3.999_999_999_95, 8);
 });
 
-it('dogTrader는 -70 pre-entry에서 시작하고 첫 segment 밖 위치와 ETA를 보존한다', () => {
-  const path = new PathSystem([[0, 0], [100, 0]]);
-  expect(path.positionAtExtended(-70)).toEqual({ x: -70, y: 0 });
-
+it('dogTrader는 경로 시작점에서 즉시 보이고 넉백도 진입점 밖으로 밀리지 않는다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
   const before = system.snapshots()[0]!;
-  expect(before.pathProgress).toBe(-70);
+  expect(before.pathProgress).toBe(0);
   expect(before.etaMs).toBeGreaterThan(0);
 
   const nearStart = EnemySystem.withSingleEnemy({
@@ -151,21 +147,20 @@ it('dogTrader는 -70 pre-entry에서 시작하고 첫 segment 밖 위치와 ETA�
     initialProgress: 10,
   });
   nearStart.applyTailEffect(0, { knockbackPx: 35, multiplier: 0.8, durationMs: 1000 });
-  expect(nearStart.snapshots()[0]!.pathProgress).toBe(-25);
+  expect(nearStart.snapshots()[0]!.pathProgress).toBe(0);
   nearStart.knockBack(0, 1000);
-  expect(nearStart.snapshots()[0]!.pathProgress).toBe(-70);
+  expect(nearStart.snapshots()[0]!.pathProgress).toBe(0);
 });
 
-it('dogTrader -70 pre-entry ETA는 0 시작보다 정확히 2333.33ms 길다', () => {
-  const beforeEntry = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
+it('dogTrader 기본 ETA는 진행도 0을 명시한 경우와 같다', () => {
+  const defaultEntry = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
   const atEntry = EnemySystem.withSingleEnemy({
     kind: 'dogTrader',
     pathId: 'P3',
     initialProgress: 0,
   });
 
-  expect(beforeEntry.snapshots()[0]!.etaMs - atEntry.snapshots()[0]!.etaMs)
-    .toBeCloseTo(70 / 30 * 1000, 9);
+  expect(defaultEntry.snapshots()[0]!.etaMs).toBe(atEntry.snapshots()[0]!.etaMs);
 });
 
 it('감속 중 snapshot ETA는 남은 slow을 복사 적분하고 실제 상태는 변경하지 않는다', () => {

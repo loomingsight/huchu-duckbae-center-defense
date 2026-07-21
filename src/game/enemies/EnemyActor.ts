@@ -24,7 +24,7 @@ export const ENEMY_FRAME_WIDTH = 256;
 export const ENEMY_FRAME_HEIGHT = 256;
 const DEFAULT_TEXTURE = AssetKeys.poopMaleWalk;
 const DEFAULT_DISPLAY_HEIGHT = HUCHU_PRESENTATION.regularEnemyOpaqueHeightLogical;
-export const BOSS_MOVEMENT_ANIMATION_RATE = 1.2;
+export const BOSS_MOVEMENT_ANIMATION_RATE = 1.4;
 
 export type EnemyAnimationAction = 'walk' | 'attack';
 

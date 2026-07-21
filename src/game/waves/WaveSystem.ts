@@ -96,8 +96,11 @@ export class WaveSystem {
     const requests: EnemySpawnRequest[] = [];
     while (this.cursor < this.scheduledSpawns.length) {
       const scheduled = this.scheduledSpawns.at(this.cursor)!;
+      const releaseBossWithoutIdleDelay = isBoss(scheduled)
+        && activeEnemies === 0
+        && requests.length === 0;
       if (
-        !reachedDuration(this.elapsedMs, scheduled.atMs)
+        (!reachedDuration(this.elapsedMs, scheduled.atMs) && !releaseBossWithoutIdleDelay)
         || activeEnemies + requests.length >= this.enemyCap
       ) {
         break;

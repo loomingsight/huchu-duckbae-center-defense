@@ -46,7 +46,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
       dogTrader: {
         displayName: '개장수',
         hp: 900,
-        speed: 30,
+        speed: 35,
         damage: 120,
         attackIntervalMs: 2400,
         snack: 20,
@@ -56,7 +56,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
       illegalBreeder: {
         displayName: '불법번식업자',
         hp: 1500,
-        speed: 27.6,
+        speed: 32.2,
         damage: 160,
         attackIntervalMs: 2100,
         snack: 35,

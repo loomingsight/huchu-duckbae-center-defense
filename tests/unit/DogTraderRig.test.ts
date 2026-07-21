@@ -10,12 +10,17 @@ import {
 import {
   DEFAULT_PATH_POSE_SAMPLERS,
 } from '../../src/game/enemies/DogTraderAttackGeometry';
+import { BOSS_MOVEMENT_ANIMATION_RATE } from '../../src/game/enemies/EnemyActor';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
 import type { EnemyState } from '../../src/game/types/GameTypes';
 import type { Direction8 } from '../../src/game/world/DirectionalFrameResolver';
 import type { Point } from '../../src/game/world/Geometry';
 
 describe('DogTraderRig', () => {
+  it('보스 이동 애니메이션은 최초 속도 기준 총 1.4배 cadence를 사용한다', () => {
+    expect(BOSS_MOVEMENT_ANIMATION_RATE).toBe(1.4);
+  });
+
   it('truck은 p-70/side28을 120ms damping하고 snap/reset/reuse 첫 frame은 즉시 맞춘다', () => {
     const visual = new FakeDogTraderParts();
     const rig = new DogTraderRig(visual);
@@ -130,9 +135,9 @@ describe('DogTraderRig', () => {
   });
 
   it.each([
-    { multiplier: 1, humanFrames: [0, 1, 2, 0, 0], truckFrames: [0, 1, 2, 2, 0] },
-    { multiplier: 0.7, humanFrames: [0, 0, 1, 4, 2], truckFrames: [0, 0, 1, 0, 0] },
-    { multiplier: 0.5, humanFrames: [0, 0, 1, 3, 0], truckFrames: [0, 0, 1, 3, 2] },
+    { multiplier: 1, humanFrames: [0, 1, 2, 1, 2], truckFrames: [0, 1, 2, 3, 2] },
+    { multiplier: 0.7, humanFrames: [0, 0, 1, 4, 3], truckFrames: [0, 0, 1, 0, 1] },
+    { multiplier: 0.5, humanFrames: [0, 0, 1, 3, 1], truckFrames: [0, 0, 1, 3, 3] },
   ])(
     '이동 multiplier $multiplier는 human walk와 truck roll의 10fps frame을 함께 늦춘다',
     ({ multiplier, humanFrames, truckFrames }) => {
@@ -194,15 +199,15 @@ describe('DogTraderRig', () => {
   it.each([
     {
       multiplier: 0.7,
-      effectiveElapsed: [600, 600, 684, 768, 768, 888],
-      humanFrames: [0, 0, 0, 1, 1, 2],
-      truckFrames: [2, 2, 2, 3, 3, 0],
+      effectiveElapsed: [700, 700, 798, 896, 896, 1036],
+      humanFrames: [1, 1, 1, 2, 2, 4],
+      truckFrames: [3, 3, 3, 0, 0, 2],
     },
     {
       multiplier: 0.5,
-      effectiveElapsed: [600, 600, 660, 720, 720, 840],
-      humanFrames: [0, 0, 0, 1, 1, 2],
-      truckFrames: [2, 2, 2, 3, 3, 0],
+      effectiveElapsed: [700, 700, 770, 840, 840, 980],
+      humanFrames: [1, 1, 1, 2, 2, 3],
+      truckFrames: [3, 3, 3, 0, 0, 1],
     },
   ])(
     '이동 중 1→$multiplier→1 전환은 human/truck phase를 역행하거나 raw clock으로 점프하지 않는다',
@@ -222,8 +227,8 @@ describe('DogTraderRig', () => {
         rig.render(dogTraderSnapshot('P1', 120, overrides), 16);
       });
 
-      expect(visual.humanElapsedHistory).toEqual(effectiveElapsed);
-      expect(visual.truckElapsedHistory).toEqual(effectiveElapsed);
+      expectElapsedHistory(visual.humanElapsedHistory, effectiveElapsed);
+      expectElapsedHistory(visual.truckElapsedHistory, effectiveElapsed);
       expect(visual.humanFrames).toEqual(humanFrames);
       expect(visual.truckFrames).toEqual(truckFrames);
     },
@@ -251,8 +256,9 @@ describe('DogTraderRig', () => {
         slowRemainingMs: 1_900,
       }), 0);
 
-      expect(visual.humanElapsedHistory).toEqual([600, 600, (500 + 100 * multiplier) * 1.2]);
-      expect(visual.truckElapsedHistory).toEqual([600, 600, (500 + 100 * multiplier) * 1.2]);
+      const expected = [700, 700, (500 + 100 * multiplier) * 1.4];
+      expectElapsedHistory(visual.humanElapsedHistory, expected);
+      expectElapsedHistory(visual.truckElapsedHistory, expected);
     },
   );
 
@@ -271,10 +277,10 @@ describe('DogTraderRig', () => {
       slowRemainingMs: 0,
     }), 16);
 
-    expect(visual.humanElapsedHistory).toEqual([300, 390]);
-    expect(visual.truckElapsedHistory).toEqual([300, 390]);
-    expect(visual.humanFrames).toEqual([3, 3]);
-    expect(visual.truckFrames).toEqual([3, 3]);
+    expectElapsedHistory(visual.humanElapsedHistory, [350, 455]);
+    expectElapsedHistory(visual.truckElapsedHistory, [350, 455]);
+    expect(visual.humanFrames).toEqual([3, 4]);
+    expect(visual.truckFrames).toEqual([3, 0]);
   });
 
   it('raw clock 감소·pause resync·새 bind·reset 경계는 movement clock을 명시적으로 다시 맞춘다', () => {
@@ -304,8 +310,8 @@ describe('DogTraderRig', () => {
     rig.reset();
     renderMoving(99, 300, 0.7, 16);
 
-    expect(visual.humanElapsedHistory).toEqual([300, 360, 0, 60, 180, 180, 240, 252]);
-    expect(visual.truckElapsedHistory).toEqual([300, 360, 0, 60, 180, 180, 240, 252]);
+    expect(visual.humanElapsedHistory).toEqual([350, 420, 0, 70, 210, 210, 280, 294]);
+    expect(visual.truckElapsedHistory).toEqual([350, 420, 0, 70, 210, 210, 280, 294]);
   });
 
   it('slow 중 pause는 frame을 고정하고 death는 마지막 frame, reset은 초기 frame으로 복귀한다', () => {
@@ -333,6 +339,11 @@ describe('DogTraderRig', () => {
     expect(visual.lastTruckRender.frame).toBe(0);
   });
 });
+
+function expectElapsedHistory(actual: readonly number[], expected: readonly number[]): void {
+  expect(actual).toHaveLength(expected.length);
+  expected.forEach((value, index) => expect(actual[index]).toBeCloseTo(value, 9));
+}
 
 class FakeDogTraderParts implements DogTraderPartsPort {
   readonly calls: string[] = [];

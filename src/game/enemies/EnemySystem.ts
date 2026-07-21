@@ -42,7 +42,6 @@ interface MovementState {
   dashCooldownRemainingMs: number;
 }
 
-const DOG_TRADER_ENTRY_PROGRESS = -70;
 const OFF_LEASH_CONTINUOUS_BONUS_SPEED = 64 / 4;
 
 const PATH_IDS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const;
@@ -103,7 +102,7 @@ export class EnemySystem {
       const enemy = system.enemies.get(enemyId)!;
       enemy.pathProgress = Math.min(
         enemy.path.length,
-        Math.max(minimumProgress(enemy.kind), input.initialProgress),
+        Math.max(0, input.initialProgress),
       );
     }
     return system;
@@ -127,7 +126,7 @@ export class EnemySystem {
       variant: request.variant,
       state: 'moving',
       pathId: request.pathId,
-      pathProgress: minimumProgress(request.kind),
+      pathProgress: 0,
       currentHp: stats.hp,
       maxHp: stats.hp,
       spawnSequence: request.spawnSequence,
@@ -207,7 +206,7 @@ export class EnemySystem {
     if (enemy === undefined) return;
 
     enemy.pathProgress = Math.max(
-      minimumProgress(enemy.kind),
+      0,
       enemy.pathProgress - distance,
     );
     enemy.state = 'moving';
@@ -237,7 +236,7 @@ export class EnemySystem {
 
     const interruptedWindup = enemy.state === 'windup';
     enemy.pathProgress = Math.max(
-      minimumProgress(enemy.kind),
+      0,
       enemy.pathProgress - effect.knockbackPx,
     );
     enemy.moveSpeedMultiplier = effect.durationMs > 0 ? effect.multiplier : 1;
@@ -414,10 +413,6 @@ function assertFiniteNonNegative(value: number, label: string): void {
 
 function isBoss(kind: EnemyKind): boolean {
   return kind === 'dogTrader' || kind === 'illegalBreeder';
-}
-
-function minimumProgress(kind: EnemyKind): number {
-  return kind === 'dogTrader' ? DOG_TRADER_ENTRY_PROGRESS : 0;
 }
 
 function movementSpeed(enemy: Pick<MovementState, 'kind' | 'speed'>): number {

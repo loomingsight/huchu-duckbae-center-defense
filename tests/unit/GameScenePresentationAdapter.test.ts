@@ -54,6 +54,38 @@ it('Scene adapter는 exact event ownership을 공용 CombatEffectPool에 연결�
   expect(source).toContain("event.type === 'projectileRequested'");
 });
 
+it('보스 actor를 획득한 spawn frame에 reduced-motion 규칙을 거쳐 camera shake를 한 번 요청한다', () => {
+  const source = gameSceneSource();
+  const spawn = source.slice(
+    source.indexOf("event.type === 'enemySpawned'"),
+    source.indexOf("event.type === 'companionAttackStarted'"),
+  );
+
+  expect(spawn).toContain('bossSpawnFeedback(event.request.kind, this.reducedMotion)');
+  expect(spawn).toContain('this.cameras.main.shake(feedback.durationMs, feedback.intensity)');
+  expect(spawn.indexOf('this.enemyActors?.acquire(snapshot)')).toBeLessThan(
+    spawn.indexOf('this.cameras.main.shake'),
+  );
+});
+
+it('웨이브 종료 UI는 presentation gate를 거치고 non-world step에서 종료 연출만 진행한다', () => {
+  const source = gameSceneSource();
+  const nonWorld = source.slice(
+    source.indexOf('if (!canStepWorld)'),
+    source.indexOf('this.moving = intent.magnitude > 0'),
+  );
+  const apply = source.slice(
+    source.indexOf('protected applySessionEvents'),
+    source.indexOf('private showResult'),
+  );
+
+  expect(nonWorld).toContain('this.advanceWaveEndPresentation(stepMs)');
+  expect(apply).toContain("this.waveEndPresentationGate.defer({ kind: 'countdown' })");
+  expect(apply).toContain("this.waveEndPresentationGate.defer({ kind: 'result', outcome: 'won' })");
+  expect(apply).toContain('this.flushWaveEndPresentation()');
+  expect(apply).not.toContain("if (event.type === 'resultReady') this.showResult(event.outcome)");
+});
+
 it('짖기와 아쿠아빔은 후추 입 좌표를 시각 효과 시작점으로 사용한다', () => {
   const source = gameSceneSource();
   const apply = source.slice(

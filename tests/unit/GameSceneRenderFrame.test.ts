@@ -52,6 +52,10 @@ it('manual fixed step은 기본 동작으로 HUD를 즉시 한 snapshot으로 re
 
   harness.scene.advanceSimulationStep(FIXED_STEP_MS);
 
+  expect(harness.waveEndPresentationAdvance).toHaveBeenCalledWith(FIXED_STEP_MS);
+  expect(harness.waveEndPresentationAdvance.mock.invocationCallOrder[0]).toBeLessThan(
+    harness.sessionStep.mock.invocationCallOrder[0]!,
+  );
   expect(harness.sessionStep).toHaveBeenCalledOnce();
   expect(harness.sessionSnapshot).toHaveBeenCalledOnce();
   expect(harness.hudRender).toHaveBeenCalledOnce();
@@ -273,6 +277,7 @@ function createRafHarness(stepCount: number): {
   readonly enemyRender: ReturnType<typeof vi.fn>;
   readonly projectileRender: ReturnType<typeof vi.fn>;
   readonly damageRender: ReturnType<typeof vi.fn>;
+  readonly waveEndPresentationAdvance: ReturnType<typeof vi.fn>;
 } {
   const snapshot = runSnapshot([enemy({ id: 70 })]);
   const sessionStep = vi.fn(() => []);
@@ -282,6 +287,7 @@ function createRafHarness(stepCount: number): {
   const enemyRender = vi.fn();
   const projectileRender = vi.fn();
   const damageRender = vi.fn();
+  const waveEndPresentationAdvance = vi.fn();
   const playerSnapshot = vi.fn(() => ({ x: 270, y: 650 }));
   const scene = Object.create(GameScene.prototype) as GameScene;
   Object.defineProperties(scene, {
@@ -301,6 +307,9 @@ function createRafHarness(stepCount: number): {
       },
     },
     movementIntent: { value: { read: vi.fn(() => ({ x: 0, y: 0, magnitude: 0 })) } },
+    waveEndPresentationGate: { value: { blocking: true } },
+    advanceWaveEndPresentation: { value: waveEndPresentationAdvance },
+    flushWaveEndPresentation: { value: vi.fn() },
     hud: { value: { step: vi.fn(), render: hudRender } },
     playerController: { value: { snapshot: playerSnapshot } },
     playerView: { value: { render: vi.fn() } },
@@ -325,6 +334,7 @@ function createRafHarness(stepCount: number): {
     enemyRender,
     projectileRender,
     damageRender,
+    waveEndPresentationAdvance,
   };
 }
 

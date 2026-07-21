@@ -48,8 +48,8 @@ describe('고정 게임 데이터', () => {
       enemies: {
         poopGuardian: { hp: 60, speed: 44, damage: 25, attackIntervalMs: 1800, snack: 2 },
         offLeashGuardian: { hp: 110, speed: 42, damage: 50, attackIntervalMs: 1800, snack: 4 },
-        dogTrader: { hp: 900, speed: 30, damage: 120, attackIntervalMs: 2400, snack: 20 },
-        illegalBreeder: { hp: 1500, speed: 27.6, damage: 160, attackIntervalMs: 2100, snack: 35 },
+        dogTrader: { hp: 900, speed: 35, damage: 120, attackIntervalMs: 2400, snack: 20 },
+        illegalBreeder: { hp: 1500, speed: 32.2, damage: 160, attackIntervalMs: 2100, snack: 35 },
       },
       caps: { enemies: 60, projectiles: 80, particles: 120 },
     });

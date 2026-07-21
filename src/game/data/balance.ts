@@ -28,7 +28,7 @@ export const BALANCE = {
     dogTrader: {
       displayName: '개장수',
       hp: 900,
-      speed: 30,
+      speed: 35,
       damage: 120,
       attackIntervalMs: 2400,
       range: 64,
@@ -39,7 +39,7 @@ export const BALANCE = {
     illegalBreeder: {
       displayName: '불법번식업자',
       hp: 1500,
-      speed: 27.6,
+      speed: 32.2,
       damage: 160,
       attackIntervalMs: 2100,
       range: 88,

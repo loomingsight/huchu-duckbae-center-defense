@@ -122,6 +122,24 @@ describe('WaveSystem', () => {
     }
   });
 
+  it('다음 예약 항목이 보스면 활성 적이 0이 된 첫 step에 예약 시각 전에도 한 번만 출현한다', () => {
+    const definitions: readonly WaveDefinition[] = [{
+      wave: 4,
+      pathIds: ['P1', 'P3'],
+      groups: [[0, 1, 0], [10, 0, 0, 'dogTrader']],
+    }];
+    const system = new WaveSystem(definitions, new SeededRng(7));
+    system.start(4);
+
+    expect(system.step(0, 0)).toHaveLength(1);
+    expect(system.step(1_000, 1)).toEqual([]);
+    expect(system.step(0, 0)).toEqual([
+      expect.objectContaining({ kind: 'dogTrader', pathId: 'P3', atMs: 10_000 }),
+    ]);
+    expect(system.step(9_000, 1)).toEqual([]);
+    expect(system.pendingCount).toBe(0);
+  });
+
   it('W3 later refill 실패는 variant cursor와 materialized draft를 남기지 않는다', () => {
     const values = [
       ...Array.from({ length: 5 }, () => 0.25),
