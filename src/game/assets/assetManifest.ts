@@ -1,9 +1,12 @@
 import { AssetKeys } from './AssetKeys';
 import { animationEntries, isSourceAnimationEntry } from './AnimationManifest';
 
+const withBaseUrl = (url: string): string =>
+  `${import.meta.env.BASE_URL}${url.replace(/^\/+/, '')}`;
+
 export const SHELTER_V2 = {
   source: 'assets/source/generated/v2/shelter-states.png',
-  url: '/assets/shelter/shelter-states.png',
+  url: withBaseUrl('/assets/shelter/shelter-states.png'),
   frameCount: 4,
   frameWidth: 256,
   frameHeight: 256,
@@ -11,7 +14,7 @@ export const SHELTER_V2 = {
 } as const;
 
 export const imageAssets = [
-  { key: AssetKeys.map, url: '/assets/map/map-background.webp' },
+  { key: AssetKeys.map, url: withBaseUrl('/assets/map/map-background.webp') },
 ] as const;
 
 export const spriteSheetAssets = [
@@ -23,7 +26,7 @@ export const spriteSheetAssets = [
   },
   {
     key: AssetKeys.trader,
-    url: '/assets/characters/enemy-trader.png',
+    url: withBaseUrl('/assets/characters/enemy-trader.png'),
     frameWidth: 192,
     frameHeight: 256,
   },
@@ -31,7 +34,12 @@ export const spriteSheetAssets = [
 
 export const animationSpriteSheetAssets = animationEntries
   .filter(isSourceAnimationEntry)
-  .map(({ key, url, frameWidth, frameHeight }) => ({ key, url, frameWidth, frameHeight }));
+  .map(({ key, url, frameWidth, frameHeight }) => ({
+    key,
+    url: withBaseUrl(url),
+    frameWidth,
+    frameHeight,
+  }));
 
 export const requiredTextureKeys = [
   ...imageAssets.map(({ key }) => key),
