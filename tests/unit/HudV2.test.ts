@@ -448,6 +448,15 @@ it('하단 skill SVG는 22px이고 56px button touch target은 줄지 않는다'
   expect(styles).toContain('.skill-dock__icon svg { width: 22px; height: 22px; }');
 });
 
+it('게임 루트는 텍스트 선택과 iOS 터치 콜아웃을 막고 문서 전체에는 확장하지 않는다', () => {
+  const styles = source('../../src/styles.css');
+
+  expect(styles).toContain(
+    '#game-root, #game-root * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }',
+  );
+  expect(styles).not.toContain('html, body, #game-root, #game-root *');
+});
+
 it('production scene은 legacy modal/HUD나 Phaser joystick을 import하지 않고 CSS geometry가 model과 일치한다', () => {
   const scene = source('../../src/game/scenes/GameScene.ts');
   const boot = source('../../src/game/scenes/BootScene.ts');

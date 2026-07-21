@@ -2,6 +2,7 @@
 * { box-sizing: border-box; }
 html, body, #game-root { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; touch-action: none; }
 #game-root { position: relative; width: 100vw; height: 100dvh; overflow: hidden; }
+#game-root, #game-root * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .hud-overlay { --hud-safe-top: env(safe-area-inset-top, 0px); position: absolute; inset: 0; z-index: 10; overflow: hidden; pointer-events: none; color: #574b3f; font-family: system-ui, sans-serif; }
 .hud-overlay[data-active="false"] { visibility: hidden; pointer-events: none; }
 .top-hud { position: absolute; top: max(12px, var(--hud-safe-top)); right: max(2px, env(safe-area-inset-right, 0px)); display: flex; align-items: center; gap: 2px; padding: 0 2px; border-radius: 10px; background: rgba(255, 247, 218, 0.9); font-size: 10px; font-weight: 800; white-space: nowrap; pointer-events: none; }
