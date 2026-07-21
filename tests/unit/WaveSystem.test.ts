@@ -111,6 +111,17 @@ describe('PathDeck', () => {
 });
 
 describe('WaveSystem', () => {
+  it.each([
+    [4, 'dogTrader'],
+    [5, 'illegalBreeder'],
+  ] as const)('wave %i %s 보스는 seed와 무관하게 12시 P3에서 출현한다', (wave, kind) => {
+    for (const seed of [1, 7, 77, 20260721]) {
+      const system = new WaveSystem(WAVE_DEFINITIONS, new SeededRng(seed));
+
+      expect(system.previewBoss(wave)).toMatchObject({ kind, pathId: 'P3' });
+    }
+  });
+
   it('W3 later refill 실패는 variant cursor와 materialized draft를 남기지 않는다', () => {
     const values = [
       ...Array.from({ length: 5 }, () => 0.25),

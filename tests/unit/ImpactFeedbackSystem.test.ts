@@ -761,6 +761,35 @@ describe('ImpactFeedbackSystem', () => {
     expect(enemyTargetLookup).toHaveBeenCalledTimes(1);
   });
 
+  it('꼬리치기 적 리코일은 공격자 방향과 무관하게 보호소 중앙에서 바깥쪽을 향한다', () => {
+    const east = fakeTarget();
+    const centered = fakeTarget();
+    const targets = new Map([[7, east], [8, centered]]);
+    const feedback = new ImpactFeedbackSystem({
+      enemyTarget: (targetId) => targets.get(targetId),
+      shelterTarget: fakeTarget(),
+    });
+
+    feedback.handle(hit({
+      targetId: 7,
+      source: 'tailSwipe',
+      strength: 'medium',
+      position: { x: 300, y: 480 },
+      impactDirection: { x: 0, y: -1 },
+    }));
+    feedback.handle(hit({
+      castId: 'tail:center',
+      targetId: 8,
+      source: 'tailSwipe',
+      strength: 'medium',
+      position: { x: 270, y: 480 },
+      impactDirection: { x: 1, y: 0 },
+    }));
+
+    expect(east.lastRecoil?.direction).toEqual({ x: 1, y: 0 });
+    expect(centered.lastRecoil?.direction).toEqual({ x: 0, y: -1 });
+  });
+
   it('reduced motion은 rule state를 바꾸지 않고 camera=0/recoil 절반/pop delta 절반만 적용한다', () => {
     const normalTarget = fakeTarget();
     const reducedTarget = fakeTarget();

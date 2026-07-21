@@ -3,6 +3,9 @@ import { AssetKeys } from '../assets/AssetKeys';
 import {
   IMPACT_SHAPE_FRAME_SIZE,
   IMPACT_SHAPE_PHASES,
+  SAFETY_REPORT_FRAME,
+  SAFETY_REPORT_FRAME_HEIGHT,
+  SAFETY_REPORT_FRAME_WIDTH,
   impactShapeFrame,
   type CombatShapeFrame,
   type ImpactShapePhase,
@@ -29,18 +32,21 @@ export const BARK_WAVE_DURATION_MS = 180;
 export const BARK_WAVE_CONE_DEGREES = BARK_CONE_DEGREES;
 export const AQUA_BEAM_DURATION_MS = 600;
 export const SAFETY_REPORT_DURATION_MS = 300;
+export const TAIL_EFFECT_DURATION_MS = 500;
+export const TAIL_EFFECT_VISUAL_SCALE = 2.5;
 
 const BARK_WAVE_START_RADIUS = 26;
 const BARK_WAVE_END_RADIUS = BARK_RANGE_LOGICAL;
 const IMPACT_FADE_MS = 120;
 const IMPACT_FRAME_MS = IMPACT_FADE_MS / 4;
-const TAIL_DURATION_MS = 250;
 const AQUA_SPLASH_DURATION_MS = 180;
 const DOOR_PUSH_DURATION_MS = 120;
 const BREEDER_WARNING_DURATION_MS = 500;
 const ELECTRIC_WAVE_DURATION_MS = 180;
 const SNACK_FLY_DURATION_MS = 350;
 const SAFETY_IMPACT_GRACE_MS = FIXED_STEP_MS + TIME_EPSILON_MS * 2;
+const SAFETY_LABEL_OFFSET_Y = 125;
+const SAFETY_LABEL_ENTRANCE_TRAVEL_Y = 30;
 const IMPACT_ALPHA_BY_PHASE = [0.85, 0.65, 0.4, 0.2] as const;
 const IMPACT_BOB_OFFSET = -IMPACT_SHAPE_FRAME_SIZE / 2;
 const DEFAULT_IMPACT_FRAME = impactShapeFrame('poop', 0);
@@ -829,7 +835,7 @@ class CombatEffectActor {
       case 'projectileImpact': return IMPACT_FADE_MS;
       case 'bark': return BARK_WAVE_DURATION_MS;
       case 'tailArc':
-      case 'tailDust': return TAIL_DURATION_MS;
+      case 'tailDust': return TAIL_EFFECT_DURATION_MS;
       case 'aquaBeam': return AQUA_BEAM_DURATION_MS;
       case 'aquaSplash': return AQUA_SPLASH_DURATION_MS;
       case 'safetyNotice': return SAFETY_REPORT_DURATION_MS + SAFETY_IMPACT_GRACE_MS;
@@ -852,7 +858,15 @@ class CombatEffectActor {
       this.renderProjectileImpact(payload);
       return;
     }
-    const graphics = this.useGraphicsMode(payload.type === 'safetyNotice' ? 1002 : 1001);
+    if (payload.type === 'safetyNotice') {
+      this.renderSafetyNotice(payload.position);
+      return;
+    }
+    if (payload.type === 'safetyStamp') {
+      this.renderSafetyStamp(payload.position);
+      return;
+    }
+    const graphics = this.useGraphicsMode(1001);
     graphics.clear();
     switch (payload.type) {
       case 'bark': this.renderBark(payload); break;
@@ -860,8 +874,6 @@ class CombatEffectActor {
       case 'tailDust': this.renderTailDust(payload.position); break;
       case 'aquaBeam': this.renderAquaBeam(payload); break;
       case 'aquaSplash': this.renderAquaSplash(payload.position); break;
-      case 'safetyNotice': this.renderSafetyNotice(payload.position); break;
-      case 'safetyStamp': this.renderSafetyStamp(payload.position); break;
       case 'doorPush': this.renderDoorPush(payload.origin, payload.target); break;
       case 'breederWarning': this.renderBreederWarning(payload.position); break;
       case 'electricWave': this.renderElectricWave(payload.position); break;
@@ -897,19 +909,20 @@ class CombatEffectActor {
   }
 
   private renderTailArc(position: Point): void {
-    const progress = this.elapsedMs / TAIL_DURATION_MS;
+    const progress = this.elapsedMs / TAIL_EFFECT_DURATION_MS;
     this.graphics.lineStyle(7, 0xffd66e, 1 - progress).strokeCircle(0, 0, 42 + progress * 18)
-      .setPosition(position.x, position.y);
+      .setPosition(position.x, position.y)
+      .setScale(TAIL_EFFECT_VISUAL_SCALE);
   }
 
   private renderTailDust(position: Point): void {
-    const progress = this.elapsedMs / TAIL_DURATION_MS;
+    const progress = this.elapsedMs / TAIL_EFFECT_DURATION_MS;
     this.graphics.fillStyle(0xd2b178, 0.75 * (1 - progress));
     for (let index = 0; index < 6; index += 1) {
       const angle = index * Math.PI / 3;
       this.graphics.fillCircle(Math.cos(angle) * 35, Math.sin(angle) * 14, 4);
     }
-    this.graphics.setPosition(position.x, position.y);
+    this.graphics.setPosition(position.x, position.y).setScale(TAIL_EFFECT_VISUAL_SCALE);
   }
 
   private renderAquaBeam(payload: Extract<EffectPayload, { type: 'aquaBeam' }>): void {
@@ -930,16 +943,29 @@ class CombatEffectActor {
 
   private renderSafetyNotice(position: Point): void {
     const progress = Math.min(1, this.elapsedMs / SAFETY_REPORT_DURATION_MS);
-    this.graphics
-      .fillStyle(0xffffff, 1)
-      .fillRect(-12, -15, 24, 30)
-      .setPosition(position.x, position.y - 48 * (1 - progress));
+    this.hideGraphics();
+    this.setBobFrame(SAFETY_REPORT_FRAME);
+    this.setBobPosition(
+      position.x - SAFETY_REPORT_FRAME_WIDTH / 2,
+      position.y
+        - SAFETY_LABEL_OFFSET_Y
+        - SAFETY_LABEL_ENTRANCE_TRAVEL_Y * (1 - progress)
+        - SAFETY_REPORT_FRAME_HEIGHT / 2,
+    );
+    this.setBobAlpha(1);
+    this.setBobVisible(true);
   }
 
   private renderSafetyStamp(position: Point): void {
     const progress = this.elapsedMs / SAFETY_REPORT_DURATION_MS;
-    this.graphics.lineStyle(4, 0xffef9a, 1 - progress).strokeCircle(0, 0, 18 + progress * 8)
-      .setPosition(position.x, position.y);
+    this.hideGraphics();
+    this.setBobFrame(SAFETY_REPORT_FRAME);
+    this.setBobPosition(
+      position.x - SAFETY_REPORT_FRAME_WIDTH / 2,
+      position.y - SAFETY_LABEL_OFFSET_Y - SAFETY_REPORT_FRAME_HEIGHT / 2,
+    );
+    this.setBobAlpha(1 - progress);
+    this.setBobVisible(true);
   }
 
   private renderDoorPush(origin: Point, target: Point): void {

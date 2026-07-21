@@ -1,4 +1,5 @@
 import type { ImpactFeedbackTarget } from '../enemies/ImpactFeedbackTarget';
+import { BALANCE } from '../data/balance';
 import type { GameEvent } from '../events/GameEvents';
 import type { Point } from '../world/Geometry';
 import type { DamageAppliedEvent } from './CombatTypes';
@@ -10,6 +11,7 @@ import {
 export { IMPACT_STYLE };
 
 const CAST_DEDUPE_CAP = 256;
+const DEFAULT_CENTER_OUTWARD_DIRECTION: Point = { x: 0, y: -1 };
 
 type ShelterDamagedEvent = Extract<GameEvent, { readonly type: 'shelterDamaged' }>;
 type ImpactEvent = DamageAppliedEvent | ShelterDamagedEvent;
@@ -88,7 +90,9 @@ export class ImpactFeedbackSystem {
     const reduced = this.options.reducedMotion?.() ?? false;
     target.flash(style.flashMs);
     target.recoil({
-      direction: inverse(event.impactDirection),
+      direction: event.type === 'damageApplied' && event.source === 'tailSwipe'
+        ? centerOutwardDirection(event.position)
+        : inverse(event.impactDirection),
       distancePx: reduced ? style.recoilPx / 2 : style.recoilPx,
       popScale: reduced ? 1 + (style.popScale - 1) / 2 : style.popScale,
       durationMs: style.flashMs,
@@ -133,6 +137,15 @@ class BoundedCastSet {
 
 function inverse(direction: Point): Point {
   return { x: -direction.x, y: -direction.y };
+}
+
+function centerOutwardDirection(position: Point): Point {
+  const dx = position.x - BALANCE.shelter.x;
+  const dy = position.y - BALANCE.shelter.y;
+  const length = Math.hypot(dx, dy);
+  return length === 0
+    ? { ...DEFAULT_CENTER_OUTWARD_DIRECTION }
+    : { x: dx / length, y: dy / length };
 }
 
 function cameraFeedback(strength: ImpactEvent['strength']): {

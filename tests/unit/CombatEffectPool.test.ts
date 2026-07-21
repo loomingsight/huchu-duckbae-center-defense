@@ -360,16 +360,22 @@ it('releaseAll은 한 actor reset 실패 뒤에도 나머지 slot과 safety cloc
     { targetId: 1, position: { x: 200, y: 500 } },
     { targetId: 2, position: { x: 340, y: 500 } },
   ])).toBe(2);
-  fake.graphics[1]!.failNext('setPosition');
+  const secondActorId = effects.effectSnapshots()[1]!.actorId;
+  fake.bobs[secondActorId]!.failNext(
+    'setPosition',
+    1,
+    [new Error('fake safety Bob setPosition failed')],
+  );
 
-  expect(() => effects.releaseAll()).toThrow('fake Graphics setPosition failed');
+  expect(() => effects.releaseAll()).toThrow('fake safety Bob setPosition failed');
 
   expect(effects.effectSnapshots()).toEqual([]);
   expect(effects.activeSafetyClockCount()).toBe(0);
   expect(effects.snapshot()).toMatchObject({ active: 0, available: 120 });
   expect(effects.workloadCounters()).toMatchObject({
-    graphicsAllocated: 2,
+    graphicsAllocated: 0,
     graphicsVisible: 0,
+    renderEligibleBobs: 0,
     activations: 2,
     releases: 2,
   });
@@ -385,7 +391,8 @@ it('releaseType safetyNotice는 실패해도 모든 제거 대상 cast clock을 
   expect(effects.startSafetyReport('safety:also-released', { x: 270, y: 650 }, [
     { targetId: 2, position: { x: 340, y: 500 } },
   ])).toBe(1);
-  fake.graphics[0]!.failNext('setPosition', 1, [releaseError]);
+  const firstActorId = effects.effectSnapshots()[0]!.actorId;
+  fake.bobs[firstActorId]!.failNext('setPosition', 1, [releaseError]);
 
   let thrown: unknown;
   try {
@@ -453,7 +460,7 @@ it('tail dust activation과 arc rollback이 모두 실패하면 root-first Aggre
   expect(effects.snapshot()).toEqual(initial);
 });
 
-it('H6 safety batch는 두 번째 lazy Graphics 실패 시 앞선 notice와 cast clock까지 rollback한다', () => {
+it('H6 safety batch는 두 번째 shared Bob 실패 시 앞선 notice와 cast clock까지 rollback한다', () => {
   const fake = createEffectScene();
   const effects = new CombatEffectPool(fake.scene as never);
   const initial = effects.snapshot();
@@ -461,10 +468,11 @@ it('H6 safety batch는 두 번째 lazy Graphics 실패 시 앞선 notice와 cast
     { targetId: 1, position: { x: 120, y: 300 } },
     { targetId: 2, position: { x: 240, y: 400 } },
   ];
-  fake.failGraphicsDepthOn(2);
+  const activationError = new Error('fake safety Bob frame failed');
+  fake.bobs.at(-2)!.failNext('setFrame', 1, [activationError]);
 
   expect(() => effects.startSafetyReport('safety:atomic', { x: 270, y: 650 }, targets))
-    .toThrow('fake Graphics setDepth failed');
+    .toThrow('fake safety Bob frame failed');
 
   expect(effects.snapshot()).toEqual(initial);
   expect(effects.effectSnapshots()).toEqual([]);
@@ -485,7 +493,7 @@ it('같은 safety cast 재시작 실패는 기존 clock age와 notice를 보존�
     { targetId: 1, position: { x: 120, y: 300 } },
   ])).toBe(1);
   effects.step(100);
-  fake.failGraphicsOn(1, 'setDepth', 1, [restartError]);
+  fake.bobs.at(-2)!.failNext('setFrame', 1, [restartError]);
 
   let thrown: unknown;
   try {
@@ -669,7 +677,7 @@ it('projectile/bark/tail/aqua/safety가 created 120인 한 shared pool만 사용
     'aquaBeam',
     'safetyNotice',
   ]));
-  expect(fake.graphics).toHaveLength(5);
+  expect(fake.graphics).toHaveLength(4);
   expect(fake.sprites).toEqual([]);
   expect(fake.blitters).toHaveLength(1);
   expect(fake.bobs).toHaveLength(120);
@@ -877,7 +885,7 @@ it('impact Bob은 같은 age/phase에서 변경 없는 state를 다시 적용하
   expect(fake.graphics).toEqual([]);
 });
 
-it('impact 뒤 같은 actor는 Bob을 숨기고 safety Graphics를 lazy reuse한다', () => {
+it('impact 뒤 같은 actor는 같은 shared Bob을 safety 신고 frame으로 재사용한다', () => {
   const fake = createEffectScene();
   const effects = new CombatEffectPool(fake.scene as never);
   effects.showProjectileImpact(5, 'electric', { x: 270, y: 518 });
@@ -887,53 +895,51 @@ it('impact 뒤 같은 actor는 Bob을 숨기고 safety Graphics를 lazy reuse한
   effects.startSafetyReport('safety:reuse', { x: 270, y: 650 }, [
     { targetId: 1, position: { x: 270, y: 500 } },
   ]);
-  const graphics = fake.graphics.at(-1)!;
 
-  expect(fake.graphics).toHaveLength(1);
+  expect(fake.graphics).toEqual([]);
   expect(fake.sprites).toEqual([]);
-  expect(bob.calls.get('setVisible')?.at(-1)).toEqual([false]);
-  expect(graphics.calls.get('setDepth')).toEqual([[1001], [1002]]);
-  expect(graphics.calls.get('setActive')).toEqual([[false], [true]]);
-  expect(graphics.calls.get('setVisible')).toEqual([[false], [true]]);
-  const stateCounts = ['setDepth', 'setActive', 'setVisible']
-    .map((method) => callCount(graphics, method));
+  expect(bob.calls.get('setFrame')?.at(-1)).toEqual(['safety-report']);
+  expect(bob.calls.get('setVisible')?.at(-1)).toEqual([true]);
+  const stateCounts = ['setFrame', 'setPosition', 'setAlpha', 'setVisible']
+    .map((method) => callCount(bob, method));
   effects.step(0);
-  expect(['setDepth', 'setActive', 'setVisible'].map((method) => callCount(graphics, method)))
+  expect(['setFrame', 'setPosition', 'setAlpha', 'setVisible'].map((method) => callCount(bob, method)))
     .toEqual(stateCounts);
 
   effects.releaseType('safetyNotice');
-  graphics.calls.clear();
+  expect(bob.calls.get('setFrame')?.at(-1)).toEqual(['impact-poop-0']);
+  bob.calls.clear();
   effects.showProjectileImpact(6, 'poop', { x: 270, y: 518 });
 
-  expect(graphics.calls.get('setActive')).toBeUndefined();
-  expect(graphics.calls.get('setVisible')).toBeUndefined();
+  expect(fake.graphics).toEqual([]);
+  expect(bob.calls.get('setFrame')).toBeUndefined();
   expect(bob.calls.get('setVisible')?.at(-1)).toEqual([true]);
   const bobVisibilityCount = callCount(bob, 'setVisible');
   effects.step(0);
   expect(callCount(bob, 'setVisible')).toBe(bobVisibilityCount);
 });
 
-it('safety notice→stamp는 같은 actor와 같은 Graphics에서 depth만 전환한다', () => {
+it('safety notice→stamp는 같은 actor와 같은 Bob에서 위치만 전환한다', () => {
   const fake = createEffectScene();
   const effects = new CombatEffectPool(fake.scene as never);
   const target = { targetId: 1, position: { x: 270, y: 500 } };
   effects.startSafetyReport('safety:mode', { x: 270, y: 650 }, [target]);
-  const graphics = fake.graphics.at(-1)!;
   const actorId = effects.effectSnapshots()[0]!.actorId;
-  graphics.calls.clear();
+  const bob = fake.bobs[actorId]!;
+  bob.calls.clear();
 
   expect(effects.showSafetyImpact('safety:mode', [target])).toBe(1);
 
   expect(effects.effectSnapshots()).toEqual([
     expect.objectContaining({ actorId, type: 'safetyStamp' }),
   ]);
-  expect(fake.graphics).toEqual([graphics]);
+  expect(fake.graphics).toEqual([]);
   expect(fake.sprites).toEqual([]);
-  expect(graphics.calls.get('setDepth')).toEqual([[1001]]);
-  expect(graphics.calls.get('setActive')).toBeUndefined();
-  expect(graphics.calls.get('setVisible')).toBeUndefined();
+  expect(bob.calls.get('setPosition')).toEqual([[230, 347]]);
+  expect(bob.calls.get('setFrame')).toBeUndefined();
+  expect(bob.calls.get('setVisible')).toBeUndefined();
   effects.step(0);
-  expect(graphics.calls.get('setDepth')).toEqual([[1001]]);
+  expect(bob.calls.get('setPosition')).toEqual([[230, 347]]);
 });
 
 it('safety transition render 실패는 모든 notice와 clock을 복구해 재시도할 수 있다', () => {
@@ -947,7 +953,8 @@ it('safety transition render 실패는 모든 notice와 clock을 복구해 재�
     .toBe(2);
   effects.step(100);
   const transitionError = new Error('fake safety stamp render failed');
-  fake.graphics[1]!.failNext('setPosition', 1, [transitionError]);
+  const secondActorId = effects.effectSnapshots()[1]!.actorId;
+  fake.bobs[secondActorId]!.failNext('setPosition', 1, [transitionError]);
 
   let thrown: unknown;
   try {
@@ -964,7 +971,7 @@ it('safety transition render 실패는 모든 notice와 clock을 복구해 재�
     ]);
   expect(effects.activeSafetyClockCount()).toBe(1);
   expect(effects.snapshot()).toMatchObject({ active: 2, available: 118 });
-  expect(effects.workloadCounters().graphicsVisible).toBe(2);
+  expect(effects.workloadCounters().renderEligibleBobs).toBe(2);
 
   expect(effects.showSafetyImpact('safety:transition-rollback', targets)).toBe(2);
   expect(effects.effectSnapshots().map(({ type, ageMs }) => ({ type, ageMs }))).toEqual([
@@ -990,7 +997,8 @@ it('unmatched release 실패는 성공한 safety stamp와 clock commit을 되돌
   )).toBe(3);
   const stampActorId = effects.effectSnapshots()[0]!.actorId;
   const releaseError = new Error('fake unmatched release failed');
-  fake.graphics[2]!.failNext('setPosition', 1, [releaseError]);
+  const unmatchedActorId = effects.effectSnapshots()[2]!.actorId;
+  fake.bobs[unmatchedActorId]!.failNext('setPosition', 1, [releaseError]);
 
   let thrown: unknown;
   try {
@@ -1013,7 +1021,8 @@ it('unmatched release 실패는 성공한 safety stamp와 clock commit을 되돌
   expect(effects.snapshot()).toMatchObject({ active: 1, available: 119 });
   expect(effects.activeSafetyClockCount()).toBe(0);
   expect(effects.workloadCounters()).toMatchObject({
-    graphicsVisible: 1,
+    graphicsVisible: 0,
+    renderEligibleBobs: 1,
     activations: 3,
     releases: 2,
   });
@@ -1036,7 +1045,7 @@ it.each([
   expect(bobFrame).toBe(expectedFrame);
 });
 
-it('impact actor의 safety notice는 별도 Sprite 없이 흰 Graphics 고지서를 그린다', () => {
+it('safety notice는 종이 Graphics 없이 적 라벨 위에 주황색 신고 frame을 표시한다', () => {
   const fake = createEffectScene();
   const effects = new CombatEffectPool(fake.scene as never);
   effects.showProjectileImpact(5, 'electric', { x: 270, y: 518 });
@@ -1046,15 +1055,12 @@ it('impact actor의 safety notice는 별도 Sprite 없이 흰 Graphics 고지서
   effects.startSafetyReport('safety:reuse', { x: 270, y: 650 }, [
     { targetId: 1, position: { x: 270, y: 500 } },
   ]);
-  const graphics = fake.graphics.at(-1)!;
 
   expect(fake.sprites).toEqual([]);
-  expect(fake.graphics).toHaveLength(1);
-  expect(bob.calls.get('setVisible')?.at(-1)).toEqual([false]);
-  expect(graphics.calls.get('fillStyle')?.at(-1)).toEqual([0xffffff, 1]);
-  expect(graphics.calls.get('fillRect')?.at(-1)).toEqual([-12, -15, 24, 30]);
-  expect(graphics.calls.get('setDepth')?.at(-1)).toEqual([1002]);
-  expect(graphics.calls.get('setPosition')?.at(-1)).toEqual([270, 452]);
+  expect(fake.graphics).toEqual([]);
+  expect(bob.calls.get('setFrame')?.at(-1)).toEqual(['safety-report']);
+  expect(bob.calls.get('setPosition')?.at(-1)).toEqual([230, 317]);
+  expect(bob.calls.get('setVisible')?.at(-1)).toEqual([true]);
 });
 
 it('releaseType은 다른 effect identity/age를 건드리지 않는다', () => {
@@ -1075,6 +1081,22 @@ it('bark wave는 정확히 120도이고 tail impact는 arc+dust를 함께 만든
   expect(BARK_WAVE_CONE_DEGREES).toBe(120);
   expect(effects.showTailImpact('tail:1', { x: 20, y: 30 })).toBe(2);
   expect(effects.effectSnapshots().map(({ type }) => type)).toEqual(['tailArc', 'tailDust']);
+});
+
+it('tail arc와 dust는 2.5배 크기로 0.5배속인 500ms 동안 표시된다', () => {
+  const fake = createEffectScene();
+  const effects = new CombatEffectPool(fake.scene as never);
+
+  expect(effects.showTailImpact('tail:visibility', { x: 20, y: 30 })).toBe(2);
+  expect(fake.graphics).toHaveLength(2);
+  expect(fake.graphics[0]!.calls.get('setScale')?.at(-1)).toEqual([2.5]);
+  expect(fake.graphics[1]!.calls.get('setScale')?.at(-1)).toEqual([2.5]);
+
+  effects.step(499.999);
+  expect(effects.effectSnapshots().map(({ type }) => type)).toEqual(['tailArc', 'tailDust']);
+
+  effects.step(0.001);
+  expect(effects.effectSnapshots()).toEqual([]);
 });
 
 it('aqua는 600ms 동안 한 번만 retarget하고 impact에서 splash한다', () => {

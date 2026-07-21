@@ -27,28 +27,42 @@ it('H6 atlas는 projectile 3개와 56px impact 3 kind x 4 phase를 한 texture�
     'impact-electric-1',
     'impact-electric-2',
     'impact-electric-3',
+    'safety-report',
   ] as const;
 
   ensureCombatShapeAtlas(fake.scene as never);
 
   expect(COMBAT_SHAPE_FRAME_SIZE).toBe(40);
-  expect(COMBAT_SHAPE_ATLAS_WIDTH).toBe(792);
+  expect(COMBAT_SHAPE_ATLAS_WIDTH).toBe(872);
   expect(COMBAT_SHAPE_ATLAS_HEIGHT).toBe(56);
   expect(COMBAT_SHAPE_FRAMES).toEqual(expectedFrames);
   expect(fake.graphicsCalls.get('generateTexture')).toEqual([[
-    AssetKeys.combatShapes, 792, 56,
+    AssetKeys.combatShapes, 872, 56,
   ]]);
   expect(fake.frameAdds.slice(0, 3)).toEqual([
     ['projectile-poop', 0, 0, 0, 40, 40],
     ['projectile-net', 0, 40, 0, 40, 40],
     ['projectile-electric', 0, 80, 0, 40, 40],
   ]);
-  expect(fake.frameAdds.slice(3)).toEqual(expectedFrames.slice(3).map((name, index) => (
+  expect(fake.frameAdds.slice(3, -1)).toEqual(expectedFrames.slice(3, -1).map((name, index) => (
     [name, 0, 120 + index * 56, 0, 56, 56]
   )));
+  expect(fake.frameAdds.at(-1)).toEqual(['safety-report', 0, 792, 0, 80, 56]);
   expect(impactShapeFrame('poop', 0)).toBe('impact-poop-0');
   expect(impactShapeFrame('net', 2)).toBe('impact-net-2');
   expect(impactShapeFrame('electric', 3)).toBe('impact-electric-3');
+});
+
+it('combat atlas는 안전신문고용 굵은 주황색 한글 신고 글리프 frame을 포함한다', () => {
+  const fake = createAtlasScene();
+
+  ensureCombatShapeAtlas(fake.scene as never);
+
+  expect(COMBAT_SHAPE_FRAMES).toContain('safety-report');
+  expect(fake.frameNames()).toContain('safety-report');
+  expect(fake.graphicsCalls.get('fillStyle')).toContainEqual([0xff6b35, 1]);
+  expect(fake.graphicsCalls.get('fillRect')).toContainEqual([798, 41, 27, 6]);
+  expect(fake.graphicsCalls.get('fillRect')).toContainEqual([860, 8, 7, 30]);
 });
 
 it('H6 atlas는 마지막 impact phase frame 실패도 texture 전체 rollback 후 retry한다', () => {
@@ -89,13 +103,13 @@ it('H6 atlas는 generateTexture가 key 등록 뒤 실패해도 orphan texture를
   expect(fake.graphicsCalls.get('destroy')).toHaveLength(2);
 });
 
-it('15 combat shape frames are rasterized into one mixed-cell atlas exactly once', () => {
+it('16 combat shape frames are rasterized into one mixed-cell atlas exactly once', () => {
   const fake = createAtlasScene();
 
   ensureCombatShapeAtlas(fake.scene as never);
 
   expect(AssetKeys.combatShapes).toBe('combat-shapes');
-  expect(COMBAT_SHAPE_ATLAS_WIDTH).toBe(792);
+  expect(COMBAT_SHAPE_ATLAS_WIDTH).toBe(872);
   expect(COMBAT_SHAPE_ATLAS_HEIGHT).toBe(56);
   expect(COMBAT_SHAPE_FRAME_SIZE).toBe(40);
   expect(IMPACT_SHAPE_FRAME_SIZE).toBe(56);
@@ -115,18 +129,20 @@ it('15 combat shape frames are rasterized into one mixed-cell atlas exactly once
     'impact-electric-1',
     'impact-electric-2',
     'impact-electric-3',
+    'safety-report',
   ]);
   expect(fake.makeGraphics).toEqual([{ add: false }]);
   expect(fake.graphicsCalls.get('generateTexture')).toEqual([
-    [AssetKeys.combatShapes, 792, 56],
+    [AssetKeys.combatShapes, 872, 56],
   ]);
   expect(fake.frameAdds).toEqual([
     ['projectile-poop', 0, 0, 0, 40, 40],
     ['projectile-net', 0, 40, 0, 40, 40],
     ['projectile-electric', 0, 80, 0, 40, 40],
-    ...COMBAT_SHAPE_FRAMES.slice(3).map((name, index) => (
+    ...COMBAT_SHAPE_FRAMES.slice(3, -1).map((name, index) => (
       [name, 0, 120 + index * 56, 0, 56, 56]
     )),
+    ['safety-report', 0, 792, 0, 80, 56],
   ]);
   expect(fake.graphicsCalls.get('destroy')).toHaveLength(1);
 
@@ -134,7 +150,7 @@ it('15 combat shape frames are rasterized into one mixed-cell atlas exactly once
 
   expect(fake.makeGraphics).toHaveLength(1);
   expect(fake.graphicsCalls.get('generateTexture')).toHaveLength(1);
-  expect(fake.frameAdds).toHaveLength(15);
+  expect(fake.frameAdds).toHaveLength(16);
   expect(fake.graphicsCalls.get('destroy')).toHaveLength(1);
 });
 
@@ -150,6 +166,7 @@ it('atlas uses the existing projectile and impact vector commands, colors, and l
     [0x75421f, 1],
     [0x75421f, 1],
     [0x75421f, 1],
+    [0xff6b35, 1],
   ]);
   expect(fake.graphicsCalls.get('fillCircle')).toEqual([
     [17, 22, 5],
@@ -208,7 +225,7 @@ it('an existing atlas is verified without silently repairing missing frames', ()
   });
 
   expect(() => ensureCombatShapeAtlas(fake.scene as never)).toThrow(
-    'Combat shape atlas is missing frame impact-electric-3',
+    'Combat shape atlas is missing frame safety-report',
   );
   expect(fake.makeGraphics).toEqual([]);
   expect(fake.frameAdds).toEqual([]);

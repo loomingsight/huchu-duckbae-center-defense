@@ -4,8 +4,12 @@ import type { ProjectileKind } from '../combat/ProjectileSystem';
 
 export const COMBAT_SHAPE_FRAME_SIZE = 40;
 export const IMPACT_SHAPE_FRAME_SIZE = 56;
+export const SAFETY_REPORT_FRAME_WIDTH = 80;
+export const SAFETY_REPORT_FRAME_HEIGHT = IMPACT_SHAPE_FRAME_SIZE;
+export const SAFETY_REPORT_FRAME = 'safety-report' as const;
 export const COMBAT_SHAPE_ATLAS_WIDTH = COMBAT_SHAPE_FRAME_SIZE * 3
-  + IMPACT_SHAPE_FRAME_SIZE * 12;
+  + IMPACT_SHAPE_FRAME_SIZE * 12
+  + SAFETY_REPORT_FRAME_WIDTH;
 export const COMBAT_SHAPE_ATLAS_HEIGHT = IMPACT_SHAPE_FRAME_SIZE;
 
 export const IMPACT_SHAPE_PHASES = [0, 1, 2, 3] as const;
@@ -27,6 +31,7 @@ export const COMBAT_SHAPE_FRAMES = [
   'impact-electric-1',
   'impact-electric-2',
   'impact-electric-3',
+  SAFETY_REPORT_FRAME,
 ] as const;
 
 export type CombatShapeFrame = typeof COMBAT_SHAPE_FRAMES[number];
@@ -66,6 +71,7 @@ export function ensureCombatShapeAtlas(scene: Phaser.Scene): void {
   try {
     drawProjectileShapes(graphics);
     drawImpactShapes(graphics);
+    drawSafetyReportGlyph(graphics);
     graphics.generateTexture(
       AssetKeys.combatShapes,
       COMBAT_SHAPE_ATLAS_WIDTH,
@@ -74,16 +80,23 @@ export function ensureCombatShapeAtlas(scene: Phaser.Scene): void {
     const texture = scene.textures.get(AssetKeys.combatShapes);
     COMBAT_SHAPE_FRAMES.forEach((name, index) => {
       const impactIndex = index - 3;
-      const isImpact = impactIndex >= 0;
+      const isImpact = impactIndex >= 0 && impactIndex < 12;
+      const isSafetyReport = name === SAFETY_REPORT_FRAME;
       const frame = texture.add(
         name,
         0,
-        isImpact
+        isSafetyReport
+          ? COMBAT_SHAPE_FRAME_SIZE * 3 + IMPACT_SHAPE_FRAME_SIZE * 12
+          : isImpact
           ? COMBAT_SHAPE_FRAME_SIZE * 3 + impactIndex * IMPACT_SHAPE_FRAME_SIZE
           : index * COMBAT_SHAPE_FRAME_SIZE,
         0,
-        isImpact ? IMPACT_SHAPE_FRAME_SIZE : COMBAT_SHAPE_FRAME_SIZE,
-        isImpact ? IMPACT_SHAPE_FRAME_SIZE : COMBAT_SHAPE_FRAME_SIZE,
+        isSafetyReport
+          ? SAFETY_REPORT_FRAME_WIDTH
+          : isImpact ? IMPACT_SHAPE_FRAME_SIZE : COMBAT_SHAPE_FRAME_SIZE,
+        isSafetyReport
+          ? SAFETY_REPORT_FRAME_HEIGHT
+          : isImpact ? IMPACT_SHAPE_FRAME_SIZE : COMBAT_SHAPE_FRAME_SIZE,
       );
       if (frame === null) throw new Error(`Combat shape atlas could not add frame ${name}`);
     });
@@ -153,6 +166,36 @@ function drawImpactShapes(graphics: Phaser.GameObjects.Graphics): void {
       }
     }
   }
+}
+
+function drawSafetyReportGlyph(graphics: Phaser.GameObjects.Graphics): void {
+  const x = COMBAT_SHAPE_FRAME_SIZE * 3 + IMPACT_SHAPE_FRAME_SIZE * 12;
+  const orange = 0xff6b35;
+  graphics.fillStyle(orange, 1);
+
+  // 신: ㅅ + ㅣ + 받침 ㄴ
+  for (const [left, top] of [[12, 5], [9, 10], [6, 15], [3, 20]] as const) {
+    graphics.fillRect(x + left, top, 6, 6);
+  }
+  for (const [left, top] of [[15, 10], [18, 15], [21, 20]] as const) {
+    graphics.fillRect(x + left, top, 6, 6);
+  }
+  graphics
+    .fillRect(x + 26, 5, 6, 21)
+    .fillRect(x + 6, 29, 6, 18)
+    .fillRect(x + 6, 41, 27, 6);
+
+  // 고: ㄱ + ㅗ
+  graphics
+    .fillRect(x + 36, 7, 22, 6)
+    .fillRect(x + 52, 7, 6, 20)
+    .fillRect(x + 45, 26, 6, 18)
+    .fillRect(x + 35, 38, 29, 6);
+
+  // 느낌표
+  graphics
+    .fillRect(x + 68, 8, 7, 30)
+    .fillRect(x + 68, 43, 7, 7);
 }
 
 function assertCompleteAtlas(scene: Phaser.Scene): void {

@@ -10,6 +10,7 @@ import type {
 } from './WaveTypes';
 
 type RegularKind = 'poopGuardian' | 'offLeashGuardian';
+const BOSS_PATH_ID: ScheduledSpawn['pathId'] = 'P3';
 
 interface MaterializedWave {
   readonly spawns: readonly ScheduledSpawn[];
@@ -187,7 +188,7 @@ export class WaveSystem {
       if (bossKind !== undefined) {
         spawns.push(this.bossSpawn(
           atSeconds,
-          paths[pathIndex]!,
+          BOSS_PATH_ID,
           bossKind,
           definition.wave,
           seededBossVariants,

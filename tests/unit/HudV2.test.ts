@@ -455,6 +455,7 @@ it('production scene은 legacy modal/HUD나 Phaser joystick을 import하지 않�
   const joystick = source('../../src/game/player/VirtualJoystick.ts');
   const shelter = source('../../src/game/shelter/ShelterView.ts');
   const assetKeys = source('../../src/game/assets/AssetKeys.ts');
+  const combatAtlas = source('../../src/game/assets/CombatShapeAtlas.ts');
   const combatEffects = source('../../src/game/combat/CombatEffectPool.ts');
   const styles = source('../../src/styles.css');
   const hudOverlayRule = cssRule(styles, '.hud-overlay');
@@ -470,8 +471,11 @@ it('production scene은 legacy modal/HUD나 Phaser joystick을 import하지 않�
   expect(joystick).not.toMatch(/scene\.add\.circle|canvas\.addEventListener/);
   expect(shelter).not.toContain('shelter-states-edit');
   expect(`${assetKeys}\n${combatEffects}`).not.toMatch(/skillSafetyReport|skill-icon-|generateTexture/);
-  expect(combatEffects).toContain('.fillStyle(0xffffff, 1)');
-  expect(combatEffects).toContain('.fillRect(-12, -15, 24, 30)');
+  expect(combatEffects).not.toContain('.fillStyle(0xffffff, 1)');
+  expect(combatEffects).not.toContain('.fillRect(-12, -15, 24, 30)');
+  expect(combatEffects).toContain('this.setBobFrame(SAFETY_REPORT_FRAME)');
+  expect(combatAtlas).toContain("export const SAFETY_REPORT_FRAME = 'safety-report'");
+  expect(combatAtlas).toContain('const orange = 0xff6b35');
   expect(styles).toContain('#game-root { position: relative; width: 100vw; height: 100dvh;');
   expect(hudOverlayRule).toMatch(/(?:^|;)\s*--hud-safe-top:\s*env\(safe-area-inset-top,\s*0px\)\s*(?:;|$)/);
   expect(hudOverlayRule).toMatch(/(?:^|;)\s*position:\s*absolute\s*(?:;|$)/);
