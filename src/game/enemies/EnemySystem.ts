@@ -1,4 +1,8 @@
-import { TIME_EPSILON_MS } from '../constants';
+import {
+  TIME_EPSILON_MS,
+  WORLD_HEIGHT,
+  WORLD_WIDTH,
+} from '../constants';
 import { BALANCE } from '../data/balance';
 import { PATH_DEFINITIONS } from '../data/pathDefinitions';
 import type {
@@ -7,6 +11,13 @@ import type {
   EnemyVariant,
   PathId,
 } from '../types/GameTypes';
+import type { Point } from '../world/Geometry';
+import { MovementTrail } from '../world/MovementTrail';
+import {
+  NAV_CELL_SIZE,
+  NavigationField,
+  type NavigationFieldSnapshot,
+} from '../world/NavigationField';
 import { PathSystem } from '../world/PathSystem';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import type { EnemySnapshot } from './EnemyTypes';
@@ -24,25 +35,25 @@ export interface TailEffect {
 }
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
-export type MutableEnemy = Omit<Mutable<EnemySnapshot>, 'position' | 'etaMs'> & {
+export type MutableEnemy = Omit<
+  Mutable<EnemySnapshot>,
+  'position' | 'heading' | 'trailingPose' | 'etaMs'
+> & {
+  position: Point;
+  heading: Point;
+  readonly trail: MovementTrail;
   readonly speed: number;
   readonly snack: number;
   readonly attackRange: number;
-  readonly attackProgress: number;
   readonly path: PathSystem;
 };
 
-interface MovementState {
-  kind: EnemyKind;
-  pathProgress: number;
-  speed: number;
-  attackProgress: number;
-  moveSpeedMultiplier: number;
-  slowRemainingMs: number;
-  dashCooldownRemainingMs: number;
-}
-
 const OFF_LEASH_CONTINUOUS_BONUS_SPEED = 64 / 4;
+const TRAIL_CAPACITY_PX = 140;
+const TRAILING_POSE_DISTANCE_PX = 70;
+const LEGACY_CENTER_TARGET = Object.freeze({ x: 270, y: 480 });
+const MOVEMENT_EPSILON = 1e-9;
+const MAX_INTEGRATION_STEPS = 1024;
 
 const PATH_IDS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'] as const;
 const PATH_ID_SET = new Set<string>(PATH_IDS);
@@ -59,9 +70,13 @@ const ENEMY_ATTACK_STATE_SET = new Set<string>(['moving', 'windup', 'holding']);
 export class EnemySystem {
   protected readonly enemies = new Map<number, MutableEnemy>();
   protected readonly paths: Readonly<Record<PathId, PathSystem>>;
+  protected readonly navigation: NavigationField;
   protected nextId = 0;
 
-  constructor(paths: Readonly<Record<PathId, PathSystem>>) {
+  constructor(
+    paths: Readonly<Record<PathId, PathSystem>>,
+    navigation = NavigationField.createDefault(),
+  ) {
     const pathKeys = Object.keys(paths);
     const unknownPath = pathKeys.find((pathId) => !PATH_ID_SET.has(pathId));
     if (unknownPath !== undefined) {
@@ -76,12 +91,11 @@ export class EnemySystem {
       PathId,
       PathSystem
     >;
+    this.navigation = navigation;
   }
 
   static createDefault(): EnemySystem {
-    return new EnemySystem(Object.fromEntries(
-      Object.entries(PATH_DEFINITIONS).map(([id, points]) => [id, new PathSystem(points)]),
-    ) as Record<PathId, PathSystem>);
+    return new EnemySystem(defaultPaths());
   }
 
   static withSingleEnemy(input: {
@@ -98,12 +112,25 @@ export class EnemySystem {
       spawnSequence: 0,
     });
     if (input.initialProgress !== undefined) {
-      assertFinite(input.initialProgress, 'Enemy initialProgress');
-      const enemy = system.enemies.get(enemyId)!;
-      enemy.pathProgress = Math.min(
-        enemy.path.length,
-        Math.max(0, input.initialProgress),
-      );
+      system.applyPathProgress(enemyId, input.initialProgress);
+    }
+    system.navigation.step(0, LEGACY_CENTER_TARGET);
+    return system;
+  }
+
+  static withEnemies(count: number): EnemySystem {
+    if (!Number.isSafeInteger(count) || count < 0 || count > BALANCE.caps.enemies) {
+      throw new RangeError('Enemy fixture count is out of range');
+    }
+    const system = EnemySystem.createDefault();
+    for (let index = 0; index < count; index += 1) {
+      system.spawn({
+        atMs: 0,
+        kind: 'poopGuardian',
+        pathId: PATH_IDS[index % PATH_IDS.length]!,
+        variant: index % 2 === 0 ? 'male' : 'female',
+        spawnSequence: index,
+      });
     }
     return system;
   }
@@ -114,10 +141,13 @@ export class EnemySystem {
 
     const stats = BALANCE.enemies[request.kind];
     const path = this.paths[request.pathId];
-    const attackProgress = path.firstProgressWithinCircle(
-      { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
-      BALANCE.shelter.hitRadius + stats.range,
+    const position = path.positionAt(0);
+    const heading = normalizedOrFallback(
+      difference(position, path.positionAt(Math.min(path.length, 1))),
+      { x: 0, y: 1 },
     );
+    const trail = new MovementTrail(TRAIL_CAPACITY_PX);
+    trail.reset(position, heading);
     const id = this.nextId;
     this.nextId += 1;
     this.enemies.set(id, {
@@ -127,6 +157,8 @@ export class EnemySystem {
       state: 'moving',
       pathId: request.pathId,
       pathProgress: 0,
+      position,
+      heading,
       currentHp: stats.hp,
       maxHp: stats.hp,
       spawnSequence: request.spawnSequence,
@@ -139,7 +171,7 @@ export class EnemySystem {
       snack: stats.snack,
       attackRange: stats.range,
       path,
-      attackProgress,
+      trail,
     });
     return id;
   }
@@ -149,16 +181,20 @@ export class EnemySystem {
     this.enemies.delete(enemyId);
   }
 
-  step(stepMs: number): void {
+  step(stepMs: number, target: Point = LEGACY_CENTER_TARGET): void {
     assertFiniteNonNegative(stepMs, 'EnemySystem stepMs');
-    if (stepMs === 0) return;
+    assertPoint(target, 'EnemySystem target');
+    this.navigation.step(stepMs, target);
 
     for (const enemy of this.enemies.values()) {
-      if (enemy.state !== 'moving') {
-        enemy.animationElapsedMs += stepMs;
-        continue;
+      if (enemy.state === 'moving') {
+        this.advanceMoving(enemy, stepMs);
+      } else {
+        enemy.heading = normalizedOrFallback(
+          difference(enemy.position, target),
+          enemy.heading,
+        );
       }
-      this.advanceMoving(enemy, stepMs);
       enemy.animationElapsedMs += stepMs;
     }
   }
@@ -205,10 +241,7 @@ export class EnemySystem {
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
 
-    enemy.pathProgress = Math.max(
-      0,
-      enemy.pathProgress - distance,
-    );
+    this.moveBehind(enemy, distance);
     enemy.state = 'moving';
     enemy.animationElapsedMs = 0;
   }
@@ -219,7 +252,28 @@ export class EnemySystem {
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
 
-    enemy.pathProgress = Math.min(enemy.path.length, nextPathProgress);
+    const progress = Math.min(enemy.path.length, nextPathProgress);
+    const position = enemy.path.positionAt(progress);
+    const nextPosition = enemy.path.positionAt(Math.min(enemy.path.length, progress + 1));
+    enemy.position = position;
+    enemy.heading = normalizedOrFallback(difference(position, nextPosition), enemy.heading);
+    enemy.pathProgress = progress;
+    enemy.trail.reset(position, enemy.heading);
+    enemy.state = 'moving';
+    enemy.animationElapsedMs = 0;
+  }
+
+  applyWorldPosition(enemyId: number, position: Point): void {
+    assertEnemyId(enemyId);
+    assertPoint(position, 'Enemy world position');
+    const enemy = this.enemies.get(enemyId);
+    if (enemy === undefined) return;
+    enemy.position = clampWorld(position);
+    enemy.heading = normalizedOrFallback(
+      this.navigation.directionFrom(enemy.position),
+      enemy.heading,
+    );
+    enemy.trail.reset(enemy.position, enemy.heading);
     enemy.state = 'moving';
     enemy.animationElapsedMs = 0;
   }
@@ -235,10 +289,7 @@ export class EnemySystem {
     if (enemy === undefined) return { interruptedWindup: false };
 
     const interruptedWindup = enemy.state === 'windup';
-    enemy.pathProgress = Math.max(
-      0,
-      enemy.pathProgress - effect.knockbackPx,
-    );
+    if (effect.knockbackPx > 0) this.moveBehind(enemy, effect.knockbackPx);
     enemy.moveSpeedMultiplier = effect.durationMs > 0 ? effect.multiplier : 1;
     enemy.slowRemainingMs = Math.max(enemy.slowRemainingMs, effect.durationMs);
     if (interruptedWindup) {
@@ -251,117 +302,32 @@ export class EnemySystem {
   snapshots(): readonly EnemySnapshot[] {
     return [...this.enemies.values()]
       .sort((left, right) => left.spawnSequence - right.spawnSequence || left.id - right.id)
-      .map((enemy) => {
-        return {
-          id: enemy.id,
-          kind: enemy.kind,
-          variant: enemy.variant,
-          state: enemy.state,
-          pathId: enemy.pathId,
-          pathProgress: enemy.pathProgress,
-          position: enemy.path.positionAtExtended(enemy.pathProgress),
-          etaMs: enemy.state === 'windup' || enemy.state === 'holding'
-            ? 0
-            : this.estimateEtaMs(enemy),
-          currentHp: enemy.currentHp,
-          maxHp: enemy.maxHp,
-          spawnSequence: enemy.spawnSequence,
-          isBoss: enemy.isBoss,
-          moveSpeedMultiplier: enemy.moveSpeedMultiplier,
-          slowRemainingMs: enemy.slowRemainingMs,
-          dashCooldownRemainingMs: enemy.dashCooldownRemainingMs,
-          animationElapsedMs: enemy.animationElapsedMs,
-        };
-      });
+      .map((enemy) => ({
+        id: enemy.id,
+        kind: enemy.kind,
+        variant: enemy.variant,
+        state: enemy.state,
+        pathId: enemy.pathId,
+        pathProgress: enemy.pathProgress,
+        position: { ...enemy.position },
+        heading: { ...enemy.heading },
+        trailingPose: enemy.trail.sampleBehind(TRAILING_POSE_DISTANCE_PX),
+        etaMs: enemy.state === 'windup' || enemy.state === 'holding'
+          ? 0
+          : this.estimateEtaMs(enemy),
+        currentHp: enemy.currentHp,
+        maxHp: enemy.maxHp,
+        spawnSequence: enemy.spawnSequence,
+        isBoss: enemy.isBoss,
+        moveSpeedMultiplier: enemy.moveSpeedMultiplier,
+        slowRemainingMs: enemy.slowRemainingMs,
+        dashCooldownRemainingMs: enemy.dashCooldownRemainingMs,
+        animationElapsedMs: enemy.animationElapsedMs,
+      }));
   }
 
-  private advanceMoving(enemy: MovementState, stepMs: number): void {
-    let remainingMs = stepMs;
-    while (remainingMs > 0) {
-      if (this.settleAtAttackProgress(enemy)) return;
-      this.resolveMovementBoundaries(enemy);
-      if (this.settleAtAttackProgress(enemy)) return;
-
-      const speedPerMs = movementSpeed(enemy) * enemy.moveSpeedMultiplier / 1000;
-      if (!Number.isFinite(speedPerMs) || speedPerMs <= 0) {
-        throw new Error('Invalid internal enemy movement speed');
-      }
-      const untilArrivalMs = (enemy.attackProgress - enemy.pathProgress) / speedPerMs;
-      const slowBoundary = enemy.slowRemainingMs > 0
-        ? enemy.slowRemainingMs
-        : Number.POSITIVE_INFINITY;
-      const sliceMs = Math.min(remainingMs, untilArrivalMs, slowBoundary);
-      const previousProgress = enemy.pathProgress;
-      const previousMultiplier = enemy.moveSpeedMultiplier;
-      const previousSlowRemainingMs = enemy.slowRemainingMs;
-      enemy.pathProgress = Math.min(
-        enemy.attackProgress,
-        enemy.pathProgress + speedPerMs * sliceMs,
-      );
-      enemy.slowRemainingMs = Math.max(0, enemy.slowRemainingMs - sliceMs);
-      const nextRemainingMs = Math.max(0, remainingMs - sliceMs);
-      if (this.settleAtAttackProgress(enemy)) return;
-      this.resolveMovementBoundaries(enemy);
-
-      const timeAdvanced = nextRemainingMs < remainingMs;
-      const stateAdvanced = enemy.pathProgress !== previousProgress
-        || enemy.moveSpeedMultiplier !== previousMultiplier
-        || enemy.slowRemainingMs !== previousSlowRemainingMs;
-      if (!timeAdvanced && !stateAdvanced) {
-        throw new Error('Enemy movement integration could not advance');
-      }
-      remainingMs = nextRemainingMs;
-    }
-  }
-
-  private settleAtAttackProgress(enemy: MovementState): boolean {
-    if (enemy.attackProgress - enemy.pathProgress > TIME_EPSILON_MS) return false;
-
-    enemy.pathProgress = enemy.attackProgress;
-    if (enemy.slowRemainingMs <= TIME_EPSILON_MS) {
-      enemy.slowRemainingMs = 0;
-      enemy.moveSpeedMultiplier = 1;
-    }
-    enemy.dashCooldownRemainingMs = 0;
-    return true;
-  }
-
-  private resolveMovementBoundaries(enemy: MovementState): void {
-    if (enemy.slowRemainingMs <= TIME_EPSILON_MS) {
-      enemy.slowRemainingMs = 0;
-      enemy.moveSpeedMultiplier = 1;
-    }
-    enemy.dashCooldownRemainingMs = 0;
-  }
-
-  private estimateEtaMs(enemy: MutableEnemy): number {
-    if (enemy.pathProgress >= enemy.attackProgress) return 0;
-    const estimate: MovementState = {
-      kind: enemy.kind,
-      pathProgress: enemy.pathProgress,
-      speed: enemy.speed,
-      attackProgress: enemy.attackProgress,
-      moveSpeedMultiplier: enemy.moveSpeedMultiplier,
-      slowRemainingMs: enemy.slowRemainingMs,
-      dashCooldownRemainingMs: enemy.dashCooldownRemainingMs,
-    };
-    let elapsedMs = 0;
-    while (estimate.pathProgress < estimate.attackProgress) {
-      if (this.settleAtAttackProgress(estimate)) break;
-      this.resolveMovementBoundaries(estimate);
-      if (this.settleAtAttackProgress(estimate)) break;
-      const remainingDistance = estimate.attackProgress - estimate.pathProgress;
-      const speedPerMs = movementSpeed(estimate) * estimate.moveSpeedMultiplier / 1000;
-      if (speedPerMs <= 0) return Number.POSITIVE_INFINITY;
-      const untilArrivalMs = remainingDistance / speedPerMs;
-      const untilSlowBoundaryMs = estimate.slowRemainingMs > 0
-        ? estimate.slowRemainingMs
-        : Number.POSITIVE_INFINITY;
-      const sliceMs = Math.min(untilArrivalMs, untilSlowBoundaryMs);
-      this.advanceMoving(estimate, sliceMs);
-      elapsedMs += sliceMs;
-    }
-    return elapsedMs;
+  navigationSnapshot(): NavigationFieldSnapshot {
+    return this.navigation.snapshot();
   }
 
   get activeCount(): number {
@@ -375,8 +341,108 @@ export class EnemySystem {
 
   clear(): void {
     this.enemies.clear();
+    this.navigation.reset();
     this.nextId = 0;
   }
+
+  private advanceMoving(enemy: MutableEnemy, stepMs: number): void {
+    let remainingMs = stepMs;
+    let integrationSteps = 0;
+    while (remainingMs > TIME_EPSILON_MS) {
+      integrationSteps += 1;
+      if (integrationSteps > MAX_INTEGRATION_STEPS) {
+        throw new Error('Enemy movement integration exceeded its deterministic bound');
+      }
+      this.resolveMovementBoundaries(enemy);
+      const speedPerMs = movementSpeed(enemy) * enemy.moveSpeedMultiplier / 1000;
+      if (!Number.isFinite(speedPerMs) || speedPerMs <= 0) {
+        throw new Error('Invalid internal enemy movement speed');
+      }
+      const remainingDistance = this.navigation.distanceFrom(enemy.position);
+      if (!Number.isFinite(remainingDistance) || remainingDistance <= MOVEMENT_EPSILON) {
+        this.advanceTimers(enemy, remainingMs);
+        return;
+      }
+      const slowBoundary = enemy.slowRemainingMs > 0
+        ? enemy.slowRemainingMs
+        : Number.POSITIVE_INFINITY;
+      const navigationBoundary = remainingDistance / speedPerMs;
+      const cellBoundary = (NAV_CELL_SIZE / 2) / speedPerMs;
+      const sliceMs = Math.min(
+        remainingMs,
+        slowBoundary,
+        navigationBoundary,
+        cellBoundary,
+      );
+      const direction = this.navigation.directionFrom(enemy.position);
+      const directionLength = Math.hypot(direction.x, direction.y);
+      if (directionLength <= MOVEMENT_EPSILON || sliceMs <= TIME_EPSILON_MS) {
+        this.advanceTimers(enemy, remainingMs);
+        return;
+      }
+      const plannedDistance = Math.min(remainingDistance, speedPerMs * sliceMs);
+      const nextPosition = canonicalPoint(clampWorld({
+        x: enemy.position.x + direction.x * plannedDistance,
+        y: enemy.position.y + direction.y * plannedDistance,
+      }));
+      const actualDistance = Math.hypot(
+        nextPosition.x - enemy.position.x,
+        nextPosition.y - enemy.position.y,
+      );
+      if (actualDistance <= MOVEMENT_EPSILON) {
+        this.advanceTimers(enemy, remainingMs);
+        return;
+      }
+      enemy.position = nextPosition;
+      enemy.heading = { ...direction };
+      enemy.pathProgress = canonicalNumber(enemy.pathProgress + actualDistance);
+      enemy.trail.push(enemy.position, enemy.heading);
+      this.advanceTimers(enemy, sliceMs);
+      remainingMs = Math.max(0, remainingMs - sliceMs);
+    }
+    this.resolveMovementBoundaries(enemy);
+  }
+
+  private advanceTimers(enemy: MutableEnemy, stepMs: number): void {
+    enemy.slowRemainingMs = Math.max(0, enemy.slowRemainingMs - stepMs);
+    this.resolveMovementBoundaries(enemy);
+  }
+
+  private resolveMovementBoundaries(enemy: MutableEnemy): void {
+    if (enemy.slowRemainingMs <= TIME_EPSILON_MS) {
+      enemy.slowRemainingMs = 0;
+      enemy.moveSpeedMultiplier = 1;
+    }
+    enemy.dashCooldownRemainingMs = 0;
+  }
+
+  private estimateEtaMs(enemy: MutableEnemy): number {
+    const distance = this.navigation.distanceFrom(enemy.position);
+    if (!Number.isFinite(distance)) return Number.POSITIVE_INFINITY;
+    if (distance <= MOVEMENT_EPSILON) return 0;
+    const baseSpeed = movementSpeed(enemy);
+    if (enemy.slowRemainingMs <= TIME_EPSILON_MS || enemy.moveSpeedMultiplier === 1) {
+      return distance / baseSpeed * 1000;
+    }
+    const slowedSpeed = baseSpeed * enemy.moveSpeedMultiplier;
+    const slowedDistance = slowedSpeed * enemy.slowRemainingMs / 1000;
+    if (distance <= slowedDistance) return distance / slowedSpeed * 1000;
+    return enemy.slowRemainingMs + (distance - slowedDistance) / baseSpeed * 1000;
+  }
+
+  private moveBehind(enemy: MutableEnemy, distance: number): void {
+    const pose = enemy.trail.sampleBehind(distance);
+    enemy.position = clampWorld(pose.position);
+    enemy.heading = { ...pose.heading };
+    enemy.pathProgress = Math.max(0, enemy.pathProgress - distance);
+    enemy.trail.reset(enemy.position, enemy.heading);
+  }
+}
+
+function defaultPaths(): Record<PathId, PathSystem> {
+  return Object.fromEntries(
+    Object.entries(PATH_DEFINITIONS).map(([id, points]) => [id, new PathSystem(points)]),
+  ) as Record<PathId, PathSystem>;
 }
 
 function assertSpawnRequest(request: EnemySpawnRequest): void {
@@ -411,12 +477,44 @@ function assertFiniteNonNegative(value: number, label: string): void {
   }
 }
 
+function assertPoint(point: Point, label: string): void {
+  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    throw new RangeError(`${label} must be finite`);
+  }
+}
+
 function isBoss(kind: EnemyKind): boolean {
   return kind === 'dogTrader' || kind === 'illegalBreeder';
 }
 
-function movementSpeed(enemy: Pick<MovementState, 'kind' | 'speed'>): number {
+function movementSpeed(enemy: Pick<MutableEnemy, 'kind' | 'speed'>): number {
   return enemy.speed + (enemy.kind === 'offLeashGuardian'
     ? OFF_LEASH_CONTINUOUS_BONUS_SPEED
     : 0);
+}
+
+function difference(from: Point, to: Point): Point {
+  return { x: to.x - from.x, y: to.y - from.y };
+}
+
+function normalizedOrFallback(vector: Point, fallback: Point): Point {
+  const length = Math.hypot(vector.x, vector.y);
+  return length <= MOVEMENT_EPSILON
+    ? { ...fallback }
+    : { x: vector.x / length, y: vector.y / length };
+}
+
+function clampWorld(position: Point): Point {
+  return {
+    x: Math.max(0, Math.min(WORLD_WIDTH, position.x)),
+    y: Math.max(0, Math.min(WORLD_HEIGHT, position.y)),
+  };
+}
+
+function canonicalPoint(position: Point): Point {
+  return { x: canonicalNumber(position.x), y: canonicalNumber(position.y) };
+}
+
+function canonicalNumber(value: number): number {
+  return Math.round(value * 1e9) / 1e9;
 }

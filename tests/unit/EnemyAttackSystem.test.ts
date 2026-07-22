@@ -18,6 +18,8 @@ const snapshot = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot => ({
   pathId: 'P1',
   pathProgress: 77,
   position: { x: 270, y: 550 },
+  heading: { x: 0, y: -1 },
+  trailingPose: { position: { x: 270, y: 620 }, heading: { x: 0, y: -1 } },
   etaMs: 0,
   currentHp: 60,
   maxHp: 60,

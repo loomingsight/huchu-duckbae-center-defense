@@ -1,13 +1,9 @@
 import { resolveDogTraderAsset } from '../assets/DogTraderDirectionalAssets';
 import { TRADER_SIDE_BY_PATH } from '../data/pathDefinitions';
 import type { EnemyState, PathId } from '../types/GameTypes';
-import {
-  resolveDirection8,
-  type Direction8,
-} from '../world/DirectionalFrameResolver';
+import { resolveDirection8, type Direction8 } from '../world/DirectionalFrameResolver';
 import type { Point } from '../world/Geometry';
 import type { CompositeEnemyRig } from './CompositeEnemyRig';
-import { DEFAULT_PATH_POSE_SAMPLERS } from './DogTraderAttackGeometry';
 import type { DogTraderRigTelemetry } from './DogTraderRigTelemetry';
 import {
   EnemyMovementAnimationClock,
@@ -18,7 +14,6 @@ import type { EnemySnapshot } from './EnemyTypes';
 const TRUCK_BACK_PX = 70;
 const TRUCK_SIDE_PX = 28;
 const DAMPING_MS = 120;
-const SHELTER_CENTER = Object.freeze({ x: 270, y: 480 });
 
 export interface DogTraderTruckRenderInput {
   readonly target: Point;
@@ -95,13 +90,20 @@ export class DogTraderRig implements CompositeEnemyRig {
       throw new RangeError('Dog trader pathProgress must be finite');
     }
 
-    const sampler = DEFAULT_PATH_POSE_SAMPLERS[snapshot.pathId];
-    const humanPose = sampler.sampleExtended(snapshot.pathProgress);
-    const behindPose = sampler.sampleExtended(snapshot.pathProgress - TRUCK_BACK_PX);
+    assertPoint(snapshot.position, 'Dog trader position');
+    assertPoint(snapshot.heading, 'Dog trader heading');
+    assertPoint(snapshot.trailingPose.position, 'Dog trader trailing position');
+    assertPoint(snapshot.trailingPose.heading, 'Dog trader trailing heading');
+    const humanPosition = snapshot.position;
+    const behindPose = snapshot.trailingPose;
+    const normal = {
+      x: -behindPose.heading.y,
+      y: behindPose.heading.x,
+    };
     const side = TRADER_SIDE_BY_PATH[snapshot.pathId];
     const truckTarget = {
-      x: behindPose.position.x + behindPose.normal.x * side * TRUCK_SIDE_PX,
-      y: behindPose.position.y + behindPose.normal.y * side * TRUCK_SIDE_PX,
+      x: behindPose.position.x + normal.x * side * TRUCK_SIDE_PX,
+      y: behindPose.position.y + normal.y * side * TRUCK_SIDE_PX,
     };
 
     const firstPose = !this.hasRendered || this.needsSnap;
@@ -115,19 +117,14 @@ export class DogTraderRig implements CompositeEnemyRig {
       };
     }
 
-    const humanHeading = snapshot.state === 'moving'
-      ? humanPose.headingRad
-      : Math.atan2(
-        SHELTER_CENTER.y - humanPose.position.y,
-        SHELTER_CENTER.x - humanPose.position.x,
-      );
+    const humanHeading = Math.atan2(snapshot.heading.y, snapshot.heading.x);
     this.humanDirection = resolveDirection8(
       humanHeading,
       snapshot.state === 'moving' && this.hasRendered ? this.humanDirection : undefined,
     );
     if (snapshot.state === 'moving' || !this.hasRendered) {
       this.truckDirection = resolveDirection8(
-        behindPose.headingRad,
+        Math.atan2(behindPose.heading.y, behindPose.heading.x),
         this.hasRendered ? this.truckDirection : undefined,
       );
     }
@@ -138,7 +135,7 @@ export class DogTraderRig implements CompositeEnemyRig {
       : movementAnimationElapsedMs;
 
     this.visual.renderHuman(
-      humanPose.position,
+      humanPosition,
       this.humanDirection,
       snapshot.state,
       effectiveAnimationElapsedMs,
@@ -155,7 +152,7 @@ export class DogTraderRig implements CompositeEnemyRig {
       parts: 2,
       gameplayEntityCount: 1,
       pathProgress: snapshot.pathProgress,
-      human: { ...humanPose.position },
+      human: { ...humanPosition },
       truck: { ...this.truckPosition },
       followDistance: TRUCK_BACK_PX,
       lateralDistance: side * TRUCK_SIDE_PX,

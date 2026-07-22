@@ -13,6 +13,8 @@ export function enemy(overrides: Partial<EnemySnapshot> = {}): EnemySnapshot {
     pathId: 'P1',
     pathProgress: 10,
     position: { x: 100, y: 100 },
+    heading: { x: 0, y: 1 },
+    trailingPose: { position: { x: 100, y: 30 }, heading: { x: 0, y: 1 } },
     etaMs: 1000,
     currentHp: 35,
     maxHp: 35,

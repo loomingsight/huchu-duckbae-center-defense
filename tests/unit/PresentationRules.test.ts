@@ -541,6 +541,8 @@ const ENEMY_SNAPSHOT: EnemySnapshot = {
   pathId: 'P1',
   pathProgress: 0,
   position: { x: 0, y: 0 },
+  heading: { x: 0, y: 1 },
+  trailingPose: { position: { x: 0, y: -70 }, heading: { x: 0, y: 1 } },
   etaMs: 1000,
   currentHp: 35,
   maxHp: 35,

@@ -2,24 +2,21 @@ import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { resolveDogTraderAsset } from '../../src/game/assets/DogTraderDirectionalAssets';
 import { HUCHU_PRESENTATION } from '../../src/game/presentation/PresentationConfig';
-import {
-  DEFAULT_PATH_POSE_SAMPLERS,
-  dogTraderAttackOrigin,
-} from '../../src/game/enemies/DogTraderAttackGeometry';
+import { dogTraderAttackOrigin } from '../../src/game/enemies/DogTraderAttackGeometry';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
 import { resolveDirection8 } from '../../src/game/world/DirectionalFrameResolver';
 
-it('현재 path pose가 보는 shelter 방향의 256-cell 손 socket을 boss scale로 변환한다', () => {
+it('현재 실제 위치와 heading의 256-cell 손 socket을 boss scale로 변환한다', () => {
   const snapshot = dogTraderSnapshot('P2', 180);
-  const feet = DEFAULT_PATH_POSE_SAMPLERS.P2.sampleExtended(180).position;
-  const direction = resolveDirection8(Math.atan2(480 - feet.y, 270 - feet.x));
+  const feet = snapshot.position;
+  const direction = resolveDirection8(Math.atan2(snapshot.heading.y, snapshot.heading.x));
   const resolved = resolveDogTraderAsset('attack', direction);
   const socket = resolved.eventSocket!;
   const scale = HUCHU_PRESENTATION.bossOpaqueHeightLogical / resolved.entry.opaqueHeightPx;
 
   expect(dogTraderAttackOrigin({
     ...snapshot,
-    position: { x: -999, y: -999 },
+    pathProgress: -999,
   })).toEqual({
     x: feet.x + (socket.x - 128) * scale,
     y: feet.y + (socket.y - 256) * scale,
@@ -50,7 +47,9 @@ function dogTraderSnapshot(
     state: 'windup',
     pathId,
     pathProgress,
-    position: DEFAULT_PATH_POSE_SAMPLERS[pathId].sampleExtended(pathProgress).position,
+    position: { x: 320, y: 300 },
+    heading: { x: -1, y: 0 },
+    trailingPose: { position: { x: 390, y: 300 }, heading: { x: -1, y: 0 } },
     etaMs: 0,
     currentHp: 900,
     maxHp: 900,

@@ -18,12 +18,40 @@ const spawnRequest = (
 
 it('속도만큼 경로 진행도를 늘린다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P1' });
-  system.step(1000);
+  const before = system.snapshots()[0]!;
+  system.step(1000, { x: 430, y: 700 });
+  const after = system.snapshots()[0]!;
+
+  expect(after.position).not.toEqual(before.position);
+  expect(Math.hypot(after.heading.x, after.heading.y)).toBeCloseTo(1, 10);
+  expect(after.trailingPose.position).not.toEqual(after.position);
   expect(system.snapshots()[0]).toMatchObject({
     pathProgress: 44,
     moveSpeedMultiplier: 1,
     slowRemainingMs: 0,
   });
+});
+
+it('목표가 바뀌어도 순간 이동하지 않고 다음 step 거리만큼만 움직인다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'offLeashGuardian', pathId: 'P3' });
+  system.step(200, { x: 120, y: 760 });
+  const first = system.snapshots()[0]!;
+
+  system.step(200, { x: 470, y: 760 });
+  const second = system.snapshots()[0]!;
+
+  expect(Math.hypot(second.position.x - first.position.x, second.position.y - first.position.y))
+    .toBeLessThanOrEqual((42 + 64 / 4) * 0.2 + 1e-9);
+  expect(second.pathProgress - first.pathProgress).toBeCloseTo((42 + 64 / 4) * 0.2, 9);
+});
+
+it('60마리가 한 번의 NavigationField 재계산을 공유한다', () => {
+  const system = EnemySystem.withEnemies(60);
+
+  system.step(FIXED_STEP_MS, { x: 270, y: 480 });
+
+  expect(system.navigationSnapshot()).toMatchObject({ recomputeCount: 1 });
+  expect(system.snapshots()).toHaveLength(60);
 });
 
 it('slow가 step 중간에 끝나면 0.6/정상 구간을 나눠 적분한다', () => {

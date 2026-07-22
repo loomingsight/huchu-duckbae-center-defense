@@ -23,6 +23,28 @@ describe('E2eEnemySystem held stress enemies', () => {
 
     const after = enemies.snapshots().find(({ id }) => id === enemyId)!;
     expect(after.pathProgress).toBe(before.pathProgress);
+    expect(after.position).toEqual(before.position);
     expect(after.animationElapsedMs).toBeCloseTo(FIXED_STEP_MS, 12);
+  });
+
+  it('worldPoint seed는 실제 위치를, pathProgress seed는 경로 위치를 설정한다', () => {
+    const enemies = E2eEnemySystem.createDefault();
+    const world = enemies.spawnSeed({
+      kind: 'poopGuardian',
+      variant: 'female',
+      pathId: 'P4',
+      placement: { kind: 'worldPoint', x: 111, y: 444 },
+    });
+    const progress = enemies.spawnSeed({
+      kind: 'offLeashGuardian',
+      variant: 'male',
+      pathId: 'P3',
+      placement: { kind: 'pathProgress', value: 100 },
+    });
+
+    expect(enemies.snapshots().find(({ id }) => id === world.enemyId)?.position)
+      .toEqual({ x: 111, y: 444 });
+    expect(enemies.snapshots().find(({ id }) => id === progress.enemyId)?.position)
+      .toEqual({ x: 270, y: 100 });
   });
 });

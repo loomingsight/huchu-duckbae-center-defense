@@ -4,6 +4,8 @@ import type {
   EnemyVariant,
   PathId,
 } from '../types/GameTypes';
+import type { Point } from '../world/Geometry';
+import type { MovementPose } from '../world/MovementTrail';
 
 export interface EnemySnapshot {
   readonly id: number;
@@ -12,7 +14,9 @@ export interface EnemySnapshot {
   readonly state: EnemyState;
   readonly pathId: PathId;
   readonly pathProgress: number;
-  readonly position: { readonly x: number; readonly y: number };
+  readonly position: Point;
+  readonly heading: Point;
+  readonly trailingPose: MovementPose;
   readonly etaMs: number;
   readonly currentHp: number;
   readonly maxHp: number;

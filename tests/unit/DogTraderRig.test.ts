@@ -7,9 +7,6 @@ import {
   type DogTraderPartsPort,
   type DogTraderTruckRenderInput,
 } from '../../src/game/enemies/DogTraderRig';
-import {
-  DEFAULT_PATH_POSE_SAMPLERS,
-} from '../../src/game/enemies/DogTraderAttackGeometry';
 import { BOSS_MOVEMENT_ANIMATION_RATE } from '../../src/game/enemies/EnemyActor';
 import type { EnemySnapshot } from '../../src/game/enemies/EnemyTypes';
 import type { EnemyState } from '../../src/game/types/GameTypes';
@@ -37,7 +34,7 @@ describe('DogTraderRig', () => {
       lateralDistance: -28,
     });
 
-    rig.render({ ...firstEnemy, pathProgress: 120 }, 120);
+    rig.render(dogTraderSnapshot('P1', 120), 120);
     expect(visual.lastTruck.x).toBeCloseTo(
       first.x + (visual.lastTruckTarget.x - first.x) * (1 - Math.exp(-1)),
       6,
@@ -48,11 +45,11 @@ describe('DogTraderRig', () => {
     );
 
     rig.snapNextPose();
-    rig.render({ ...firstEnemy, pathProgress: 140 }, 16);
+    rig.render(dogTraderSnapshot('P1', 140), 16);
     expect(visual.lastTruck).toEqual(visual.lastTruckTarget);
 
     rig.reset();
-    rig.render({ ...firstEnemy, pathProgress: 160 }, 16);
+    rig.render(dogTraderSnapshot('P1', 160), 16);
     expect(visual.lastTruck).toEqual(visual.lastTruckTarget);
   });
 
@@ -86,21 +83,24 @@ describe('DogTraderRig', () => {
     ]);
   });
 
-  it('pathProgress -70의 사람과 -140의 트럭은 P1~P6 진입 경계 밖에 있다', () => {
+  it('P1~P6 어느 진입 방향에서도 truck은 실제 궤적의 대각선 뒤에 놓인다', () => {
     for (const pathId of Object.keys(TRADER_SIDE_BY_PATH) as EnemySnapshot['pathId'][]) {
       const visual = new FakeDogTraderParts();
       const rig = new DogTraderRig(visual);
-      rig.render(dogTraderSnapshot(pathId, -70), 0);
+      const enemy = dogTraderSnapshot(pathId, 0);
+      rig.render(enemy, 0);
       const snapshot = rig.snapshot();
-      expect(snapshot.human).toEqual(
-        DEFAULT_PATH_POSE_SAMPLERS[pathId].sampleExtended(-70).position,
-      );
-      expect(isOutsideWorld(snapshot.human, 540, 960)).toBe(true);
-      expect(isOutsideWorld(snapshot.truck, 540, 960)).toBe(true);
+      const normal = { x: -enemy.trailingPose.heading.y, y: enemy.trailingPose.heading.x };
+      const side = TRADER_SIDE_BY_PATH[pathId];
+      expect(snapshot.human).toEqual(enemy.position);
+      expect(snapshot.truck).toEqual({
+        x: enemy.trailingPose.position.x + normal.x * side * 28,
+        y: enemy.trailingPose.position.y + normal.y * side * 28,
+      });
     }
   });
 
-  it('사람은 이동 방향/공격 중 shelter를 보고 truck은 마지막 이동 heading과 wheel frame을 유지한다', () => {
+  it('사람은 snapshot heading을 보고 공격 중 truck은 마지막 이동 heading과 wheel frame을 유지한다', () => {
     const visual = new FakeDogTraderParts();
     const rig = new DogTraderRig(visual);
     const moving = dogTraderSnapshot('P1', 120, {
@@ -116,9 +116,10 @@ describe('DogTraderRig', () => {
       ...moving,
       state: 'windup',
       pathProgress: 170,
+      heading: { x: -1, y: 0 },
       animationElapsedMs: 0,
     }, 16);
-    expect(visual.lastHumanRender.direction).toBe(shelterDirectionFor('P1', 170));
+    expect(visual.lastHumanRender.direction).toBe('west');
     expect(visual.lastTruck).toEqual(movingTruck);
     expect(visual.lastTruckRender.direction).toBe(movingTruckDirection);
     expect(visual.lastTruckRender.frame).toBe(movingWheelFrame);
@@ -452,7 +453,7 @@ function dogTraderSnapshot(
   pathProgress: number,
   overrides: Partial<EnemySnapshot> = {},
 ): EnemySnapshot {
-  const position = DEFAULT_PATH_POSE_SAMPLERS[pathId].sampleExtended(pathProgress).position;
+  const pose = poseFor(pathId, pathProgress);
   return {
     id: 41,
     kind: 'dogTrader',
@@ -460,7 +461,9 @@ function dogTraderSnapshot(
     state: 'moving',
     pathId,
     pathProgress,
-    position,
+    position: pose.position,
+    heading: pose.heading,
+    trailingPose: pose.trailingPose,
     etaMs: 0,
     currentHp: 900,
     maxHp: 900,
@@ -474,16 +477,38 @@ function dogTraderSnapshot(
   };
 }
 
-function isOutsideWorld(point: Point, width: number, height: number): boolean {
-  return point.x < 0 || point.x > width || point.y < 0 || point.y > height;
+function poseFor(pathId: EnemySnapshot['pathId'], progress: number): {
+  readonly position: Point;
+  readonly heading: Point;
+  readonly trailingPose: { readonly position: Point; readonly heading: Point };
+} {
+  const definitions: Record<EnemySnapshot['pathId'], { position: Point; heading: Point }> = {
+    P1: { position: { x: 110, y: 40 }, heading: normalized({ x: 1, y: 2 }) },
+    P2: { position: { x: 430, y: 40 }, heading: normalized({ x: -1, y: 2 }) },
+    P3: { position: { x: 270, y: 40 }, heading: { x: 0, y: 1 } },
+    P4: { position: { x: 40, y: 482 }, heading: { x: 1, y: 0 } },
+    P5: { position: { x: 500, y: 482 }, heading: { x: -1, y: 0 } },
+    P6: { position: { x: 270, y: 920 }, heading: { x: 0, y: -1 } },
+  };
+  const base = definitions[pathId];
+  const position = {
+    x: base.position.x + base.heading.x * progress,
+    y: base.position.y + base.heading.y * progress,
+  };
+  return {
+    position,
+    heading: base.heading,
+    trailingPose: {
+      position: {
+        x: position.x - base.heading.x * 70,
+        y: position.y - base.heading.y * 70,
+      },
+      heading: base.heading,
+    },
+  };
 }
 
-function shelterDirectionFor(pathId: EnemySnapshot['pathId'], progress: number): Direction8 {
-  const point = DEFAULT_PATH_POSE_SAMPLERS[pathId].sampleExtended(progress).position;
-  const angle = Math.atan2(480 - point.y, 270 - point.x);
-  const directions: readonly Direction8[] = [
-    'east', 'southEast', 'south', 'southWest', 'west', 'northWest', 'north', 'northEast',
-  ];
-  const index = Math.round(angle / (Math.PI / 4));
-  return directions[(index + directions.length) % directions.length]!;
+function normalized(point: Point): Point {
+  const length = Math.hypot(point.x, point.y);
+  return { x: point.x / length, y: point.y / length };
 }

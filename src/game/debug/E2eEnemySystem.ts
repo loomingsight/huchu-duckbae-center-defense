@@ -3,6 +3,7 @@ import { PATH_DEFINITIONS } from '../data/pathDefinitions';
 import { EnemySystem } from '../enemies/EnemySystem';
 import type { PathId } from '../types/GameTypes';
 import { PathSystem } from '../world/PathSystem';
+import type { Point } from '../world/Geometry';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import type { ScenarioEnemySeed } from './ScenarioSessionPort';
 
@@ -42,7 +43,12 @@ export class E2eEnemySystem extends EnemySystem {
         : path.closestProgressTo({ x: seed.placement.x, y: seed.placement.y });
     const enemyId = this.spawn(request);
     const enemy = this.enemies.get(enemyId)!;
-    enemy.pathProgress = pathProgress;
+    if (seed.placement.kind === 'worldPoint') {
+      this.applyWorldPosition(enemyId, { x: seed.placement.x, y: seed.placement.y });
+      enemy.pathProgress = pathProgress;
+    } else {
+      this.applyPathProgress(enemyId, pathProgress);
+    }
     enemy.currentHp = currentHp;
     enemy.maxHp = maxHp;
     enemy.state = seed.state ?? 'moving';
@@ -51,16 +57,31 @@ export class E2eEnemySystem extends EnemySystem {
     return { enemyId, request };
   }
 
-  override step(stepMs: number): void {
-    const held = new Map<number, number>();
+  override step(stepMs: number, target?: Point): void {
+    const held = new Map<number, {
+      readonly pathProgress: number;
+      readonly position: Point;
+      readonly heading: Point;
+    }>();
     for (const id of this.heldForDebug) {
       const enemy = this.enemies.get(id);
-      if (enemy !== undefined) held.set(id, enemy.pathProgress);
+      if (enemy !== undefined) {
+        held.set(id, {
+          pathProgress: enemy.pathProgress,
+          position: { ...enemy.position },
+          heading: { ...enemy.heading },
+        });
+      }
     }
-    super.step(stepMs);
-    for (const [id, pathProgress] of held) {
+    super.step(stepMs, target);
+    for (const [id, movement] of held) {
       const enemy = this.enemies.get(id);
-      if (enemy !== undefined) enemy.pathProgress = pathProgress;
+      if (enemy !== undefined) {
+        enemy.pathProgress = movement.pathProgress;
+        enemy.position = { ...movement.position };
+        enemy.heading = { ...movement.heading };
+        enemy.trail.reset(enemy.position, enemy.heading);
+      }
     }
   }
 

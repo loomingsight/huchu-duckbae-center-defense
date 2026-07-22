@@ -136,7 +136,7 @@ export class GameSession {
       this.eventBuffer.push({ type: 'waveStarted', wave: this.currentWave() });
     }
     this.spawnWaveRequests();
-    this.enemies.step(FIXED_STEP_MS);
+    this.enemies.step(FIXED_STEP_MS, { x: 270, y: 480 });
 
     const damageCommands = this.collectPlayerDamage(player);
     const snapshotsBeforeDamage = this.enemies.snapshots();
