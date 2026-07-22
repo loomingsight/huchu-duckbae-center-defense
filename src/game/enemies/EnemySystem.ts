@@ -241,6 +241,7 @@ export class EnemySystem {
     if (distance === 0) return;
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return;
+    if (enemy.isBoss) return;
 
     this.moveBehind(enemy, distance);
     enemy.state = 'moving';
@@ -291,7 +292,7 @@ export class EnemySystem {
     if (enemy === undefined) return { interruptedWindup: false };
 
     const interruptedWindup = enemy.state === 'windup';
-    if (effect.knockbackPx > 0) {
+    if (effect.knockbackPx > 0 && !enemy.isBoss) {
       if (effect.direction === undefined) {
         this.moveBehind(enemy, effect.knockbackPx);
       } else {

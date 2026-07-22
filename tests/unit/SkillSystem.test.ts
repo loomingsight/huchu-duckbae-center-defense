@@ -43,7 +43,7 @@ describe('SkillSystem timeline', () => {
   });
   it('고정 cooldown과 impact 시각 및 source별 피드백 강도를 제공한다', () => {
     expect(SKILL_DEFINITIONS).toEqual({
-      tailSwipe: { cooldownMs: 6000, impactMs: 250, damage: 14 },
+      tailSwipe: { cooldownMs: 6000, impactMs: 125, damage: 14 },
       aquaBeam: { cooldownMs: 10_000, impactMs: 600, damage: 160 },
       safetyReport: {
         cooldownMs: 19_000,
@@ -159,9 +159,9 @@ describe('SkillSystem timeline', () => {
       progress: 0,
       activeCastId: 'tailSwipe:1',
     });
-    system.step(8250, context);
+    system.step(8125, context);
     expect(system.snapshot('tailSwipe')).toMatchObject({
-      cooldownRemainingMs: 5750,
+      cooldownRemainingMs: 5875,
       activeCastId: null,
     });
   });
@@ -251,9 +251,14 @@ describe('SkillSystem timeline', () => {
       player: { x: 0, y: 0 },
       enemies: [enemy({ id: 9, position: { x: 1, y: 0 } })],
     };
-    system.requestCast('tailSwipe', 8000, atStart);
+    expect(system.requestCast('tailSwipe', 8000, atStart).events.at(0)).toMatchObject({
+      type: 'skillCastStarted',
+      skillId: 'tailSwipe',
+      durationMs: 125,
+    });
 
-    const impact = system.step(8250, {
+    expect(system.step(8124, atStart).some(({ type }) => type === 'skillImpact')).toBe(false);
+    const impact = system.step(8125, {
       player: { x: 0, y: 0 },
       enemies: [
         enemy({ id: 1, position: { x: 158.4, y: 0 }, isBoss: false, spawnSequence: 1 }),
@@ -352,8 +357,8 @@ describe('SkillSystem timeline', () => {
     expect(system.requestCast('tailSwipe', 8000, context).events.at(0))
       .toMatchObject({ castId: 'tailSwipe:1' });
     expect(system.step(8000, context)).toEqual([]);
-    expect(system.step(8250, context).filter(({ type }) => type === 'skillImpact')).toHaveLength(1);
-    expect(system.step(8250, context)).toEqual([]);
+    expect(system.step(8125, context).filter(({ type }) => type === 'skillImpact')).toHaveLength(1);
+    expect(system.step(8125, context)).toEqual([]);
 
     system.reset();
     expect(system.snapshot('tailSwipe')).toEqual({

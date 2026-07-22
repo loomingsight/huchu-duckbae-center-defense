@@ -4,6 +4,7 @@ import {
   PlayerView,
   TAIL_SWIPE_BODY_DURATION_MS,
   TAIL_SWIPE_LAST_FRAME_HOLD_MS,
+  TAIL_SWIPE_SWEEP_MS,
   tailSweepTransformAt,
 } from '../../src/game/player/PlayerView';
 import * as PlayerViewModule from '../../src/game/player/PlayerView';
@@ -19,7 +20,7 @@ it('tail body action은 전용 sheet를 쓰고 aqua body action은 attack sheet�
     y: 650,
     worldAnimationMs: 0,
     moving: false,
-    bodyAction: { kind: 'tailSwipe', elapsedMs: 250 },
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 125 },
   });
   expect(fake.spriteCount()).toBe(2);
   expect(fake.last('setTexture')).toEqual([AssetKeys.huchuTailSwipe]);
@@ -45,12 +46,14 @@ it('tail body action은 전용 sheet를 쓰고 aqua body action은 attack sheet�
   expect(fake.spriteLast(1, 'setVisible')).toEqual([false]);
 });
 
-it('꼬리치기는 마지막 프레임을 정확히 800ms 유지한다', () => {
+it('꼬리치기는 125ms 타격 뒤 마지막 프레임을 400ms 유지해 총 525ms 재생한다', () => {
   const fake = createScene();
   const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
 
-  expect(TAIL_SWIPE_LAST_FRAME_HOLD_MS).toBe(800);
-  expect(TAIL_SWIPE_BODY_DURATION_MS).toBeCloseTo(3 * 1000 / 12 + 800, 9);
+  expect(TAIL_SWIPE_SWEEP_MS).toBe(125);
+  expect(TAIL_SWIPE_LAST_FRAME_HOLD_MS).toBe(400);
+  expect(TAIL_SWIPE_BODY_DURATION_MS).toBeCloseTo(3 * 1000 / 24 + 400, 9);
+  expect(TAIL_SWIPE_BODY_DURATION_MS).toBe(525);
 
   view.render({
     x: 270,
@@ -84,7 +87,7 @@ it('꼬리 오버레이는 후추의 좌우 방향을 함께 따른다', () => {
     y: 650,
     worldAnimationMs: 0,
     moving: false,
-    bodyAction: { kind: 'tailSwipe', elapsedMs: 250 },
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 125 },
   });
 
   expect(fake.last('setFlipX')).toEqual([true]);
@@ -106,46 +109,52 @@ it('꼬리 오버레이 뿌리는 후추 엉덩이 좌표를 좌우 대칭으로
   expect(tailOverlayRoot({ x: 270, y: 650 }, true)).toEqual({ x: 284, y: 605 });
 });
 
-it('말린 꼬리는 뿌리를 고정하고 우→상→좌 부채꼴을 좌우 대칭으로 보간한다', () => {
+it('말린 꼬리는 뿌리를 고정하고 바깥 sweep 뒤 안쪽으로 감기는 갈고리를 좌우 대칭으로 보간한다', () => {
   expect(tailSweepTransformAt(0, false)).toEqual({
     rootOffset: { x: 0, y: 0 }, rotationDeg: 180,
   });
-  expect(tailSweepTransformAt(125, false)).toEqual({
+  expect(tailSweepTransformAt(62.5, false)).toEqual({
     rootOffset: { x: 0, y: 0 }, rotationDeg: 90,
   });
-  expect(tailSweepTransformAt(250, false)).toEqual({
-    rootOffset: { x: 0, y: 0 }, rotationDeg: 0,
+  expect(tailSweepTransformAt(105, false)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: -24,
   });
-  expect(tailSweepTransformAt(125, true)).toEqual({
+  expect(tailSweepTransformAt(125, false)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: 18,
+  });
+  expect(tailSweepTransformAt(62.5, true)).toEqual({
     rootOffset: { x: 0, y: 0 }, rotationDeg: -90,
   });
-  expect(tailSweepTransformAt(1050, true)).toEqual({
-    rootOffset: { x: 0, y: 0 }, rotationDeg: -0,
+  expect(tailSweepTransformAt(105, true)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: 24,
+  });
+  expect(tailSweepTransformAt(525, true)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: -18,
   });
 });
 
-it('PlayerView는 보간 각도를 꼬리 sprite에 적용하고 250ms 뒤 마지막 자세를 유지한다', () => {
+it('PlayerView는 갈고리 각도를 꼬리 sprite에 적용하고 125ms 뒤 마지막 자세를 유지한다', () => {
   const fake = createScene();
   const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
 
   view.render({
     x: 270, y: 650, worldAnimationMs: 0, moving: false,
-    bodyAction: { kind: 'tailSwipe', elapsedMs: 125 },
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 62.5 },
   });
   expect(fake.spriteLast(1, 'setAngle')).toEqual([90]);
   expect(fake.spriteLast(1, 'setPosition')).toEqual([256, 605]);
 
   view.render({
     x: 270, y: 650, worldAnimationMs: 0, moving: false,
-    bodyAction: { kind: 'tailSwipe', elapsedMs: 900 },
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 500 },
   });
-  expect(fake.spriteLast(1, 'setAngle')).toEqual([0]);
+  expect(fake.spriteLast(1, 'setAngle')).toEqual([18]);
   expect(fake.spriteLast(1, 'setPosition')).toEqual([256, 605]);
 
   view.attackOrigin({ x: 270, y: 650 }, { x: 170, y: 650 });
   view.render({
     x: 270, y: 650, worldAnimationMs: 0, moving: false,
-    bodyAction: { kind: 'tailSwipe', elapsedMs: 125 },
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 62.5 },
   });
   expect(fake.spriteLast(1, 'setAngle')).toEqual([-90]);
   expect(fake.spriteLast(1, 'setPosition')).toEqual([284, 605]);

@@ -23,7 +23,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
     player: { speed: 150, opaqueHeightLogical: 72, maxHp: 1000, hitRadius: 24 },
     enemies: {
       poopGuardian: {
-        displayName: '똥 방치 보호자',
+        displayName: '똥 방치러',
         hp: 60,
         speed: 44,
         damage: 25,
@@ -33,7 +33,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
         attackTiming: 'normal',
       },
       offLeashGuardian: {
-        displayName: '오프리시 보호자',
+        displayName: '오프리시 빌런',
         hp: 110,
         speed: 42,
         damage: 50,
@@ -55,7 +55,7 @@ it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', (
       illegalBreeder: {
         displayName: '불법번식업자',
         hp: 1500,
-        speed: 32.2,
+        speed: 64.4,
         damage: 160,
         attackIntervalMs: 2100,
         snack: 35,

@@ -27,7 +27,7 @@ export interface SkillCastStartedEvent {
   readonly skillId: PurchasableSkillId;
   readonly origin: Point;
   readonly targets: readonly SkillTargetSnapshot[];
-  readonly durationMs: 250 | 300 | 600;
+  readonly durationMs: 125 | 300 | 600;
 }
 
 export interface SkillTargetChangedEvent {

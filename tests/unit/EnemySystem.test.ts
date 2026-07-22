@@ -97,6 +97,47 @@ it('175px 꼬리치기 넉백은 월드 경계를 넘어가지 않는다', () =>
   expect(system.snapshots()[0]!.position).toEqual({ x: 540, y: 960 });
 });
 
+it.each(['dogTrader', 'illegalBreeder'] as const)(
+  '%s 보스는 위치 넉백에 면역이지만 둔화와 windup 중단은 적용된다',
+  (kind) => {
+    const system = EnemySystem.withSingleEnemy({ kind, pathId: 'P3', initialProgress: 100 });
+    const id = system.snapshots()[0]!.id;
+    system.setState(id, 'windup', 100);
+    const before = system.snapshots()[0]!;
+
+    expect(system.applyTailEffect(id, {
+      knockbackPx: 175,
+      multiplier: 0.8,
+      durationMs: 1000,
+      direction: { x: 1, y: 0 },
+    })).toEqual({ interruptedWindup: true });
+
+    const afterTail = system.snapshots()[0]!;
+    expect(afterTail.position).toEqual(before.position);
+    expect(afterTail.pathProgress).toBe(before.pathProgress);
+    expect(afterTail).toMatchObject({
+      state: 'moving',
+      animationElapsedMs: 0,
+      moveSpeedMultiplier: 0.8,
+      slowRemainingMs: 1000,
+    });
+    system.knockBack(id, 175);
+    expect(system.snapshots()[0]!.position).toEqual(before.position);
+    expect(system.snapshots()[0]!.pathProgress).toBe(before.pathProgress);
+  },
+);
+
+it('불법번식업자는 1초에 64.4 이동하고 개장수 이동속도 35는 유지한다', () => {
+  const breeder = EnemySystem.withSingleEnemy({ kind: 'illegalBreeder', pathId: 'P3' });
+  const trader = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
+
+  breeder.step(1000);
+  trader.step(1000);
+
+  expect(breeder.snapshots()[0]!.pathProgress).toBeCloseTo(64.4, 9);
+  expect(trader.snapshots()[0]!.pathProgress).toBeCloseTo(35, 9);
+});
+
 it('재감속은 배율을 중첩하지 않고 더 긴 남은 시간만 보존한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
   const id = system.snapshots()[0]!.id;
@@ -193,7 +234,7 @@ it('slow의 sub-epsilon 경계에서는 배율을 풀되 위치를 건너뛰지 
     .toBeCloseTo((42 + 64 / 4) * 0.6 * 3.999_999_999_95, 8);
 });
 
-it('dogTrader는 경로 시작점에서 즉시 보이고 넉백도 진입점 밖으로 밀리지 않는다', () => {
+it('dogTrader는 경로 시작점에서 즉시 보이고 넉백 면역으로 진행도를 유지한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
   const before = system.snapshots()[0]!;
   expect(before.pathProgress).toBe(0);
@@ -205,9 +246,9 @@ it('dogTrader는 경로 시작점에서 즉시 보이고 넉백도 진입점 밖
     initialProgress: 10,
   });
   nearStart.applyTailEffect(0, { knockbackPx: 35, multiplier: 0.8, durationMs: 1000 });
-  expect(nearStart.snapshots()[0]!.pathProgress).toBe(0);
+  expect(nearStart.snapshots()[0]!.pathProgress).toBe(10);
   nearStart.knockBack(0, 1000);
-  expect(nearStart.snapshots()[0]!.pathProgress).toBe(0);
+  expect(nearStart.snapshots()[0]!.pathProgress).toBe(10);
 });
 
 it('dogTrader 기본 ETA는 진행도 0을 명시한 경우와 같다', () => {

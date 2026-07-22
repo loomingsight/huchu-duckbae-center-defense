@@ -364,7 +364,7 @@ function damageFor(skillId: PurchasableSkillId, isBoss: boolean): number {
     : SKILL_DEFINITIONS.safetyReport.regularDamage;
 }
 
-function impactMsFor(skillId: PurchasableSkillId): 250 | 300 | 600 {
+function impactMsFor(skillId: PurchasableSkillId): 125 | 300 | 600 {
   if (skillId === 'tailSwipe') return SKILL_DEFINITIONS.tailSwipe.impactMs;
   if (skillId === 'aquaBeam') return SKILL_DEFINITIONS.aquaBeam.impactMs;
   return SKILL_DEFINITIONS.safetyReport.impactMs;

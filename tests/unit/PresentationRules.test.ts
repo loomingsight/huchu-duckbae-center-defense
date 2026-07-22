@@ -7,6 +7,7 @@ import {
   enemyAnimation,
   enemyDisplayHeight,
   enemyFrameAt,
+  enemyMovementAnimationRate,
   enemyTextureKey,
   enemyWalkFrameAt,
   EnemyActor,
@@ -432,6 +433,20 @@ it('moving walk만 감속 배율을 적용하고 attack frame/fps는 core elapse
     moveSpeedMultiplier: 0.2,
     animationElapsedMs: 500,
   })).toMatchObject({ action: 'attack', fps: 10, frame: 5 });
+});
+
+it('불법번식업자 걷기 애니메이션은 개장수의 정확히 2배이고 다른 적 배율은 유지한다', () => {
+  expect(enemyMovementAnimationRate('poopGuardian')).toBe(1);
+  expect(enemyMovementAnimationRate('offLeashGuardian')).toBe(1);
+  expect(enemyMovementAnimationRate('dogTrader')).toBe(1.4);
+  expect(enemyMovementAnimationRate('illegalBreeder')).toBe(2.8);
+  expect(enemyAnimation({
+    ...ENEMY_SNAPSHOT,
+    kind: 'illegalBreeder',
+    state: 'moving',
+    moveSpeedMultiplier: 1,
+    animationElapsedMs: 100,
+  })).toMatchObject({ action: 'walk', fps: 28, frame: 2 });
 });
 
 it.each([0.7, 0.5])(

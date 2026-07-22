@@ -14,8 +14,8 @@ export const ENEMY_LABEL_BACKGROUND = '#f7edcf';
 export const ENEMY_LABEL_ATLAS_MAX_WIDTH = 2048;
 
 export const ENEMY_LABEL_NAMES = [
-  '똥 방치 보호자',
-  '오프리시 보호자',
+  '똥 방치러',
+  '오프리시 빌런',
   '개장수',
   '불법번식업자',
 ] as const;

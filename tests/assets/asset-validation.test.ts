@@ -360,6 +360,19 @@ describe('V2 sheet structural verification', () => {
     await expect(verifyAnimationSheet(entry, { file })).rejects.toThrow('event timing must match core timing');
   });
 
+  it('꼬리치기 sheet는 125ms event timing을 허용하고 일반 공격 250ms 계약과 분리한다', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'huchu-tail-timing-'));
+    const file = path.join(root, 'tail-swipe.png');
+    await writeStrictSheet(file, 6);
+    const entry = {
+      key: 'huchu-tail-swipe-fixture', action: 'tailSwipe', source: file, url: '/tail.png',
+      frameCount: 6, frameWidth: 256, frameHeight: 256, opaqueHeightPx: 204,
+      fps: 24, loop: false, eventFrame: 3, eventKind: 'directHit',
+    };
+
+    await expect(verifyAnimationSheet(entry, { file, checkOutline: false })).resolves.toBeUndefined();
+  });
+
   it('measures a 6px dog rim as 1.5-2px at the 390px FIT scale', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'huchu-outline-'));
     const file = path.join(root, 'outline.png');

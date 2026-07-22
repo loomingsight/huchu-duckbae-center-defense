@@ -31,8 +31,8 @@ const TAIL_ROOT_Y = 150;
 const TAIL_ROOT_ORIGIN_X = TAIL_ROOT_X / 256;
 const TAIL_ROOT_ORIGIN_Y = TAIL_ROOT_Y / 256;
 export const TAIL_SWIPE_VISUAL_SCALE = 2;
-export const TAIL_SWIPE_LAST_FRAME_HOLD_MS = 800;
-export const TAIL_SWIPE_SWEEP_MS = 250;
+export const TAIL_SWIPE_LAST_FRAME_HOLD_MS = 400;
+export const TAIL_SWIPE_SWEEP_MS = 125;
 export const TAIL_SWIPE_BODY_DURATION_MS =
   (TAIL_OVERLAY_ENTRY.frameCount - 1) * 1000 / TAIL_OVERLAY_ENTRY.fps
   + TAIL_SWIPE_LAST_FRAME_HOLD_MS;
@@ -52,17 +52,35 @@ export interface TailSweepTransform {
   readonly rotationDeg: number;
 }
 
+const TAIL_HOOK_ROTATION_KEYFRAMES = [
+  { atMs: 0, rotationDeg: 180 },
+  { atMs: 62.5, rotationDeg: 90 },
+  { atMs: 105, rotationDeg: -24 },
+  { atMs: TAIL_SWIPE_SWEEP_MS, rotationDeg: 18 },
+] as const;
+
 export function tailSweepTransformAt(
   elapsedMs: number,
   facingLeft: boolean,
 ): TailSweepTransform {
   assertFiniteNonNegative(elapsedMs, 'Tail sweep elapsedMs');
-  const progress = Math.min(1, elapsedMs / TAIL_SWIPE_SWEEP_MS);
-  const rotationDeg = 180 * (1 - progress);
+  const rotationDeg = tailHookRotationAt(Math.min(elapsedMs, TAIL_SWIPE_SWEEP_MS));
   return {
     rootOffset: { x: 0, y: 0 },
     rotationDeg: facingLeft ? -rotationDeg : rotationDeg,
   };
+}
+
+function tailHookRotationAt(elapsedMs: number): number {
+  for (let index = 1; index < TAIL_HOOK_ROTATION_KEYFRAMES.length; index += 1) {
+    const start = TAIL_HOOK_ROTATION_KEYFRAMES[index - 1]!;
+    const end = TAIL_HOOK_ROTATION_KEYFRAMES[index]!;
+    if (elapsedMs > end.atMs) continue;
+    const linear = (elapsedMs - start.atMs) / (end.atMs - start.atMs);
+    const eased = linear * linear * (3 - 2 * linear);
+    return start.rotationDeg + (end.rotationDeg - start.rotationDeg) * eased;
+  }
+  return TAIL_HOOK_ROTATION_KEYFRAMES.at(-1)!.rotationDeg;
 }
 
 function tailOverlayOriginX(facingLeft: boolean): number {

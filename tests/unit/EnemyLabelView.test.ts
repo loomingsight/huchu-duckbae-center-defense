@@ -19,7 +19,7 @@ describe('EnemyLabelView', () => {
     const fake = createFakeScene({ labelFrameSize: { width: 126, height: 19 } });
     const label = new EnemyLabelView(fake.scene as never);
 
-    label.bind('똥 방치 보호자');
+    label.bind('똥 방치러');
     label.render({
       position: { x: 270, y: 500 }, currentHp: 60, maxHp: 60,
       opaqueHeightLogical: 84, visible: true,
@@ -40,9 +40,9 @@ describe('EnemyLabelView', () => {
     expect(fake.textCreates).toEqual([]);
     expect(fake.imageCreates).toEqual([[0, 0, AssetKeys.enemyLabels]]);
     expect(calls(fake.images[0]!, 'setFrame')).toEqual([
-      [enemyLabelAtlasFrame('똥 방치 보호자', 0)],
-      [enemyLabelAtlasFrame('똥 방치 보호자', 30)],
-      [enemyLabelAtlasFrame('똥 방치 보호자', 15)],
+      [enemyLabelAtlasFrame('똥 방치러', 0)],
+      [enemyLabelAtlasFrame('똥 방치러', 30)],
+      [enemyLabelAtlasFrame('똥 방치러', 15)],
     ]);
     expect(lastCall(fake.images[0]!, 'setPosition')).toEqual([217, 401]);
     expect(lastCall(fake.images[0]!, 'setDepth')).toEqual([512]);
@@ -54,7 +54,7 @@ describe('EnemyLabelView', () => {
     expect(calls(fake.images[0]!, 'setDisplaySize')).toEqual([]);
     expect(calls(fake.images[0]!, 'setTint')).toEqual([]);
     expect(label.snapshot()).toMatchObject({
-      displayName: '똥 방치 보호자',
+      displayName: '똥 방치러',
       fontPx: 14,
       strokePx: 1,
       background: ENEMY_LABEL_BACKGROUND,
@@ -115,7 +115,7 @@ describe('EnemyLabelView', () => {
     position,
     clampedEdge,
   ) => {
-    const layout = enemyLabelLayout(position, 84, '똥 방치 보호자');
+    const layout = enemyLabelLayout(position, 84, '똥 방치러');
     const horizontal = [
       layout.name.left, layout.name.right, layout.hp.left, layout.hp.right,
       layout.damageAnchor.x,
@@ -137,7 +137,7 @@ describe('EnemyLabelView', () => {
   it('actual name metadata로 combined Image 위치·edge clamp·boss depth·damageAnchor를 계산한다', () => {
     const fake = createFakeScene({ labelFrameSize: { width: 126, height: 19 } });
     const label = new EnemyLabelView(fake.scene as never);
-    label.bind('똥 방치 보호자');
+    label.bind('똥 방치러');
 
     label.render({
       position: { x: WORLD_WIDTH, y: 500 }, currentHp: 900, maxHp: 900,
@@ -147,7 +147,7 @@ describe('EnemyLabelView', () => {
     const layout = enemyLabelLayout(
       { x: WORLD_WIDTH, y: 500 },
       100,
-      '똥 방치 보호자',
+      '똥 방치러',
       { width: 126, height: 19 },
     );
     expect(lastCall(fake.images[0]!, 'setPosition')).toEqual([
@@ -164,7 +164,7 @@ describe('EnemyLabelView', () => {
     const label = new EnemyLabelView(fake.scene as never);
     const camera = {};
     const viewport = { left: 0, right: WORLD_WIDTH, top: 0, bottom: WORLD_HEIGHT };
-    label.bind('똥 방치 보호자');
+    label.bind('똥 방치러');
     label.render({
       position: { x: 270, y: 500 }, currentHp: 60, maxHp: 60,
       opaqueHeightLogical: 84, visible: true,
@@ -193,7 +193,7 @@ describe('EnemyLabelView', () => {
     const fake = createFakeScene({ corruptMetadata: true });
     const label = new EnemyLabelView(fake.scene as never);
 
-    expect(() => label.bind('똥 방치 보호자')).toThrow(/invalid metadata/i);
+    expect(() => label.bind('똥 방치러')).toThrow(/invalid metadata/i);
     expect(label.snapshot().displayName).toBeNull();
   });
 

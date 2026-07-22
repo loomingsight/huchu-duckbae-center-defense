@@ -1,10 +1,9 @@
-import { attackImpactMs } from '../data/balance';
 import type { DamageSource, ImpactStrength } from '../types/GameTypes';
 
 export const SKILL_DEFINITIONS = {
   tailSwipe: {
     cooldownMs: 6000,
-    impactMs: attackImpactMs('normal') as 250,
+    impactMs: 125,
     damage: 14,
   },
   aquaBeam: {

@@ -10,8 +10,8 @@ test('full·half·low HP actor는 각자 이름표/HP slot을 가진다', async 
     { id: 2, kind: 'illegalBreeder', currentHp: 150, maxHp: 1500, position: { x: 270, y: 625 } },
   ]);
   expect(loaded.labelBindings).toEqual([
-    { enemyId: 0, displayName: '똥 방치 보호자', currentHp: 60, maxHp: 60, hpRatio: 1, hpColor: 0x39a852 },
-    { enemyId: 1, displayName: '오프리시 보호자', currentHp: 55, maxHp: 110, hpRatio: 0.5, hpColor: 0xf2ca45 },
+    { enemyId: 0, displayName: '똥 방치러', currentHp: 60, maxHp: 60, hpRatio: 1, hpColor: 0x39a852 },
+    { enemyId: 1, displayName: '오프리시 빌런', currentHp: 55, maxHp: 110, hpRatio: 0.5, hpColor: 0xf2ca45 },
     { enemyId: 2, displayName: '불법번식업자', currentHp: 150, maxHp: 1500, hpRatio: 0.1, hpColor: 0xd94b43 },
   ]);
   expect(loaded.pools.enemies).toMatchObject({ created: 60, active: 3, available: 57 });

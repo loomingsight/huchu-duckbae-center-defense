@@ -235,7 +235,9 @@ function verifyEventMetadata(entry) {
   if (entry.eventFrame < 0 || entry.eventFrame >= entry.frameCount) {
     throw new Error(`${entry.key}: eventFrame must be inside the sheet`);
   }
-  const expectedMs = entry.frameCount === 8 ? 500 : 250;
+  const expectedMs = entry.action === 'tailSwipe'
+    ? 125
+    : entry.frameCount === 8 ? 500 : 250;
   const actualMs = (entry.eventFrame / entry.fps) * 1000;
   if (Math.abs(actualMs - expectedMs) > 1e-7) {
     throw new Error(`${entry.key}: event timing must match core timing (${expectedMs}ms)`);

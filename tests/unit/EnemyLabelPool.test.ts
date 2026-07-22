@@ -39,7 +39,7 @@ it('duplicate id는 actor와 label을 재할당하거나 이름을 다시 bind�
 
   expect(duplicate).toBe(first);
   expect(actors.labelPoolSnapshot()).toEqual(before);
-  expect(scene.labelFrames).toContain(enemyLabelAtlasFrame('똥 방치 보호자', 0));
+  expect(scene.labelFrames).toContain(enemyLabelAtlasFrame('똥 방치러', 0));
   expect(scene.labelFrames).not.toContain(enemyLabelAtlasFrame('불법번식업자', 0));
   expect(scene.textCreates).toBe(0);
 });

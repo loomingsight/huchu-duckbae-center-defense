@@ -25,6 +25,7 @@ export const ENEMY_FRAME_HEIGHT = 256;
 const DEFAULT_TEXTURE = AssetKeys.poopMaleWalk;
 const DEFAULT_DISPLAY_HEIGHT = HUCHU_PRESENTATION.regularEnemyOpaqueHeightLogical;
 export const BOSS_MOVEMENT_ANIMATION_RATE = 1.4;
+export const ILLEGAL_BREEDER_MOVEMENT_ANIMATION_RATE = BOSS_MOVEMENT_ANIMATION_RATE * 2;
 
 export type EnemyAnimationAction = 'walk' | 'attack';
 
@@ -96,9 +97,8 @@ export function enemyAttackFrameAt(elapsedMs: number, frameCount = 8, fps = 10):
 }
 
 export function enemyMovementAnimationRate(kind: EnemyKind): number {
-  return kind === 'dogTrader' || kind === 'illegalBreeder'
-    ? BOSS_MOVEMENT_ANIMATION_RATE
-    : 1;
+  if (kind === 'illegalBreeder') return ILLEGAL_BREEDER_MOVEMENT_ANIMATION_RATE;
+  return kind === 'dogTrader' ? BOSS_MOVEMENT_ANIMATION_RATE : 1;
 }
 
 export function enemyFrameAt(state: EnemyState, elapsedMs: number): number {

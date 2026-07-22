@@ -45,7 +45,7 @@ describe('AnimationManifest', () => {
       frameCount: 6,
       frameWidth: 256,
       frameHeight: 256,
-      fps: 12,
+      fps: 24,
       loop: false,
       eventFrame: 3,
       eventKind: 'directHit',
@@ -58,7 +58,7 @@ describe('AnimationManifest', () => {
       frameCount: 4,
       frameWidth: 256,
       frameHeight: 256,
-      fps: 12,
+      fps: 24,
       loop: false,
     });
   });

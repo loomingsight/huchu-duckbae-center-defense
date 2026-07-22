@@ -3,7 +3,7 @@ export const BALANCE = {
   waveCountdownMs: 3000,
   enemies: {
     poopGuardian: {
-      displayName: '똥 방치 보호자',
+      displayName: '똥 방치러',
       hp: 60,
       speed: 44,
       damage: 25,
@@ -14,7 +14,7 @@ export const BALANCE = {
       attackTiming: 'normal',
     },
     offLeashGuardian: {
-      displayName: '오프리시 보호자',
+      displayName: '오프리시 빌런',
       hp: 110,
       speed: 42,
       damage: 50,
@@ -38,7 +38,7 @@ export const BALANCE = {
     illegalBreeder: {
       displayName: '불법번식업자',
       hp: 1500,
-      speed: 32.2,
+      speed: 64.4,
       damage: 160,
       attackIntervalMs: 2100,
       range: 88,

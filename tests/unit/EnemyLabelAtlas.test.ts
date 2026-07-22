@@ -36,7 +36,7 @@ describe('EnemyLabelAtlas', () => {
 
     expect(AssetKeys.enemyLabels).toBe('enemy-labels');
     expect(ENEMY_LABEL_NAMES).toEqual([
-      '똥 방치 보호자', '오프리시 보호자', '개장수', '불법번식업자',
+      '똥 방치러', '오프리시 빌런', '개장수', '불법번식업자',
     ]);
     expect(ENEMY_LABEL_ATLAS_FRAMES).toHaveLength(124);
     expect(new Set(ENEMY_LABEL_ATLAS_FRAMES).size).toBe(124);
@@ -96,18 +96,18 @@ describe('EnemyLabelAtlas', () => {
     const fake = createAtlasScene();
     ensureEnemyLabelAtlas(fake.scene as never);
 
-    const data = fake.frameData(enemyLabelAtlasFrame('똥 방치 보호자', 16));
+    const data = fake.frameData(enemyLabelAtlasFrame('똥 방치러', 16));
 
     expect(data).toEqual({
-      displayName: '똥 방치 보호자',
+      displayName: '똥 방치러',
       hpStep: 16,
-      nameWidth: '똥 방치 보호자'.length * 14 + 6,
+      nameWidth: '똥 방치러'.length * 14 + 6,
       nameHeight: 17,
-      combinedWidth: '똥 방치 보호자'.length * 14 + 6,
+      combinedWidth: '똥 방치러'.length * 14 + 6,
       combinedHeight: 23,
       nameOffsetX: 0,
       nameOffsetY: 5.5,
-      hpOffsetX: (('똥 방치 보호자'.length * 14 + 6) - 30) / 2,
+      hpOffsetX: (('똥 방치러'.length * 14 + 6) - 30) / 2,
       hpOffsetY: 0,
     });
   });
