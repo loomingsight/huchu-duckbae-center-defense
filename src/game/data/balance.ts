@@ -1,5 +1,4 @@
 export const BALANCE = {
-  shelter: { maxHp: 1000, x: 270, y: 480, hitRadius: 38 },
   player: { speed: 150, opaqueHeightLogical: 72, maxHp: 1000, hitRadius: 24 },
   waveCountdownMs: 3000,
   enemies: {

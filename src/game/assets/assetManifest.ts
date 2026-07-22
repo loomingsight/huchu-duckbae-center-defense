@@ -4,26 +4,11 @@ import { animationEntries, isSourceAnimationEntry } from './AnimationManifest';
 const withBaseUrl = (url: string): string =>
   `${import.meta.env.BASE_URL}${url.replace(/^\/+/, '')}`;
 
-export const SHELTER_V2 = {
-  source: 'assets/source/generated/v2/shelter-states.png',
-  url: withBaseUrl('/assets/shelter/shelter-states.png'),
-  frameCount: 4,
-  frameWidth: 256,
-  frameHeight: 256,
-  opaqueHeightPx: 204,
-} as const;
-
 export const imageAssets = [
   { key: AssetKeys.map, url: withBaseUrl('/assets/map/map-background.webp') },
 ] as const;
 
 export const spriteSheetAssets = [
-  {
-    key: AssetKeys.shelter,
-    url: SHELTER_V2.url,
-    frameWidth: SHELTER_V2.frameWidth,
-    frameHeight: SHELTER_V2.frameHeight,
-  },
   {
     key: AssetKeys.trader,
     url: withBaseUrl('/assets/characters/enemy-trader.png'),

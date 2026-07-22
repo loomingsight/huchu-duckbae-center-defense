@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
-import { outlinePolicy, shelterAsset, sourceAnimationEntries } from './manifest.mjs';
+import { outlinePolicy, sourceAnimationEntries } from './manifest.mjs';
 
 const FRAME_SIZE = 256;
 const TARGET_OPAQUE_HEIGHT = 204;
@@ -309,13 +309,6 @@ export async function prepareV2CharacterSheets(inputDir, outputDir) {
           : outlinePolicy.dogPx,
     });
   }
-  await normalizeHorizontalSheet({
-    input: path.join(inputDir, 'shelter-states.png'),
-    output: path.join(outputDir, 'shelter-states.png'),
-    frameCount: shelterAsset.frameCount,
-    targetOpaqueHeight: shelterAsset.opaqueHeightPx,
-    outlineWidthPx: outlinePolicy.shelterPx,
-  });
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

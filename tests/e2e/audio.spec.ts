@@ -6,7 +6,7 @@ test('Title의 locked probe와 Game bridge는 같은 running singleton을 본다
   await page.waitForFunction(() => window.__HUCHU_AUDIO_TEST__ !== undefined);
   await page.evaluate(() => window.__HUCHU_AUDIO_TEST__!.ready);
   expect(await page.evaluate(() => window.__HUCHU_AUDIO_TEST__!.snapshot().state)).toBe('locked');
-  await page.getByRole('button', { name: '보호소 지키기' }).click();
+  await page.getByRole('button', { name: '함께 출발하기' }).click();
   await page.waitForFunction(() => window.__HUCHU_TEST__ !== undefined);
   await page.evaluate(() => window.__HUCHU_TEST__!.ready);
   expect((await snapshot(page)).audio.state).toBe('running');

@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { parseApprovalCliArgs, updateApprovalLedgers } from './approval-ledger.mjs';
-import { sourceAnimationEntries, shelterAsset } from './manifest.mjs';
+import { sourceAnimationEntries } from './manifest.mjs';
 
 const referenceByStem = {
   huchu: 'assets/source/characters/huchu.png',
@@ -39,10 +39,7 @@ function referenceForKey(key) {
   return referenceByStem[stem];
 }
 
-export function v2CharacterApprovalSources(
-  entries = sourceAnimationEntries,
-  shelter = shelterAsset,
-) {
+export function v2CharacterApprovalSources(entries = sourceAnimationEntries) {
   const owned = entries.filter(({ key }) => !key.startsWith('dog-trader-'));
   const expected = V2_CHARACTER_KEYS.map((key) => ({
     key,
@@ -56,22 +53,15 @@ export function v2CharacterApprovalSources(
     .sort();
   if (
     actualIdentities.length !== expectedIdentities.length ||
-    actualIdentities.some((identity, index) => identity !== expectedIdentities[index]) ||
-    shelter.source !== 'assets/source/generated/v2/shelter-states.png'
+    actualIdentities.some((identity, index) => identity !== expectedIdentities[index])
   ) {
-    throw new Error('Expected exact 17-source V2 approval set plus canonical shelter');
+    throw new Error('Expected exact 17-source V2 approval set');
   }
   const byKey = new Map(owned.map((entry) => [entry.key, entry]));
-  return [
-    ...V2_CHARACTER_KEYS.map((key) => ({
-      source: byKey.get(key).source,
-      references: [referenceForKey(key)],
-    })),
-    {
-      source: shelter.source,
-      references: ['assets/source/generated/shelter-states-edit.png'],
-    },
-  ];
+  return V2_CHARACTER_KEYS.map((key) => ({
+    source: byKey.get(key).source,
+    references: [referenceForKey(key)],
+  }));
 }
 
 export async function approveV2CharacterAssets({ root = '.', generatedAt, approvalEvidence } = {}) {

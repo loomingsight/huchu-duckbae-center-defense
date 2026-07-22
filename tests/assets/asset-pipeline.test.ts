@@ -7,7 +7,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error Asset build scripts are executable ESM JavaScript without declaration files.
-import { buildAnimationAssets, buildAnimationSheet, buildAssets, buildShelter } from '../../scripts/assets/build-assets.mjs';
+import { buildAnimationAssets, buildAnimationSheet, buildAssets } from '../../scripts/assets/build-assets.mjs';
 // @ts-expect-error Asset approval scripts are executable ESM JavaScript without declaration files.
 import { parseApprovalCliArgs, updateApprovalLedgers, validateProvenanceEvidence } from '../../scripts/assets/approval-ledger.mjs';
 // @ts-expect-error Asset approval scripts are executable ESM JavaScript without declaration files.
@@ -30,12 +30,10 @@ const sourceEntry = {
   loop: true,
 };
 
-const V2_SHELTER_CANDIDATE_PRESENT = existsSync('assets/source/generated/v2/shelter-states.png');
-const { characterOutput, characterSheets, mapAsset, shelterAsset, sourceAnimationEntries } = assetManifestScript;
-const V2_CANDIDATES_PRESENT = [
-  ...sourceAnimationEntries.map(({ source }: { source: string }) => source),
-  shelterAsset.source,
-].every(existsSync);
+const { characterOutput, characterSheets, mapAsset, sourceAnimationEntries } = assetManifestScript;
+const V2_CANDIDATES_PRESENT = sourceAnimationEntries
+  .map(({ source }: { source: string }) => source)
+  .every(existsSync);
 
 const APPROVAL_EVIDENCE = {
   approvedBy: 'jadon',
@@ -150,19 +148,6 @@ describe('runtime assets', () => {
     ].every(existsSync)).toBe(true);
   });
 
-  it('보호소는 4×1 RGBA 시트다', async () => {
-    const meta = await sharp('public/assets/shelter/shelter-states.png').metadata();
-    expect(meta).toMatchObject({ width: 1024, height: 256, channels: 4, format: 'png' });
-  });
-
-  it.skipIf(!V2_SHELTER_CANDIDATE_PRESENT)(
-    '보호소 원본을 lossless runtime sheet로 빌드한다 [V2 shelter candidate missing]',
-    async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'huchu-shelter-build-'));
-    await expect(buildShelter(path.join(root, 'shelter-states.png'))).resolves.toBeUndefined();
-    },
-  );
-
   it('맵은 승인 해상도의 WebP다', async () => {
     const meta = await sharp('public/assets/map/map-background.webp').metadata();
     expect(meta).toMatchObject({ width: 1080, height: 1920, format: 'webp' });
@@ -178,7 +163,6 @@ describe('runtime assets', () => {
       const expected = [
         ...characterSheets.map(({ key }: { key: string }) => characterOutput(key)),
         ...sourceAnimationEntries.map(({ url }: { url: string }) => `public${url}`),
-        shelterAsset.output,
         mapAsset.output,
       ];
       await Promise.all(expected.map((relative) =>
@@ -958,7 +942,6 @@ describe('merge-safe approval ledger', () => {
     const v2CharacterApprovalSources = (module as unknown as {
       v2CharacterApprovalSources: (
         entries: typeof sourceAnimationEntries,
-        shelter: typeof shelterAsset,
       ) => unknown;
     }).v2CharacterApprovalSources;
     const substituted = sourceAnimationEntries.map((entry: { key: string; source?: string }) =>
@@ -966,11 +949,11 @@ describe('merge-safe approval ledger', () => {
         ? { ...entry, source: 'assets/source/generated/v2/substituted.png' }
         : entry);
 
-    expect(() => v2CharacterApprovalSources(substituted, shelterAsset))
+    expect(() => v2CharacterApprovalSources(substituted))
       .toThrow('Expected exact 17-source V2 approval set');
   });
 
-  it('upserts exactly 18 V2 rows while preserving foreign rows', async () => {
+  it('upserts exactly 17 V2 rows while preserving foreign rows', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'huchu-v2-approval-core-'));
     const approvalPath = path.join(root, 'assets/source/generated-approvals.json');
     const provenancePath = path.join(root, 'assets/source/provenance.json');
@@ -978,10 +961,7 @@ describe('merge-safe approval ledger', () => {
     await writeFile(approvalPath, `${JSON.stringify([{ source: 'foreign-entry', sha256: 'foreign' }], null, 2)}\n`);
     await writeFile(provenancePath, `${JSON.stringify([{ source: 'foreign-entry', sha256: 'foreign' }], null, 2)}\n`);
     const reviewContents = await commitReviewArtifact(root);
-    const sources = [
-      ...sourceAnimationEntries.map(({ source }: { source: string }) => source),
-      'assets/source/generated/v2/shelter-states.png',
-    ];
+    const sources = sourceAnimationEntries.map(({ source }: { source: string }) => source);
     for (const [index, source] of sources.entries()) {
       const file = path.join(root, source);
       await mkdir(path.dirname(file), { recursive: true });
@@ -1003,8 +983,8 @@ describe('merge-safe approval ledger', () => {
 
     const approvalRows = JSON.parse(firstApproval) as { source: string }[];
     const provenanceRows = JSON.parse(firstProvenance) as { source: string }[];
-    expect(approvalRows).toHaveLength(19);
-    expect(provenanceRows).toHaveLength(19);
+    expect(approvalRows).toHaveLength(18);
+    expect(provenanceRows).toHaveLength(18);
     expect(approvalRows).toContainEqual(expect.objectContaining({ source: 'foreign-entry' }));
     for (const row of approvalRows.filter(({ source }) => source !== 'foreign-entry')) {
       expect(row).toEqual(expect.objectContaining({

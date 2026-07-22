@@ -49,7 +49,7 @@ describe('TargetingSystem', () => {
     }
   });
 
-  it('아쿠아빔 표적은 최고 HP 뒤 boss와 보호소 위협도로 동률을 푼다', () => {
+  it('아쿠아빔 표적은 최고 HP 뒤 boss와 목표 위협도로 동률을 푼다', () => {
     const ranked = rankHighestHpTargets({ x: 0, y: 0 }, [
       enemy({ id: 1, currentHp: 200, isBoss: false, etaMs: 100 }),
       enemy({ id: 2, currentHp: 200, isBoss: true, etaMs: 500 }),

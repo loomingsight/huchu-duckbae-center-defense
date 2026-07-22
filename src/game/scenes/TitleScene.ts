@@ -17,7 +17,7 @@ export class TitleScene extends Phaser.Scene {
       fontFamily: 'system-ui, sans-serif', fontSize: '48px', color: '#34291f',
     }).setOrigin(0.5).setResolution(clampDevicePixelRatio(window.devicePixelRatio));
     const start = this.add.dom(270, 570).createFromHTML(
-      '<button type="button" class="primary-game-button">보호소 지키기</button>',
+      '<button type="button" class="primary-game-button">함께 출발하기</button>',
     );
     let active = true;
     let audioReady = false;

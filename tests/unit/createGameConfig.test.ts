@@ -83,7 +83,7 @@ describe('GAME_CONFIG_SPEC', () => {
 
     expect(title.add.text).toHaveBeenCalledWith(270, 310, '후추덕배 디펜스', expect.any(Object));
     expect(text.setResolution).toHaveBeenCalledWith(2);
-    expect(buttonHtml).toContain('>보호소 지키기</button>');
+    expect(buttonHtml).toContain('>함께 출발하기</button>');
   });
 
   it('Title 시작 click은 audio unlock 완료 뒤 beginRun하고 Game을 정확히 한 번 시작한다', async () => {

@@ -8,7 +8,6 @@ import {
   characterSheets,
   isSourceAnimationEntry,
   mapAsset,
-  shelterAsset,
   validateAnimationManifestEntry,
 } from './manifest.mjs';
 
@@ -68,25 +67,6 @@ export async function buildMap(output = mapAsset.output) {
   await writeFile(output, await buildMapBuffer());
 }
 
-export async function buildShelterBuffer() {
-  const metadata = await sharp(shelterAsset.source).metadata();
-  if (
-    metadata.width !== shelterAsset.frameCount * shelterAsset.cellWidth ||
-    metadata.height !== shelterAsset.cellHeight ||
-    metadata.channels !== 4
-  ) {
-    throw new Error('V2 shelter source must be a 1024x256 RGBA sheet');
-  }
-  return sharp(shelterAsset.source)
-    .png(pngOptions)
-    .toBuffer();
-}
-
-export async function buildShelter(output = shelterAsset.output) {
-  await mkdir(path.dirname(output), { recursive: true });
-  await writeFile(output, await buildShelterBuffer());
-}
-
 export async function buildAnimationSheet(
   entry,
   { sourceRoot = '.', outputRoot = '.' } = {},
@@ -134,7 +114,6 @@ export async function buildAssets({ outputRoot = '.' } = {}) {
     ...characterSheets.map((entry) =>
       buildCharacter(entry, outputPath(characterOutput(entry.key)))),
     buildMap(outputPath(mapAsset.output)),
-    buildShelter(outputPath(shelterAsset.output)),
   ]);
 }
 

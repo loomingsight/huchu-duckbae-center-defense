@@ -42,7 +42,6 @@ export const outlinePolicy = Object.freeze({
   dogPx: 6,
   regularPx: 6,
   bossPx: 5,
-  shelterPx: 5,
 });
 
 export const characterSheets = [
@@ -56,15 +55,4 @@ export const mapAsset = {
   output: 'public/assets/map/map-background.webp',
   width: 1080,
   height: 1920,
-};
-
-export const shelterAsset = {
-  source: 'assets/source/generated/v2/shelter-states.png',
-  output: 'public/assets/shelter/shelter-states.png',
-  frameCount: 4,
-  cellWidth: 256,
-  cellHeight: 256,
-  anchorX: 128,
-  anchorY: 254,
-  opaqueHeightPx: 204,
 };

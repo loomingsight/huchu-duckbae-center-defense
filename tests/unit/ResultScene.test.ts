@@ -15,9 +15,9 @@ vi.mock('phaser', () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 it('승패 결과 문구와 actual restart button label을 고정한다', () => {
-  expect(resultMessage('won')).toBe('보호소를 지켰어요!');
-  expect(resultMessage('lost')).toBe('다시 지켜볼까요?');
-  expect(resultButtonLabel()).toBe('보호소 지키기');
+  expect(resultMessage('won')).toBe('후추와 덕배가 끝까지 살아남았어요!');
+  expect(resultMessage('lost')).toBe('후추가 쓰러졌어요');
+  expect(resultButtonLabel()).toBe('다시 도전하기');
 });
 
 it('Result 화면은 게임명을 결과 위에 표시하고 exact restart 문구를 쓴다', async () => {
@@ -79,8 +79,8 @@ it('Result 화면은 게임명을 결과 위에 표시하고 exact restart 문�
   expect(titleText.setOrigin).toHaveBeenCalledWith(0.5);
   expect(titleText.setResolution).toHaveBeenCalledWith(2);
   expect(html).not.toContain('후추덕배 디펜스');
-  expect(html).toContain('보호소를 지켰어요!');
-  expect(html).toContain('>보호소 지키기</button>');
+  expect(html).toContain('후추와 덕배가 끝까지 살아남았어요!');
+  expect(html).toContain('>다시 도전하기</button>');
 
   await click?.();
   await click?.();

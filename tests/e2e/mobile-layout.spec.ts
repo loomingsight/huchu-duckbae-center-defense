@@ -7,20 +7,20 @@ test('390x844 Title primary button은 실제 44px touch target을 제공한다',
   await page.goto('/');
 
   const root = await requiredBox(page.locator('#game-root'));
-  const button = await requiredBox(page.getByRole('button', { name: '보호소 지키기' }));
+  const button = await requiredBox(page.getByRole('button', { name: '함께 출발하기' }));
 
   expect(button.height).toBeGreaterThanOrEqual(44);
   expectWithin(button, root);
 });
 
-test('390x844 dock 기술명 3개와 icon은 잘리지 않고 root 안에 머문다', async ({ page }, testInfo) => {
+test('390x844 수동 기술명 4개와 icon은 원형 버튼 안에 머문다', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium');
   await openScenario(page, 'skill-dock');
 
   const root = await requiredBox(page.locator('#game-root'));
-  const button = page.locator('[data-skill="safetyReport"]');
-  const labels = page.locator('.skill-dock button > span:nth-of-type(2)');
-  await expect(labels).toHaveText(['꼬리치기', '아쿠아빔', '안전신문고'], { useInnerText: true });
+  const button = page.locator('[data-action="safetyReport"]');
+  const labels = page.locator('.action-button__name');
+  await expect(labels).toHaveText(['짖기', '꼬리치기', '아쿠아빔', '안전신문고'], { useInnerText: true });
   const labelLayouts = await labels.evaluateAll((elements) => elements.map((element) => ({
     text: element.textContent,
     whiteSpace: getComputedStyle(element).whiteSpace,
@@ -33,16 +33,16 @@ test('390x844 dock 기술명 3개와 icon은 잘리지 않고 root 안에 머문
   });
 
   const icon = await requiredBox(button.locator('svg'));
-  expect(icon.width).toBeCloseTo(22, 1);
-  expect(icon.height).toBeCloseTo(22, 1);
+  expect(icon.width).toBeCloseTo(23, 1);
+  expect(icon.height).toBeCloseTo(23, 1);
 
   const buttonBox = await requiredBox(button);
-  expect(buttonBox.width).toBeGreaterThanOrEqual(88);
-  expect(buttonBox.height).toBeGreaterThanOrEqual(56);
+  expect(buttonBox.width).toBeCloseTo(56, 1);
+  expect(buttonBox.height).toBeCloseTo(56, 1);
   expectWithin(buttonBox, root);
 });
 
-test('390x844 canvas는 보호소 foot 아래에 HP bar를 그린다', async ({ page }, testInfo) => {
+test('390x844 canvas는 후추 발밑에 HP bar를 그린다', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium');
   await openScenario(page, 'skill-dock');
 
@@ -54,8 +54,8 @@ test('390x844 canvas는 보호소 foot 아래에 HP bar를 그린다', async ({ 
   const region = {
     left: Math.floor(info.width * 240 / 540),
     right: Math.ceil(info.width * 300 / 540),
-    top: Math.floor(info.height * 493 / 960),
-    bottom: Math.ceil(info.height * 498 / 960),
+    top: Math.floor(info.height * 660 / 960),
+    bottom: Math.ceil(info.height * 668 / 960),
   };
   let healthyBarPixels = 0;
   let sampledPixels = 0;
@@ -74,11 +74,11 @@ test('390x844 canvas는 보호소 foot 아래에 HP bar를 그린다', async ({ 
     }
   }
 
-  expect(region.top / info.height * 960).toBeGreaterThan(480);
+  expect(region.top / info.height * 960).toBeGreaterThan(650);
   expect(healthyBarPixels / sampledPixels).toBeGreaterThan(0.7);
 });
 
-test('47px safe-area의 자동 기술 5개는 3열 2행으로 canvas 위에서 끝난다', async ({ page }, testInfo) => {
+test('47px safe-area에서도 덕배 상태와 좌우 조작 영역이 겹치지 않는다', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium');
   await openScenario(page, 'skill-dock');
   for (const skillId of ['tailSwipe', 'aquaBeam', 'safetyReport'] as const) {
@@ -88,40 +88,11 @@ test('47px safe-area의 자동 기술 5개는 3열 2행으로 canvas 위에서 �
 
   const overlay = page.locator('.hud-overlay');
   await overlay.evaluate((element) => element.style.setProperty('--hud-safe-top', '47px'));
-  const visibleRows = page.locator('.auto-skill-row[data-visible="true"]');
-  await expect(visibleRows).toHaveCount(5);
-  await expect(visibleRows).toHaveText([
-    '짖기·자동',
-    '덕배·자동',
-    /꼬리·/,
-    /아쿠아·/,
-    /신고·/,
-  ]);
-  const labelLayouts = await visibleRows.locator('span:last-child').evaluateAll((labels) => (
-    labels.map((label) => ({
-      text: label.textContent,
-      scrollWidth: label.scrollWidth,
-      clientWidth: label.clientWidth,
-      textOverflow: getComputedStyle(label).textOverflow,
-    }))
-  ));
-  labelLayouts.forEach((layout) => {
-    expect(layout.textOverflow).toBe('clip');
-    expect(layout.scrollWidth, layout.text ?? '').toBeLessThanOrEqual(layout.clientWidth);
-  });
-  await expect(visibleRows.nth(4)).toHaveAttribute('aria-label', /안전신문고 · /);
-
-  const autoHud = await requiredBox(page.locator('.auto-skill-hud'));
-  const topHud = await requiredBox(page.locator('.top-hud'));
-  const canvas = await requiredBox(page.locator('canvas'));
-  expect(autoHud.y).toBeCloseTo(47, 1);
-  expect(autoHud.height).toBeLessThanOrEqual(28);
-  expect(autoHud.y + autoHud.height).toBeLessThanOrEqual(canvas.y + 0.01);
-  expect(
-    autoHud.x + autoHud.width <= topHud.x
-      || topHud.x + topHud.width <= autoHud.x,
-    JSON.stringify({ autoHud, topHud }),
-  ).toBe(true);
+  const companion = await requiredBox(page.locator('.companion-status'));
+  const actions = await requiredBox(page.locator('.action-dock'));
+  const joystick = await requiredBox(page.locator('.virtual-joystick'));
+  expect(companion.y).toBeCloseTo(47, 1);
+  expect(actions.x + actions.width).toBeLessThanOrEqual(joystick.x);
 });
 
 test('390x844 Result primary button은 실제 44px touch target을 제공한다', async ({ page }, testInfo) => {
@@ -133,7 +104,7 @@ test('390x844 Result primary button은 실제 44px touch target을 제공한다'
   await expect(page.locator('#game-root')).toHaveAttribute('data-scene', 'Result');
 
   const root = await requiredBox(page.locator('#game-root'));
-  const button = await requiredBox(page.getByRole('button', { name: '보호소 지키기' }));
+  const button = await requiredBox(page.getByRole('button', { name: '다시 도전하기' }));
   expect(button.height).toBeGreaterThanOrEqual(44);
   expectWithin(button, root);
 });

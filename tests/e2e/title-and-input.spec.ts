@@ -9,7 +9,7 @@ test('시작 버튼은 WebGL Game scene과 단일 HUD overlay를 연다', async 
   await expect(canvas).toBeVisible();
   await expect(canvas).toHaveJSProperty('width', 540);
   await expect(canvas).toHaveJSProperty('height', 960);
-  await page.getByRole('button', { name: '보호소 지키기' }).click();
+  await page.getByRole('button', { name: '함께 출발하기' }).click();
   await expect(page.locator('#game-root')).toHaveAttribute('data-scene', 'Game');
   await expect(page.locator('#game-root')).toHaveAttribute('data-renderer', 'webgl');
   await expect(page.locator('.hud-overlay')).toHaveCount(1);
@@ -35,7 +35,7 @@ test('첫 Game frame에 후추·덕배와 수동 기술 HUD가 함께 활성화�
 test('일반 URL과 불완전한 query는 debug bridge를 노출하지 않는다', async ({ page }) => {
   for (const query of ['', '?clock=manual', '?e2e=1']) {
     await page.goto(`/${query}`);
-    await page.getByRole('button', { name: '보호소 지키기' }).click();
+    await page.getByRole('button', { name: '함께 출발하기' }).click();
     await expect(page.locator('#game-root')).toHaveAttribute('data-scene', 'Game');
     expect(await page.evaluate(() => window.__HUCHU_TEST__)).toBeUndefined();
   }

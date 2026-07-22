@@ -9,7 +9,6 @@ export const HUCHU_PRESENTATION = {
   regularEnemyOpaqueHeightLogical: 84,
   bossOpaqueHeightLogical: 100,
   truckDisplayLogical: { width: 142, height: 86 },
-  shelterOpaqueHeightLogical: 100,
 } as const;
 
 export function clampDevicePixelRatio(raw: number): number {

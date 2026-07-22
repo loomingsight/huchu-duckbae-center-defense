@@ -20,7 +20,6 @@ it('V2 canonical ID와 값 타입을 고정한다', () => {
 
 it('V2 balance와 eventFrame 기반 판정 시간을 한 곳에 고정한다', () => {
   expect(BALANCE).toMatchObject({
-    shelter: { maxHp: 1000, x: 270, y: 480 },
     player: { speed: 150, opaqueHeightLogical: 72, maxHp: 1000, hitRadius: 24 },
     enemies: {
       poopGuardian: {

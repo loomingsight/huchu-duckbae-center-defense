@@ -7,7 +7,6 @@ export const AssetKeys = {
   damageNumberMedium: 'damage-number-medium',
   damageNumberHeavy: 'damage-number-heavy',
   map: 'map-background',
-  shelter: 'shelter-states',
   huchuWalk: 'huchu-walk',
   huchuAttack: 'huchu-attack',
   huchuTailSwipe: 'huchu-tail-swipe',

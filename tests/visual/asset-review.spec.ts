@@ -9,14 +9,12 @@ const REQUIRED_REVIEW_SECTIONS = [
   'trader-directions-and-mirrors',
   'trader-event-sockets',
   'labels-hp-and-damage-numbers',
-  'shelter-hp-and-skill-dock',
 ] as const;
 
-test('asset review 문서에 모든 캐릭터와 보호소 overlay가 있다', async ({ page }) => {
+test('asset review 문서에 모든 캐릭터와 전투 가독성 표본이 있다', async ({ page }) => {
   test.skip(
-    !existsSync('assets/source/generated/v2/huchu-walk.png') ||
-      !existsSync('assets/source/generated/v2/shelter-states.png'),
-    'V2 character/shelter candidates are missing; visual approval is deferred',
+    !existsSync('assets/source/generated/v2/huchu-walk.png'),
+    'V2 character candidates are missing; visual approval is deferred',
   );
   await page.setViewportSize({ width: 390, height: 844 });
   const manifest = JSON.parse(
@@ -30,13 +28,11 @@ test('asset review 문서에 모든 캐릭터와 보호소 overlay가 있다', a
     await expect(section).toHaveCount(1);
     await expect(section).toBeVisible();
   }
-  await expect(page.locator('[data-sheet]')).toHaveCount(42);
+  await expect(page.locator('[data-sheet]')).toHaveCount(41);
   await expect(page.locator('[data-kind="animation"]')).toHaveCount(41);
-  await expect(page.locator('[data-kind="shelter"]')).toHaveCount(1);
   await expect(page.locator('[data-primary-animation-frame]')).toHaveCount(250);
-  await expect(page.locator('[data-primary-shelter-state]')).toHaveCount(4);
-  await expect(page.locator('[data-primary-review-frame]')).toHaveCount(254);
-  await expect(page.locator('[data-primary-review-frame] [data-frame-meta]')).toHaveCount(254);
+  await expect(page.locator('[data-primary-review-frame]')).toHaveCount(250);
+  await expect(page.locator('[data-primary-review-frame] [data-frame-meta]')).toHaveCount(250);
   expect((await page.locator('[data-kind="animation"]').evaluateAll((articles) =>
     articles.map((article) => (article as HTMLElement).dataset.sheet))).sort()).toEqual(
     manifest.map(({ key }) => key).sort(),
@@ -60,7 +56,6 @@ test('asset review 문서에 모든 캐릭터와 보호소 overlay가 있다', a
   await expect(page.locator('[data-review-section="labels-hp-and-damage-numbers"] [data-enemy-label]')).toHaveCount(4);
   await expect(page.locator('[data-review-section="labels-hp-and-damage-numbers"] [data-hp-color]')).toHaveCount(3);
   await expect(page.locator('[data-review-section="labels-hp-and-damage-numbers"] [data-damage-strength]')).toHaveCount(3);
-  await expect(page.locator('[data-review-section="shelter-hp-and-skill-dock"] [data-skill-entry]')).toHaveCount(3);
   const frameIndexes = await page.locator('[data-kind="animation"]').evaluateAll((articles) =>
     articles.map((article) => ({
       key: (article as HTMLElement).dataset.sheet,
@@ -73,7 +68,7 @@ test('asset review 문서에 모든 캐릭터와 보호소 overlay가 있다', a
       indexes: Array.from({ length: frameCount }, (_, index) => index),
     })).sort((left, right) => left.key.localeCompare(right.key)),
   );
-  await expect(page.locator('canvas')).toHaveCount(264);
+  await expect(page.locator('canvas')).toHaveCount(260);
   await page.waitForFunction(() => [...document.querySelectorAll('canvas')]
     .every((canvas) => canvas.dataset.ready === 'true'));
   await expect(page).toHaveScreenshot('asset-review.png', {

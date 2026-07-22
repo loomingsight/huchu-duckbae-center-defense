@@ -9,7 +9,7 @@ import {
   validateAnimationEntry,
   type AnimationManifestEntry,
 } from '../../src/game/assets/AnimationManifest';
-import { animationSpriteSheetAssets, SHELTER_V2 } from '../../src/game/assets/assetManifest';
+import { animationSpriteSheetAssets } from '../../src/game/assets/assetManifest';
 
 const requiredAnimationKeys = [
   'huchu-walk',
@@ -121,13 +121,5 @@ describe('AnimationManifest', () => {
     expect(animationSpriteSheetAssets).toHaveLength(32);
     expect(animationSpriteSheetAssets.every(({ frameWidth, frameHeight }) =>
       frameWidth === 256 && frameHeight === 256)).toBe(true);
-    expect(SHELTER_V2).toEqual({
-      source: 'assets/source/generated/v2/shelter-states.png',
-      url: '/assets/shelter/shelter-states.png',
-      frameCount: 4,
-      frameWidth: 256,
-      frameHeight: 256,
-      opaqueHeightPx: 204,
-    });
   });
 });

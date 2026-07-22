@@ -14,7 +14,6 @@ import {
   characterSheets,
   mapAsset,
   outlinePolicy,
-  shelterAsset,
   sourceAnimationEntries,
 } from './manifest.mjs';
 
@@ -332,75 +331,6 @@ export async function verifyAnimationSheet(entry, { file = entry.source, checkOu
   }
 }
 
-async function pixelHash(data) {
-  return createHash('sha256').update(data).digest('hex');
-}
-
-export async function verifyV2ShelterSheet({
-  file = shelterAsset.output,
-  sourceFile = shelterAsset.source,
-  checkOutline = false,
-} = {}) {
-  const metadata = await sharp(file).metadata();
-  if (
-    metadata.width !== 1024 ||
-    metadata.height !== 256 ||
-    metadata.channels !== 4 ||
-    metadata.format !== 'png'
-  ) {
-    throw new Error('V2 shelter must be 1024x256 RGBA PNG');
-  }
-  const feet = [];
-  const centers = [];
-  const hashes = [];
-  for (let frameIndex = 0; frameIndex < 4; frameIndex += 1) {
-    const { data } = await rgbaPixels(file, {
-      left: frameIndex * 256,
-      top: 0,
-      width: 256,
-      height: 256,
-    });
-    const bounds = alphaBounds(data, 256, 256);
-    if (bounds === undefined) throw new Error(`V2 shelter frame ${frameIndex} is empty`);
-    if (bounds.height !== 204) throw new Error(`V2 shelter frame ${frameIndex} opaque height must be 204px`);
-    if (Math.min(...Object.values(bounds.margins)) < 1) {
-      throw new Error(`V2 shelter frame ${frameIndex} alpha touches frame edge`);
-    }
-    const foot = bounds.y + bounds.height;
-    if (Math.abs(foot - 254) > 2) throw new Error(`V2 shelter frame ${frameIndex} ground anchor must be 254±2px`);
-    feet.push(foot);
-    centers.push(bounds.x + bounds.width / 2);
-    hashes.push(await pixelHash(data));
-  }
-  if (Math.max(...feet) - Math.min(...feet) > 2) throw new Error('V2 shelter ground spread exceeds 2px');
-  if (Math.max(...centers) - Math.min(...centers) > 3) throw new Error('V2 shelter center spread exceeds 3px');
-  if (new Set(hashes).size !== 4) throw new Error('V2 shelter states must have four distinct pixel hashes');
-  if (checkOutline) {
-    const outlines = await measureOutlineFramesAt390(file, {
-      frameCount: 4,
-      logicalOpaqueHeight: 100,
-    });
-    for (const [frameIndex, outline] of outlines.entries()) {
-      if (outline < 1.5 || outline > 2) {
-        throw new Error(
-          `V2 shelter frame ${frameIndex} outline at 390px must be 1.5-2px (got ${outline.toFixed(2)})`,
-        );
-      }
-    }
-  }
-  const [source, runtime] = await Promise.all([
-    rgbaPixels(sourceFile),
-    rgbaPixels(file),
-  ]);
-  if (
-    source.info.width !== runtime.info.width ||
-    source.info.height !== runtime.info.height ||
-    !source.data.equals(runtime.data)
-  ) {
-    throw new Error('V2 shelter runtime output is stale for current source');
-  }
-}
-
 export function percentileFromByteHistogram(histogram, count, quantile) {
   if (count === 0) return 0;
   const targetIndex = Math.min(count - 1, Math.floor(count * quantile));
@@ -434,12 +364,8 @@ export async function verifyGeneratedApprovals(root = '.') {
 
 export function expectedLiveGeneratedSources(
   entries = sourceAnimationEntries,
-  shelter = shelterAsset,
 ) {
-  return [...new Set([
-    ...entries.map(({ source }) => source),
-    shelter.source,
-  ])].sort();
+  return [...new Set(entries.map(({ source }) => source))].sort();
 }
 
 async function readLedgerRows(file) {
@@ -610,15 +536,6 @@ export async function verifyRuntimeFreshness(outputRoot = '.') {
       failures.push({ file: `public${entry.url}`, reason: 'runtime output is stale for current sources', details: error instanceof Error ? error.message : String(error) });
     }
   }
-  if (!existsSync(shelterAsset.source)) {
-    failures.push({ file: shelterAsset.source, reason: 'V2 candidate missing' });
-  } else try {
-    if (!(await rawPixelsEqual(shelterAsset.source, path.resolve(outputRoot, shelterAsset.output)))) {
-      failures.push({ file: shelterAsset.output, reason: 'runtime output is stale for current sources' });
-    }
-  } catch (error) {
-    failures.push({ file: shelterAsset.output, reason: 'runtime output is stale for current sources', details: error instanceof Error ? error.message : String(error) });
-  }
   try {
     const [expected, actual] = await Promise.all([
       buildMapBuffer(),
@@ -682,9 +599,6 @@ export async function main({ approvalMode = 'strict' } = {}) {
       await capture(entry.source, () => verifyAnimationSheet(entry, { file: entry.source }));
     }
   }
-  if (existsSync(shelterAsset.source)) {
-    await capture(shelterAsset.output, () => verifyV2ShelterSheet({ checkOutline: true }));
-  }
   await capture(mapAsset.output, verifyMap);
   await writeFile('.cache/asset-review/asset-report.json', `${JSON.stringify({
     approvalMode,
@@ -703,7 +617,7 @@ export async function main({ approvalMode = 'strict' } = {}) {
       `Approval coverage deferred for ${deferredApprovalCoverage.length} required source/ledger rows`,
     );
   }
-  console.log(`Verified ${genericCount} generic animation sheets, ${dogTraderCount} dog trader source sheets, and 1 shelter sheet`);
+  console.log(`Verified ${genericCount} generic animation sheets and ${dogTraderCount} dog trader source sheets`);
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

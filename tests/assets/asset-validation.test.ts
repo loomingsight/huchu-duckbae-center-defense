@@ -8,17 +8,14 @@ import { describe, expect, it } from 'vitest';
 // @ts-expect-error Asset build scripts are executable ESM JavaScript without declaration files.
 import { buildAssets, buildCharacter } from '../../scripts/assets/build-assets.mjs';
 // @ts-expect-error Asset verifier is executable ESM JavaScript without declaration files.
-import { expectedLiveGeneratedSources, measureOutlineAt390, percentileFromByteHistogram, verifyAnimationSheet, verifyGeneratedApprovals, verifyRequiredGeneratedSourceCoverage, verifyRequiredGeneratedSourceEvidence, verifyRuntimeFreshness, verifyV2ShelterSheet } from '../../scripts/assets/verify-assets.mjs';
-import { SHELTER_V2 } from '../../src/game/assets/assetManifest';
-import { HUCHU_PRESENTATION } from '../../src/game/presentation/PresentationConfig';
+import { expectedLiveGeneratedSources, measureOutlineAt390, percentileFromByteHistogram, verifyAnimationSheet, verifyGeneratedApprovals, verifyRequiredGeneratedSourceCoverage, verifyRequiredGeneratedSourceEvidence, verifyRuntimeFreshness } from '../../scripts/assets/verify-assets.mjs';
 // @ts-expect-error Asset manifest scripts are executable ESM JavaScript without declaration files.
-import { characterOutput, characterSheets, shelterAsset, sourceAnimationEntries } from '../../scripts/assets/manifest.mjs';
+import { characterOutput, characterSheets, sourceAnimationEntries } from '../../scripts/assets/manifest.mjs';
 
 const SHARP_INTEGRATION_TIMEOUT_MS = 15_000;
-const V2_CANDIDATES_PRESENT = [
-  ...sourceAnimationEntries.map(({ source }: { source: string }) => source),
-  shelterAsset.source,
-].every(existsSync);
+const V2_CANDIDATES_PRESENT = sourceAnimationEntries
+  .map(({ source }: { source: string }) => source)
+  .every(existsSync);
 
 async function changeRgbaPixel(file: string, x: number, y: number) {
   const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -123,11 +120,10 @@ describe('asset approval validation', () => {
     ]);
   });
 
-  it('strict coverage의 기본 required set은 live source 32개와 shelter 하나다', () => {
+  it('strict coverage의 기본 required set은 live animation source 32개다', () => {
     const requiredSources = expectedLiveGeneratedSources();
-    expect(requiredSources).toHaveLength(33);
-    expect(new Set(requiredSources).size).toBe(33);
-    expect(requiredSources).toContain('assets/source/generated/v2/shelter-states.png');
+    expect(requiredSources).toHaveLength(32);
+    expect(new Set(requiredSources).size).toBe(32);
     expect(requiredSources).not.toContain(expect.stringContaining('public/'));
   });
 
@@ -228,7 +224,7 @@ describe('legacy runtime freshness', () => {
 });
 
 describe.skipIf(!V2_CANDIDATES_PRESENT)(
-  'runtime asset freshness [V2 character/shelter candidates missing]',
+  'runtime asset freshness [V2 character candidates missing]',
   () => {
   async function freshOutputRoot() {
     const root = await mkdtemp(path.join(tmpdir(), 'huchu-asset-runtime-'));
@@ -255,19 +251,6 @@ describe.skipIf(!V2_CANDIDATES_PRESENT)(
     },
     SHARP_INTEGRATION_TIMEOUT_MS,
   );
-
-  it('shelter source와 runtime RGBA가 다르면 실패한다', async () => {
-    const root = await freshOutputRoot();
-    const relative = 'public/assets/shelter/shelter-states.png';
-    await changeRgbaPixel(path.join(root, relative), 0, 0);
-
-    expect(await verifyRuntimeFreshness(root)).toContainEqual(
-      expect.objectContaining({
-        file: relative,
-        reason: 'runtime output is stale for current sources',
-      }),
-    );
-  }, SHARP_INTEGRATION_TIMEOUT_MS);
 
   it('map composite와 committed WebP가 다르면 실패한다', async () => {
     const root = await freshOutputRoot();
@@ -375,31 +358,6 @@ describe('V2 sheet structural verification', () => {
       fps: 10, loop: false, eventFrame: 3, eventKind: 'directHit',
     };
     await expect(verifyAnimationSheet(entry, { file })).rejects.toThrow('event timing must match core timing');
-  });
-
-  it('verifies four distinct shelter states and the 390/540 fit height', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'huchu-v2-shelter-'));
-    const file = path.join(root, 'shelter.png');
-    await writeStrictSheet(file, 4, true);
-    await expect(verifyV2ShelterSheet({ file, sourceFile: file })).resolves.toBeUndefined();
-
-    const renderedOpaqueHeight =
-      (HUCHU_PRESENTATION.shelterOpaqueHeightLogical / SHELTER_V2.opaqueHeightPx) *
-      (390 / HUCHU_PRESENTATION.logicalWidth) *
-      SHELTER_V2.opaqueHeightPx;
-    expect(Array.from({ length: 4 }, () => renderedOpaqueHeight)).toEqual([
-      expect.closeTo(72.22, 2),
-      expect.closeTo(72.22, 2),
-      expect.closeTo(72.22, 2),
-      expect.closeTo(72.22, 2),
-    ]);
-    expect(renderedOpaqueHeight).toBeGreaterThanOrEqual(68);
-    expect(renderedOpaqueHeight).toBeLessThanOrEqual(74);
-
-    const duplicate = path.join(root, 'duplicate-shelter.png');
-    await writeStrictSheet(duplicate, 4);
-    await expect(verifyV2ShelterSheet({ file: duplicate, sourceFile: duplicate }))
-      .rejects.toThrow('four distinct pixel hashes');
   });
 
   it('measures a 6px dog rim as 1.5-2px at the 390px FIT scale', async () => {
@@ -541,16 +499,11 @@ describe('V2 sheet structural verification', () => {
   });
 
   it.skipIf(!V2_CANDIDATES_PRESENT)(
-    'strictly verifies all 32 animation source sheets and one shelter [V2 candidates missing]',
+    'strictly verifies all 32 animation source sheets [V2 candidates missing]',
     async () => {
       for (const entry of sourceAnimationEntries) {
         await expect(verifyAnimationSheet(entry, { file: entry.source })).resolves.toBeUndefined();
       }
-      await expect(verifyV2ShelterSheet({
-        file: shelterAsset.source,
-        sourceFile: shelterAsset.source,
-        checkOutline: true,
-      })).resolves.toBeUndefined();
     },
     SHARP_INTEGRATION_TIMEOUT_MS,
   );

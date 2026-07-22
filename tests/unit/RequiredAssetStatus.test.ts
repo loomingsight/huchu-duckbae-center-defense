@@ -3,7 +3,6 @@ import { requiredAssetFailureCount, requiredTextureKeys } from '../../src/game/a
 
 const exactRequiredTextureKeys = [
   'map-background',
-  'shelter-states',
   'enemy-trader',
   'huchu-walk',
   'huchu-attack',

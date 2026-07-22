@@ -72,8 +72,8 @@ test('W5 final clear와 player HP 0이 같은 fixed step이면 lost가 우선한
   await expect(page.locator('#game-root')).toHaveAttribute('data-scene', 'Result');
   await expect(page).toHaveTitle('후추덕배 디펜스');
   await expect(page.locator('#game-root')).toHaveAttribute('aria-label', '후추덕배 디펜스');
-  await expect(page.getByRole('heading', { name: '다시 지켜볼까요?' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '보호소 지키기' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '후추가 쓰러졌어요' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '다시 도전하기' })).toBeVisible();
 });
 
 function bossSpawnWaves(log: readonly GameDebugEvent[]): readonly Readonly<{

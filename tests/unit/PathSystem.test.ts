@@ -4,7 +4,7 @@ import { distance } from '../../src/game/world/Geometry';
 import { PathSystem } from '../../src/game/world/PathSystem';
 
 describe('PathSystem', () => {
-  it('진행도를 경로 위치와 남은 보호소 도달 시간으로 바꾼다', () => {
+  it('진행도를 경로 위치와 남은 목표 도달 시간으로 바꾼다', () => {
     const path = new PathSystem(PATH_DEFINITIONS.P1);
 
     expect(path.positionAt(0)).toEqual({ x: 110, y: 0 });

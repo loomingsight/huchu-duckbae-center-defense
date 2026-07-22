@@ -51,8 +51,7 @@ describe('고정 게임 데이터', () => {
 
   it('V2 적 밸런스와 cap을 단일 데이터로 고정한다', () => {
     expect(BALANCE).toMatchObject({
-      shelter: { maxHp: 1000, x: 270, y: 480 },
-      player: { speed: 150, opaqueHeightLogical: 72 },
+      player: { speed: 150, opaqueHeightLogical: 72, maxHp: 1000, hitRadius: 24 },
       waveCountdownMs: 3000,
       enemies: {
         poopGuardian: { hp: 60, speed: 44, damage: 25, attackIntervalMs: 1800, snack: 2 },

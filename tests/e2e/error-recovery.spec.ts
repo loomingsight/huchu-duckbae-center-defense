@@ -11,7 +11,7 @@ test('필수 에셋 실패는 unique 파일 수와 retry를 표시한다', async
   await page.unroute('**/map-background.webp');
   await page.getByText('필수 그림 1개를 불러오지 못했어요').click();
   await page.getByRole('button', { name: '다시 시도' }).click();
-  await expect(page.getByRole('button', { name: '보호소 지키기' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '함께 출발하기' })).toBeVisible();
 });
 
 test('WebGL 미지원이면 canvas 없이 지원 안내를 표시한다', async ({ page }) => {

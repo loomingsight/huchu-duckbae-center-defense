@@ -17,6 +17,6 @@ test('wave-schedule 20초는 W1 요청·spawn을 canonical 순서로 기록한�
   expect((await snapshot(page)).run).toMatchObject({
     simulationMs: 20_000 + 1000 / 60,
     wave: 1, mode: 'countdown', pendingSpawns: 0, activeEnemyCount: 0,
-    shelterHp: 1000, snacks: 0,
+    playerHp: 1000, snacks: 0,
   });
 });
