@@ -267,8 +267,8 @@ describe('SkillSystem timeline', () => {
       castId: 'tailSwipe:1',
       targets: [{ targetId: 1 }, { targetId: 2 }],
     });
-    expect(tailEffectFor(false)).toEqual({ knockbackPx: 35, multiplier: 0.6, durationMs: 1500 });
-    expect(tailEffectFor(true)).toEqual({ knockbackPx: 35, multiplier: 0.8, durationMs: 1000 });
+    expect(tailEffectFor(false)).toEqual({ knockbackPx: 175, multiplier: 0.6, durationMs: 1500 });
+    expect(tailEffectFor(true)).toEqual({ knockbackPx: 175, multiplier: 0.8, durationMs: 1000 });
   });
 
   it('safety는 300ms 뒤 start snapshot 중 생존한 모든 적만 동시에 impact한다', () => {

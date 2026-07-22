@@ -37,6 +37,7 @@ export const PLAYER_SKILL_IDS = [
 ] as const satisfies readonly PurchasableSkillId[];
 
 export const INITIAL_SKILL_COOLDOWN_MS = 1000;
+export const TAIL_SWIPE_KNOCKBACK_PX = 175;
 
 export interface SkillContext {
   readonly player: Point;
@@ -325,8 +326,8 @@ export class SkillSystem {
 
 export function tailEffectFor(isBoss: boolean): TailEffect {
   return isBoss
-    ? { knockbackPx: 35, multiplier: 0.8, durationMs: 1000 }
-    : { knockbackPx: 35, multiplier: 0.6, durationMs: 1500 };
+    ? { knockbackPx: TAIL_SWIPE_KNOCKBACK_PX, multiplier: 0.8, durationMs: 1000 }
+    : { knockbackPx: TAIL_SWIPE_KNOCKBACK_PX, multiplier: 0.6, durationMs: 1500 };
 }
 
 export function damageCommandsForSkillImpact(

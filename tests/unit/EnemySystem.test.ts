@@ -73,13 +73,28 @@ it('꼬리치기 넉백은 경로 역방향이 아니라 후추에서 바깥쪽�
   system.applyWorldPosition(id, { x: 270, y: 600 });
 
   system.applyTailEffect(id, {
-    knockbackPx: 35,
+    knockbackPx: 175,
     multiplier: 0.6,
     durationMs: 1500,
     direction: { x: 1, y: 0 },
   });
 
-  expect(system.snapshots()[0]!.position).toEqual({ x: 305, y: 600 });
+  expect(system.snapshots()[0]!.position).toEqual({ x: 445, y: 600 });
+});
+
+it('175px 꼬리치기 넉백은 월드 경계를 넘어가지 않는다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
+  const id = system.snapshots()[0]!.id;
+  system.applyWorldPosition(id, { x: 500, y: 940 });
+
+  system.applyTailEffect(id, {
+    knockbackPx: 175,
+    multiplier: 0.6,
+    durationMs: 1500,
+    direction: { x: 1, y: 1 },
+  });
+
+  expect(system.snapshots()[0]!.position).toEqual({ x: 540, y: 960 });
 });
 
 it('재감속은 배율을 중첩하지 않고 더 긴 남은 시간만 보존한다', () => {
