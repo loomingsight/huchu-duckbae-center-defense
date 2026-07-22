@@ -259,6 +259,7 @@ export function verifyDogTraderSourceBudget(entries = sourceAnimationEntries) {
 export async function verifyAnimationSheet(entry, { file = entry.source, checkOutline = true } = {}) {
   verifyEventMetadata(entry);
   const truck = entry.key.startsWith('dog-trader-truck-roll-');
+  const tailOverlay = entry.action === 'tailOverlay';
   const metadata = await sharp(file).metadata();
   if (
     metadata.width !== entry.frameCount * entry.frameWidth ||
@@ -281,6 +282,19 @@ export async function verifyAnimationSheet(entry, { file = entry.source, checkOu
     if (bounds === undefined) throw new Error(`${entry.key}: empty frame ${frameIndex}`);
     if (Math.min(...Object.values(bounds.margins)) < 1) {
       throw new Error(`${entry.key}: alpha touches frame edge at frame ${frameIndex}`);
+    }
+    if (tailOverlay) {
+      if (bounds.width < 55 || bounds.width > 130) {
+        throw new Error(`${entry.key}: frame ${frameIndex} tail width must be 55-130px`);
+      }
+      if (bounds.height < 45 || bounds.height > 130) {
+        throw new Error(`${entry.key}: frame ${frameIndex} tail height must be 45-130px`);
+      }
+      const rootX = bounds.x + bounds.width - 1;
+      if (Math.abs(rootX - 202) > 1) {
+        throw new Error(`${entry.key}: frame ${frameIndex} root anchor must be x=202±1px`);
+      }
+      continue;
     }
     if (truck) {
       if (bounds.width < 220 || bounds.width > 240) {
@@ -308,14 +322,14 @@ export async function verifyAnimationSheet(entry, { file = entry.source, checkOu
       }
     }
   }
-  if (Math.max(...feet) - Math.min(...feet) > 2) {
+  if (!tailOverlay && Math.max(...feet) - Math.min(...feet) > 2) {
     throw new Error(`${entry.key}: within-sheet foot spread exceeds 2px`);
   }
-  if (Math.max(...centers) - Math.min(...centers) > 3) {
+  if (!tailOverlay && Math.max(...centers) - Math.min(...centers) > 3) {
     throw new Error(`${entry.key}: within-sheet center spread exceeds 3px`);
   }
   const logicalOpaqueHeight = animationLogicalHeight(entry.key);
-  if (checkOutline && logicalOpaqueHeight !== undefined) {
+  if (checkOutline && !tailOverlay && logicalOpaqueHeight !== undefined) {
     const outlines = await measureOutlineFramesAt390(file, {
       frameCount: entry.frameCount,
       logicalOpaqueHeight,

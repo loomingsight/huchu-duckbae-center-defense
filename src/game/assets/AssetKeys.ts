@@ -10,6 +10,7 @@ export const AssetKeys = {
   huchuWalk: 'huchu-walk',
   huchuAttack: 'huchu-attack',
   huchuTailSwipe: 'huchu-tail-swipe',
+  huchuTailOverlay: 'huchu-tail-overlay',
   deokbaeWalk: 'deokbae-walk',
   deokbaeAttack: 'deokbae-attack',
   poopMaleWalk: 'poop-male-walk',

@@ -936,7 +936,7 @@ describe('merge-safe approval ledger', () => {
     expect(existsSync(path.join(root, 'assets/source/provenance.json'))).toBe(false);
   });
 
-  it('V2 writer rejects same-count manifest substitution outside the exact 17-source set', async () => {
+  it('V2 writer rejects same-count manifest substitution outside the exact 18-source set', async () => {
     // @ts-expect-error Asset approval scripts are executable ESM JavaScript without declaration files.
     const module = await import('../../scripts/assets/approve-v2-character-assets.mjs');
     const v2CharacterApprovalSources = (module as unknown as {
@@ -950,10 +950,10 @@ describe('merge-safe approval ledger', () => {
         : entry);
 
     expect(() => v2CharacterApprovalSources(substituted))
-      .toThrow('Expected exact 17-source V2 approval set');
+      .toThrow('Expected exact 18-source V2 approval set');
   });
 
-  it('upserts exactly 17 V2 rows while preserving foreign rows', async () => {
+  it('upserts exactly 18 V2 rows while preserving foreign rows', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'huchu-v2-approval-core-'));
     const approvalPath = path.join(root, 'assets/source/generated-approvals.json');
     const provenancePath = path.join(root, 'assets/source/provenance.json');
@@ -983,8 +983,8 @@ describe('merge-safe approval ledger', () => {
 
     const approvalRows = JSON.parse(firstApproval) as { source: string }[];
     const provenanceRows = JSON.parse(firstProvenance) as { source: string }[];
-    expect(approvalRows).toHaveLength(18);
-    expect(provenanceRows).toHaveLength(18);
+    expect(approvalRows).toHaveLength(19);
+    expect(provenanceRows).toHaveLength(19);
     expect(approvalRows).toContainEqual(expect.objectContaining({ source: 'foreign-entry' }));
     for (const row of approvalRows.filter(({ source }) => source !== 'foreign-entry')) {
       expect(row).toEqual(expect.objectContaining({

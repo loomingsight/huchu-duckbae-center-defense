@@ -19,16 +19,36 @@ import { PlayerHpView } from './PlayerHpView';
 
 const WALK_ENTRY = animationEntry(AssetKeys.huchuWalk);
 const ATTACK_ENTRY = animationEntry(AssetKeys.huchuAttack);
-const TAIL_ENTRY = animationEntry(AssetKeys.huchuTailSwipe);
+const TAIL_BODY_ENTRY = animationEntry(AssetKeys.huchuTailSwipe);
+const TAIL_OVERLAY_ENTRY = animationEntry(AssetKeys.huchuTailOverlay);
 const BASE_SCALE = HUCHU_PRESENTATION.dogOpaqueHeightLogical / WALK_ENTRY.opaqueHeightPx;
 const HUCHU_MOUTH_OFFSET_X = 32;
 const HUCHU_MOUTH_OFFSET_Y = -45;
+const HUCHU_RUMP_OFFSET_X = -14;
+const HUCHU_RUMP_OFFSET_Y = -45;
+const TAIL_ROOT_X = 202;
+const TAIL_ROOT_Y = 150;
+const TAIL_ROOT_ORIGIN_X = TAIL_ROOT_X / 256;
+const TAIL_ROOT_ORIGIN_Y = TAIL_ROOT_Y / 256;
+export const TAIL_SWIPE_VISUAL_SCALE = 2;
 export const TAIL_SWIPE_LAST_FRAME_HOLD_MS = 800;
 export const TAIL_SWIPE_BODY_DURATION_MS =
-  (TAIL_ENTRY.frameCount - 1) * 1000 / TAIL_ENTRY.fps + TAIL_SWIPE_LAST_FRAME_HOLD_MS;
+  (TAIL_OVERLAY_ENTRY.frameCount - 1) * 1000 / TAIL_OVERLAY_ENTRY.fps
+  + TAIL_SWIPE_LAST_FRAME_HOLD_MS;
 export const BARK_WAVE_POOL_CAPACITY = BALANCE.caps.particles;
 export { BARK_WAVE_CONE_DEGREES, BARK_WAVE_DURATION_MS, barkWaveVisualAt };
 export type { BarkWaveVisual };
+
+export function tailOverlayRoot(position: Point, facingLeft: boolean): Point {
+  return {
+    x: position.x + (facingLeft ? -HUCHU_RUMP_OFFSET_X : HUCHU_RUMP_OFFSET_X),
+    y: position.y + HUCHU_RUMP_OFFSET_Y,
+  };
+}
+
+function tailOverlayOriginX(facingLeft: boolean): number {
+  return facingLeft ? 1 - TAIL_ROOT_ORIGIN_X : TAIL_ROOT_ORIGIN_X;
+}
 
 export interface PlayerRenderSnapshot extends PlayerSnapshot {
   readonly worldAnimationMs: number;
@@ -42,8 +62,11 @@ export interface PlayerRenderSnapshot extends PlayerSnapshot {
 
 export class PlayerView implements ImpactFeedbackTarget {
   private readonly sprite: Phaser.GameObjects.Sprite;
+  private readonly tailSprite: Phaser.GameObjects.Sprite;
   private readonly hp: PlayerHpView;
   private position: Point;
+  private facingLeft = false;
+  private tailActive = false;
   private flashRemainingMs = 0;
   private defeatedHold = false;
   private recoilState: {
@@ -64,6 +87,12 @@ export class PlayerView implements ImpactFeedbackTarget {
       .setOrigin(0.5, 1)
       .setScale(BASE_SCALE)
       .setDepth(initial.y);
+    this.tailSprite = scene.add
+      .sprite(initial.x, initial.y, AssetKeys.huchuTailOverlay, 0)
+      .setOrigin(TAIL_ROOT_ORIGIN_X, TAIL_ROOT_ORIGIN_Y)
+      .setScale(BASE_SCALE * TAIL_SWIPE_VISUAL_SCALE)
+      .setVisible(false)
+      .setDepth(initial.y + 0.1);
     this.position = { x: initial.x, y: initial.y };
     this.hp = new PlayerHpView(scene, initial.x, initial.y);
   }
@@ -71,8 +100,9 @@ export class PlayerView implements ImpactFeedbackTarget {
   render(snapshot: PlayerRenderSnapshot): void {
     this.position = { x: snapshot.x, y: snapshot.y };
     const attacking = snapshot.bodyAction !== undefined || snapshot.barkElapsedMs !== undefined;
-    const entry = snapshot.bodyAction?.kind === 'tailSwipe'
-      ? TAIL_ENTRY
+    this.tailActive = snapshot.bodyAction?.kind === 'tailSwipe';
+    const entry = this.tailActive
+      ? TAIL_BODY_ENTRY
       : attacking ? ATTACK_ENTRY : WALK_ENTRY;
     const frame = animationFrameAt(
       entry,
@@ -88,8 +118,23 @@ export class PlayerView implements ImpactFeedbackTarget {
       .setPosition(snapshot.x, snapshot.y)
       .setTexture(entry.key)
       .setFrame(frame)
+      .setFlipX(this.facingLeft)
       .setScale(BASE_SCALE * breathScale)
       .setDepth(snapshot.y);
+    if (this.tailActive) {
+      this.tailSprite
+        .setTexture(TAIL_OVERLAY_ENTRY.key)
+        .setFrame(animationFrameAt(
+          TAIL_OVERLAY_ENTRY,
+          snapshot.bodyAction?.elapsedMs ?? 0,
+        ))
+        .setOrigin(tailOverlayOriginX(this.facingLeft), TAIL_ROOT_ORIGIN_Y)
+        .setFlipX(this.facingLeft)
+        .setVisible(true)
+        .setDepth(snapshot.y + 0.1);
+    } else {
+      this.tailSprite.setVisible(false);
+    }
     this.applyFeedbackTransform(BASE_SCALE * breathScale);
     this.hp.render(
       this.lastHealth.current,
@@ -105,6 +150,7 @@ export class PlayerView implements ImpactFeedbackTarget {
 
   attackOrigin(origin: Point, target: Point): Point {
     const flipX = target.x < origin.x;
+    this.facingLeft = flipX;
     this.sprite.setFlipX(flipX);
     return {
       x: origin.x + (flipX ? -HUCHU_MOUTH_OFFSET_X : HUCHU_MOUTH_OFFSET_X),
@@ -193,6 +239,8 @@ export class PlayerView implements ImpactFeedbackTarget {
     this.recoilState = undefined;
     this.defeatedHold = false;
     this.sprite.clearTint().setAlpha(1);
+    this.tailActive = false;
+    this.tailSprite.setVisible(false).setAlpha(1);
     this.hp.reset(1000, 1000, this.position.x, this.position.y);
   }
 
@@ -206,6 +254,7 @@ export class PlayerView implements ImpactFeedbackTarget {
 
   destroy(): void {
     this.sprite.removeAllListeners();
+    this.tailSprite.removeAllListeners();
     this.hp.destroy();
   }
 
@@ -233,6 +282,20 @@ export class PlayerView implements ImpactFeedbackTarget {
       )
       .setScale(baseScale * (1 + ((recoil?.popScale ?? 1) - 1) * progress))
       .setAlpha(this.defeatedHold ? 0.72 : 1);
+    if (this.tailActive) {
+      const tailRoot = tailOverlayRoot(this.position, this.facingLeft);
+      const recoilX = (recoil?.direction.x ?? 0) * (recoil?.distancePx ?? 0) * progress;
+      const recoilY = (recoil?.direction.y ?? 0) * (recoil?.distancePx ?? 0) * progress;
+      const popScale = 1 + ((recoil?.popScale ?? 1) - 1) * progress;
+      this.tailSprite
+        .setPosition(
+          tailRoot.x + recoilX,
+          tailRoot.y + recoilY,
+        )
+        .setScale(BASE_SCALE * TAIL_SWIPE_VISUAL_SCALE * popScale)
+        .setFlipX(this.facingLeft)
+        .setAlpha(this.defeatedHold ? 0.72 : 1);
+    }
   }
 }
 

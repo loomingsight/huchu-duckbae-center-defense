@@ -5,6 +5,7 @@ import {
   TAIL_SWIPE_BODY_DURATION_MS,
   TAIL_SWIPE_LAST_FRAME_HOLD_MS,
 } from '../../src/game/player/PlayerView';
+import * as PlayerViewModule from '../../src/game/player/PlayerView';
 import { PresentationTelemetry } from '../../src/game/presentation/PresentationTelemetry';
 import type { PoolSnapshot } from '../../src/game/pooling/ObjectPool';
 
@@ -19,8 +20,17 @@ it('tail body action은 전용 sheet를 쓰고 aqua body action은 attack sheet�
     moving: false,
     bodyAction: { kind: 'tailSwipe', elapsedMs: 250 },
   });
+  expect(fake.spriteCount()).toBe(2);
   expect(fake.last('setTexture')).toEqual([AssetKeys.huchuTailSwipe]);
   expect(fake.last('setFrame')).toEqual([3]);
+  expect(fake.spriteLast(1, 'setTexture')).toEqual(['huchu-tail-overlay']);
+  expect(fake.spriteLast(1, 'setFrame')).toEqual([3]);
+  expect(fake.spriteLast(1, 'setVisible')).toEqual([true]);
+  const bodyScale = fake.last('setScale')?.[0];
+  const tailScale = fake.spriteLast(1, 'setScale')?.[0];
+  expect(bodyScale).toBeTypeOf('number');
+  expect(tailScale).toBeTypeOf('number');
+  expect(tailScale as number).toBeCloseTo((bodyScale as number) * 2, 9);
 
   view.render({
     x: 270,
@@ -31,6 +41,7 @@ it('tail body action은 전용 sheet를 쓰고 aqua body action은 attack sheet�
   });
   expect(fake.last('setTexture')).toEqual([AssetKeys.huchuAttack]);
   expect(fake.last('setFrame')).toEqual([3]);
+  expect(fake.spriteLast(1, 'setVisible')).toEqual([false]);
 });
 
 it('꼬리치기는 마지막 프레임을 정확히 800ms 유지한다', () => {
@@ -38,7 +49,7 @@ it('꼬리치기는 마지막 프레임을 정확히 800ms 유지한다', () => 
   const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
 
   expect(TAIL_SWIPE_LAST_FRAME_HOLD_MS).toBe(800);
-  expect(TAIL_SWIPE_BODY_DURATION_MS).toBeCloseTo(5 * 1000 / 12 + 800, 9);
+  expect(TAIL_SWIPE_BODY_DURATION_MS).toBeCloseTo(3 * 1000 / 12 + 800, 9);
 
   view.render({
     x: 270,
@@ -50,7 +61,7 @@ it('꼬리치기는 마지막 프레임을 정확히 800ms 유지한다', () => 
       elapsedMs: TAIL_SWIPE_BODY_DURATION_MS - TAIL_SWIPE_LAST_FRAME_HOLD_MS,
     },
   });
-  expect(fake.last('setFrame')).toEqual([5]);
+  expect(fake.spriteLast(1, 'setFrame')).toEqual([3]);
 
   view.render({
     x: 270,
@@ -59,7 +70,39 @@ it('꼬리치기는 마지막 프레임을 정확히 800ms 유지한다', () => 
     moving: false,
     bodyAction: { kind: 'tailSwipe', elapsedMs: TAIL_SWIPE_BODY_DURATION_MS - 0.001 },
   });
-  expect(fake.last('setFrame')).toEqual([5]);
+  expect(fake.spriteLast(1, 'setFrame')).toEqual([3]);
+});
+
+it('꼬리 오버레이는 후추의 좌우 방향을 함께 따른다', () => {
+  const fake = createScene();
+  const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
+
+  view.attackOrigin({ x: 270, y: 650 }, { x: 170, y: 650 });
+  view.render({
+    x: 270,
+    y: 650,
+    worldAnimationMs: 0,
+    moving: false,
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 250 },
+  });
+
+  expect(fake.last('setFlipX')).toEqual([true]);
+  expect(fake.spriteLast(1, 'setFlipX')).toEqual([true]);
+  expect(fake.spriteLast(1, 'setOrigin')).toEqual([54 / 256, 150 / 256]);
+});
+
+it('꼬리 오버레이 뿌리는 후추 엉덩이 좌표를 좌우 대칭으로 따른다', () => {
+  const tailOverlayRoot = (PlayerViewModule as unknown as {
+    readonly tailOverlayRoot?: (
+      position: { readonly x: number; readonly y: number },
+      facingLeft: boolean,
+    ) => { readonly x: number; readonly y: number };
+  }).tailOverlayRoot;
+
+  expect(tailOverlayRoot).toBeTypeOf('function');
+  if (tailOverlayRoot === undefined) return;
+  expect(tailOverlayRoot({ x: 270, y: 650 }, false)).toEqual({ x: 256, y: 605 });
+  expect(tailOverlayRoot({ x: 270, y: 650 }, true)).toEqual({ x: 284, y: 605 });
 });
 
 it('공격 시각 효과는 좌우 대상에 맞춘 후추 입에서 시작한다', () => {
@@ -125,20 +168,38 @@ function poolSnapshot(): PoolSnapshot {
 function createScene(): {
   readonly scene: object;
   last(method: string): readonly unknown[] | undefined;
+  spriteLast(index: number, method: string): readonly unknown[] | undefined;
+  spriteCount(): number;
 } {
-  const calls = new Map<string, unknown[][]>();
-  const target = {};
-  const recorded = new Proxy(target, {
-    get: (_current, property) => (...args: unknown[]) => {
-      const name = String(property);
-      const history = calls.get(name) ?? [];
-      history.push(args);
-      calls.set(name, history);
-      return recorded;
-    },
-  });
+  const sprites: Array<{ readonly calls: Map<string, unknown[][]>; readonly proxy: object }> = [];
+  const recorded = (): { readonly calls: Map<string, unknown[][]>; readonly proxy: object } => {
+    const calls = new Map<string, unknown[][]>();
+    const target = {};
+    const proxy = new Proxy(target, {
+      get: (_current, property) => (...args: unknown[]) => {
+        const name = String(property);
+        const history = calls.get(name) ?? [];
+        history.push(args);
+        calls.set(name, history);
+        return proxy;
+      },
+    });
+    return { calls, proxy };
+  };
+  const graphics = recorded();
   return {
-    scene: { add: { sprite: () => recorded, graphics: () => recorded } },
-    last: (method) => calls.get(method)?.at(-1),
+    scene: {
+      add: {
+        sprite: () => {
+          const sprite = recorded();
+          sprites.push(sprite);
+          return sprite.proxy;
+        },
+        graphics: () => graphics.proxy,
+      },
+    },
+    last: (method) => sprites[0]?.calls.get(method)?.at(-1),
+    spriteLast: (index, method) => sprites[index]?.calls.get(method)?.at(-1),
+    spriteCount: () => sprites.length,
   };
 }

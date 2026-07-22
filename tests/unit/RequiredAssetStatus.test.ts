@@ -7,6 +7,7 @@ const exactRequiredTextureKeys = [
   'huchu-walk',
   'huchu-attack',
   'huchu-tail-swipe',
+  'huchu-tail-overlay',
   'deokbae-walk',
   'deokbae-attack',
   'poop-male-walk',

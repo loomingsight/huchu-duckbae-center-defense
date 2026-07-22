@@ -109,9 +109,9 @@ async function frameBounds(file: string, frameCount: number): Promise<Array<Fram
 }
 
 describe('dog trader directional manifest', () => {
-  it('preserves 17 generic source rows and adds exactly 15 sources plus 9 virtual mirrors', () => {
+  it('preserves 18 generic source rows and adds exactly 15 sources plus 9 virtual mirrors', () => {
     const generic = manifest.filter(({ key }) => !key.startsWith('dog-trader-'));
-    expect(generic).toHaveLength(17);
+    expect(generic).toHaveLength(18);
     expect(DOG_TRADER_ENTRIES).toHaveLength(24);
     expect(DOG_TRADER_SOURCE_ENTRIES).toHaveLength(15);
     expect(DOG_TRADER_ENTRIES.filter((entry) => 'mirrorOf' in entry)).toHaveLength(9);

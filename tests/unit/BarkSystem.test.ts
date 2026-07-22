@@ -206,7 +206,7 @@ describe('PlayerView bark presentation', () => {
     const fake = createPlayerFakeScene();
     const effects = new CombatEffectPool(fake.scene as never);
     const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
-    const sprite = fake.sprites.at(-1)!;
+    const sprite = fake.sprites.at(0)!;
 
     view.render({
       x: 55,

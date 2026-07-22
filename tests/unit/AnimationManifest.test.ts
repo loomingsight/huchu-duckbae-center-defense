@@ -15,6 +15,7 @@ const requiredAnimationKeys = [
   'huchu-walk',
   'huchu-attack',
   'huchu-tail-swipe',
+  'huchu-tail-overlay',
   'deokbae-walk',
   'deokbae-attack',
   'poop-male-walk',
@@ -32,11 +33,11 @@ const requiredAnimationKeys = [
 ] as const;
 
 describe('AnimationManifest', () => {
-  it('declares the exact 17 V2 source sheets', () => {
+  it('declares the exact 18 V2 source sheets', () => {
     const genericEntries = animationEntries.filter(({ key }) => !key.startsWith('dog-trader-'));
     expect(genericEntries.map(({ key }) => key)).toEqual(requiredAnimationKeys);
-    expect(animationEntries).toHaveLength(41);
-    expect(animationEntries.filter(isSourceAnimationEntry)).toHaveLength(32);
+    expect(animationEntries).toHaveLength(42);
+    expect(animationEntries.filter(isSourceAnimationEntry)).toHaveLength(33);
   });
 
   it('exposes tail-swipe event metadata', () => {
@@ -48,6 +49,17 @@ describe('AnimationManifest', () => {
       loop: false,
       eventFrame: 3,
       eventKind: 'directHit',
+    });
+  });
+
+  it('exposes the four-frame tail-only overlay', () => {
+    expect(animationEntry('huchu-tail-overlay')).toMatchObject({
+      action: 'tailOverlay',
+      frameCount: 4,
+      frameWidth: 256,
+      frameHeight: 256,
+      fps: 12,
+      loop: false,
     });
   });
 
@@ -118,7 +130,7 @@ describe('AnimationManifest', () => {
   });
 
   it('maps only concrete manifest rows into preload assets', () => {
-    expect(animationSpriteSheetAssets).toHaveLength(32);
+    expect(animationSpriteSheetAssets).toHaveLength(33);
     expect(animationSpriteSheetAssets.every(({ frameWidth, frameHeight }) =>
       frameWidth === 256 && frameHeight === 256)).toBe(true);
   });

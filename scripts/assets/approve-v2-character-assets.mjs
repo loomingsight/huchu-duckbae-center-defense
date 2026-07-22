@@ -17,6 +17,7 @@ const V2_CHARACTER_KEYS = [
   'huchu-walk',
   'huchu-attack',
   'huchu-tail-swipe',
+  'huchu-tail-overlay',
   'deokbae-walk',
   'deokbae-attack',
   'poop-male-walk',
@@ -55,7 +56,7 @@ export function v2CharacterApprovalSources(entries = sourceAnimationEntries) {
     actualIdentities.length !== expectedIdentities.length ||
     actualIdentities.some((identity, index) => identity !== expectedIdentities[index])
   ) {
-    throw new Error('Expected exact 17-source V2 approval set');
+    throw new Error('Expected exact 18-source V2 approval set');
   }
   const byKey = new Map(owned.map((entry) => [entry.key, entry]));
   return V2_CHARACTER_KEYS.map((key) => ({

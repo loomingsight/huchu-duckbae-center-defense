@@ -120,10 +120,10 @@ describe('asset approval validation', () => {
     ]);
   });
 
-  it('strict coverage의 기본 required set은 live animation source 32개다', () => {
+  it('strict coverage의 기본 required set은 live animation source 33개다', () => {
     const requiredSources = expectedLiveGeneratedSources();
-    expect(requiredSources).toHaveLength(32);
-    expect(new Set(requiredSources).size).toBe(32);
+    expect(requiredSources).toHaveLength(33);
+    expect(new Set(requiredSources).size).toBe(33);
     expect(requiredSources).not.toContain(expect.stringContaining('public/'));
   });
 

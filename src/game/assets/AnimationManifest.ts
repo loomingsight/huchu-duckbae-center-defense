@@ -18,7 +18,7 @@ export interface Point {
 
 export interface AnimationManifestBase {
   readonly key: string;
-  readonly action: 'walk' | 'attack' | 'tailSwipe' | 'truckRoll';
+  readonly action: 'walk' | 'attack' | 'tailSwipe' | 'tailOverlay' | 'truckRoll';
   readonly frameCount: 4 | 6 | 8;
   readonly frameWidth: 256;
   readonly frameHeight: 256;
@@ -48,7 +48,7 @@ export type AnimationManifestEntry =
   | MirrorAnimationManifestEntry;
 
 const frameCounts = new Set([4, 6, 8]);
-const actions = new Set(['walk', 'attack', 'tailSwipe', 'truckRoll']);
+const actions = new Set(['walk', 'attack', 'tailSwipe', 'tailOverlay', 'truckRoll']);
 const eventKinds = new Set(['directHit', 'projectileRelease']);
 const hasOwn = (entry: object, key: PropertyKey): boolean =>
   Object.prototype.hasOwnProperty.call(entry, key);
