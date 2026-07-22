@@ -6,7 +6,7 @@ import { BARK_CONE_DEGREES, BARK_RANGE_LOGICAL } from './BarkRules';
 import { inCone, selectThreatTarget } from './TargetingSystem';
 
 const WINDUP_MS = attackImpactMs('normal');
-const CADENCE_MS = 800;
+export const BARK_CADENCE_MS = 500;
 const DEFAULT_DIRECTION: Point = { x: 0, y: -1 };
 
 type BarkPhase = 'ready' | 'windup' | 'cooldown';
@@ -76,7 +76,7 @@ export class BarkSystem {
       }
 
       if (this.phase === 'cooldown') {
-        const untilCadenceMs = Math.max(0, CADENCE_MS - this.cycleElapsedMs);
+        const untilCadenceMs = Math.max(0, BARK_CADENCE_MS - this.cycleElapsedMs);
         if (!crossesBoundary(remainingMs, untilCadenceMs)) {
           this.cycleElapsedMs += remainingMs;
           break;
@@ -115,8 +115,12 @@ export class BarkSystem {
     return {
       learned: true,
       ready: this.phase === 'ready',
-      cooldownRemainingMs: this.phase === 'ready' ? 0 : Math.max(0, CADENCE_MS - this.cycleElapsedMs),
-      progress: this.phase === 'ready' ? 1 : Math.max(0, Math.min(1, this.cycleElapsedMs / CADENCE_MS)),
+      cooldownRemainingMs: this.phase === 'ready'
+        ? 0
+        : Math.max(0, BARK_CADENCE_MS - this.cycleElapsedMs),
+      progress: this.phase === 'ready'
+        ? 1
+        : Math.max(0, Math.min(1, this.cycleElapsedMs / BARK_CADENCE_MS)),
       activeCastId: this.castId,
       phase: this.phase,
       elapsedMs: this.cycleElapsedMs,

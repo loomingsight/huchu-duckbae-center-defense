@@ -5,6 +5,10 @@ const styles = readFileSync(
   fileURLToPath(new URL('../../src/styles.css', import.meta.url)),
   'utf8',
 );
+const indexHtml = readFileSync(
+  fileURLToPath(new URL('../../index.html', import.meta.url)),
+  'utf8',
+);
 
 const MOBILE_WIDTH = 390;
 const MOBILE_HEIGHT = 844;
@@ -61,6 +65,14 @@ it('쿨타임은 conic-gradient 시계이며 reduced motion에서 pulse를 제�
   expect(rule('.action-button__remaining')).toMatch(/font-size:\s*18px/);
   expect(styles).toContain('@media (prefers-reduced-motion: reduce)');
   expect(styles).toContain('.action-button { animation: none !important; }');
+});
+
+it('게임 루트와 두 손 조작 요소는 브라우저 확대 제스처를 허용하지 않는다', () => {
+  expect(rule('html, body, #game-root')).toMatch(/touch-action:\s*none/);
+  expect(rule('.action-button')).toMatch(/touch-action:\s*none/);
+  expect(rule('.virtual-joystick')).toMatch(/touch-action:\s*none/);
+  expect(indexHtml).toMatch(/maximum-scale=1/);
+  expect(indexHtml).toMatch(/user-scalable=no/);
 });
 
 function rule(selector: string): string {

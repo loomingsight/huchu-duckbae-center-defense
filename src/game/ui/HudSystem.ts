@@ -9,6 +9,11 @@ import {
   type CompanionStatusSnapshot,
 } from './CompanionStatusHud';
 import { NOOP_MUTE_PORT, type MutePort } from './MutePort';
+import { MobileInputGuard } from './MobileInputGuard';
+import {
+  createBrowserHapticFeedback,
+  type HapticFeedback,
+} from './HapticFeedback';
 import { SKILL_COPY } from './SkillIconSvg';
 import { TopHud } from './TopHud';
 
@@ -31,6 +36,7 @@ export interface HudSystemOptions {
   readonly queueSkillPurchase: (skillId: PurchasableSkillId) => SkillPurchaseResult;
   readonly queuePlayerAction: (actionId: PlayerActionId) => PlayerActionQueueResult;
   readonly mutePort?: MutePort;
+  readonly haptic?: HapticFeedback;
   readonly document?: Document;
 }
 
@@ -40,6 +46,8 @@ export class HudSystem {
   private readonly top: TopHud;
   private readonly companion: CompanionStatusHud;
   private readonly actions: ActionDock;
+  private readonly inputGuard: MobileInputGuard;
+  private readonly haptic: HapticFeedback;
   private readonly toast: HTMLElement;
   private toastText: string | null = null;
   private toastRemainingMs = 0;
@@ -55,13 +63,19 @@ export class HudSystem {
     options.root.appendChild(this.overlay);
     this.top = new TopHud(this.overlay, documentRef, options.mutePort ?? NOOP_MUTE_PORT);
     this.companion = new CompanionStatusHud(this.overlay, documentRef);
+    this.haptic = options.haptic ?? createBrowserHapticFeedback();
     this.actions = new ActionDock(
       this.overlay,
       documentRef,
       options.queueSkillPurchase,
       options.queuePlayerAction,
+      (actionId) => this.confirmActionAccepted(actionId),
     );
     this.joystick = new VirtualJoystick(this.overlay, documentRef);
+    this.inputGuard = new MobileInputGuard(options.root, documentRef, () => {
+      this.actions.clearInput();
+      this.joystick.clearInput();
+    });
     this.toast = documentRef.createElement('div');
     this.toast.className = 'hud-toast';
     this.toast.setAttribute('role', 'status');
@@ -84,7 +98,9 @@ export class HudSystem {
     if (!Number.isFinite(stepMs) || stepMs < 0) {
       throw new RangeError('HUD step must be finite and non-negative');
     }
-    if (this.destroyed || this.toastRemainingMs === 0) return;
+    if (this.destroyed) return;
+    this.actions.step(stepMs);
+    if (this.toastRemainingMs === 0) return;
     this.toastRemainingMs = Math.max(0, this.toastRemainingMs - stepMs);
     if (this.toastRemainingMs === 0) this.showToast(null, 0);
   }
@@ -101,6 +117,12 @@ export class HudSystem {
     this.showToast('대상이 없어요', NO_TARGET_TOAST_MS);
   }
 
+  confirmActionAccepted(actionId: PlayerActionId): void {
+    if (this.destroyed) return;
+    this.actions.showAcceptedFeedback(actionId);
+    this.haptic.pulse();
+  }
+
   reset(): void {
     if (this.destroyed) return;
     this.hadAffordable = false;
@@ -112,6 +134,7 @@ export class HudSystem {
     if (this.destroyed) return;
     this.overlay.dataset.active = String(active);
     this.joystick.setEnabled(active);
+    if (!active) this.actions.clearInput();
   }
 
   snapshot(): HudSnapshot {
@@ -132,6 +155,7 @@ export class HudSystem {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.inputGuard.destroy();
     this.top.destroy();
     this.companion.destroy();
     this.actions.destroy();

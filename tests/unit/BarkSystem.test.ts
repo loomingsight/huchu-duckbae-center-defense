@@ -78,7 +78,7 @@ describe('BarkSystem', () => {
     });
   });
 
-  it('대상이 없으면 cadence를 소비하지 않고 250ms impact와 800ms cadence를 지킨다', () => {
+  it('대상이 없으면 cadence를 소비하지 않고 250ms impact와 500ms cadence를 지킨다', () => {
     const bark = new BarkSystem();
     const context = {
       origin: { x: 0, y: 0 },
@@ -94,7 +94,9 @@ describe('BarkSystem', () => {
     });
     expect(bark.step(249, context)).toEqual([]);
     expect(bark.step(1, context).at(-1)).toMatchObject({ type: 'barkImpact', targetIds: [7] });
-    expect(bark.step(549, context)).toEqual([]);
+    expect(bark.step(249, context)).toEqual([]);
+    expect(bark.snapshot()).toMatchObject({ ready: false, cooldownRemainingMs: 1 });
+    expect(bark.requestCast(context)).toEqual({ status: 'notReady', events: [] });
     expect(bark.step(1, context)).toEqual([]);
     expect(bark.requestCast(context)).toEqual({
       status: 'started',
@@ -128,9 +130,9 @@ describe('BarkSystem', () => {
       enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
     };
 
-    const singleEvents: BarkEvent[] = [...single.requestCast(context).events, ...single.step(800, context)];
+    const singleEvents: BarkEvent[] = [...single.requestCast(context).events, ...single.step(500, context)];
     const splitEvents: BarkEvent[] = [...split.requestCast(context).events];
-    for (const duration of [0, 200, 50, 549, 1]) {
+    for (const duration of [0, 200, 50, 249, 1]) {
       splitEvents.push(...split.step(duration, context));
     }
 

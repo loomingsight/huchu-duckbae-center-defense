@@ -11,6 +11,7 @@ const ACTION_IDS = [
   'aquaBeam',
   'safetyReport',
 ] as const satisfies readonly PlayerActionId[];
+const ACCEPTED_FEEDBACK_MS = 120;
 
 export type ActionButtonMode = 'cast' | 'buy' | 'locked' | 'queued' | 'cooldown';
 
@@ -59,6 +60,7 @@ export class ActionDock {
     documentRef: Document,
     private readonly queuePurchase: (skillId: PurchasableSkillId) => SkillPurchaseResult,
     private readonly queueAction: (actionId: PlayerActionId) => PlayerActionQueueResult,
+    private readonly onAcceptedInput: (actionId: PlayerActionId) => void = () => undefined,
   ) {
     this.element = documentRef.createElement('div');
     this.element.className = 'action-dock';
@@ -86,9 +88,58 @@ export class ActionDock {
       const cooldown = documentRef.createElement('span');
       cooldown.className = 'action-button__cooldown';
       button.append(icon, name, status, remaining, cooldown);
-      const onClick = (): void => this.activate(actionId);
+      let activePointerId: number | null = null;
+      const onPointerDown = (event: PointerEvent): void => {
+        if (activePointerId !== null || button.disabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        activePointerId = event.pointerId;
+        button.setPointerCapture?.(event.pointerId);
+        this.activate(actionId);
+      };
+      const releasePointer = (event: PointerEvent, releaseCapture = true): void => {
+        if (event.pointerId !== activePointerId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (releaseCapture && button.hasPointerCapture?.(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+        activePointerId = null;
+      };
+      const onPointerUp = (event: PointerEvent): void => releasePointer(event);
+      const onPointerCancel = (event: PointerEvent): void => releasePointer(event);
+      const onLostPointerCapture = (event: PointerEvent): void => releasePointer(event, false);
+      const onClick = (event: MouseEvent): void => {
+        if (event.detail !== 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        this.activate(actionId);
+      };
+      button.addEventListener('pointerdown', onPointerDown);
+      button.addEventListener('pointerup', onPointerUp);
+      button.addEventListener('pointercancel', onPointerCancel);
+      button.addEventListener('lostpointercapture', onLostPointerCapture);
       button.addEventListener('click', onClick);
-      return { actionId, button, status, remaining, onClick };
+      return {
+        actionId,
+        button,
+        status,
+        remaining,
+        onPointerDown,
+        onPointerUp,
+        onPointerCancel,
+        onLostPointerCapture,
+        onClick,
+        feedbackRemainingMs: 0,
+        clearPointer: () => {
+          if (activePointerId !== null && button.hasPointerCapture?.(activePointerId)) {
+            button.releasePointerCapture(activePointerId);
+          }
+          activePointerId = null;
+        },
+      };
     });
     this.element.append(this.snack, ...this.views.map(({ button }) => button));
     parent.appendChild(this.element);
@@ -133,10 +184,47 @@ export class ActionDock {
     });
   }
 
+  clearInput(): void {
+    if (this.destroyed) return;
+    this.views.forEach((view) => {
+      view.clearPointer();
+      this.clearAcceptedFeedback(view);
+    });
+  }
+
+  step(stepMs: number): void {
+    if (this.destroyed) return;
+    this.views.forEach((view) => {
+      if (view.feedbackRemainingMs === 0) return;
+      view.feedbackRemainingMs = Math.max(0, view.feedbackRemainingMs - stepMs);
+      if (view.feedbackRemainingMs === 0) view.button.dataset.accepted = 'false';
+    });
+  }
+
+  showAcceptedFeedback(actionId: PlayerActionId): void {
+    if (this.destroyed) return;
+    const view = this.views.find((candidate) => candidate.actionId === actionId);
+    if (view === undefined) return;
+    view.feedbackRemainingMs = ACCEPTED_FEEDBACK_MS;
+    view.button.dataset.accepted = 'true';
+  }
+
   destroy(): void {
     if (this.destroyed) return;
+    this.clearInput();
     this.destroyed = true;
-    this.views.forEach(({ button, onClick }) => {
+    this.views.forEach(({
+      button,
+      onPointerDown,
+      onPointerUp,
+      onPointerCancel,
+      onLostPointerCapture,
+      onClick,
+    }) => {
+      button.removeEventListener('pointerdown', onPointerDown);
+      button.removeEventListener('pointerup', onPointerUp);
+      button.removeEventListener('pointercancel', onPointerCancel);
+      button.removeEventListener('lostpointercapture', onLostPointerCapture);
       button.removeEventListener('click', onClick);
     });
     this.element.remove();
@@ -155,11 +243,17 @@ export class ActionDock {
       const result = this.queuePurchase(skillId);
       if (result.status === 'queued') {
         this.queuedSkillId = skillId;
+        this.onAcceptedInput(actionId);
         this.render(this.state);
       }
       return;
     }
     if (model.mode === 'cast') this.queueAction(actionId);
+  }
+
+  private clearAcceptedFeedback(view: ActionButtonView): void {
+    view.feedbackRemainingMs = 0;
+    view.button.dataset.accepted = 'false';
   }
 
   private renderSnackCount(snacks: number): void {
@@ -180,7 +274,10 @@ export class ActionDock {
       remaining: model.remainingSeconds === 0 ? '' : String(model.remainingSeconds),
     };
     const previous = this.rendered.get(view.actionId);
-    if (previous?.disabled !== next.disabled) view.button.disabled = next.disabled;
+    if (previous?.disabled !== next.disabled) {
+      if (next.disabled) view.clearPointer();
+      view.button.disabled = next.disabled;
+    }
     if (previous?.mode !== next.mode) view.button.dataset.mode = next.mode;
     if (previous?.affordable !== next.affordable) {
       view.button.dataset.affordable = String(next.affordable);
@@ -202,7 +299,13 @@ interface ActionButtonView {
   readonly button: HTMLButtonElement;
   readonly status: HTMLElement;
   readonly remaining: HTMLElement;
-  readonly onClick: () => void;
+  readonly onPointerDown: (event: PointerEvent) => void;
+  readonly onPointerUp: (event: PointerEvent) => void;
+  readonly onPointerCancel: (event: PointerEvent) => void;
+  readonly onLostPointerCapture: (event: PointerEvent) => void;
+  readonly onClick: (event: MouseEvent) => void;
+  readonly clearPointer: () => void;
+  feedbackRemainingMs: number;
 }
 
 interface RenderedButtonState {

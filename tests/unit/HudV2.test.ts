@@ -150,8 +150,8 @@ it('overlay는 한 번 mount되고 모든 listener와 mute subscription을 한 �
 
   hud.destroy();
   hud.destroy();
-  expect(fake.listenerAdds).toBe(10);
-  expect(fake.listenerRemoves).toBe(10);
+  expect(fake.listenerAdds).toBeGreaterThan(10);
+  expect(fake.listenerRemoves).toBe(fake.listenerAdds);
   expect(subscriptions).toBe(1);
   expect(unsubscriptions).toBe(1);
 });
@@ -190,6 +190,72 @@ it('joystick은 disable, lost capture, destroy에서 입력과 capture를 정리
   joystick.destroy();
 });
 
+it('오른손 joystick 이동 중 왼손 기술 pointer는 한 번 시전되고 서로의 해제에 영향받지 않는다', () => {
+  const fake = createFakeDom();
+  const actions: string[] = [];
+  const hud = new HudSystem({
+    root: fake.root as never,
+    document: fake.document as never,
+    queueSkillPurchase: (skillId) => ({
+      status: 'queueBusy', skillId, cost: 15, spent: 0, snacks: 19, nextCost: 15,
+    }),
+    queuePlayerAction: (actionId) => {
+      actions.push(actionId);
+      return { status: 'queued', actionId };
+    },
+  });
+  hud.render(runSnapshot());
+  const joystickHit = flatten(fake.root).find(({ className }) => className === 'virtual-joystick');
+  expect(joystickHit).toBeDefined();
+  if (joystickHit === undefined) return;
+
+  joystickHit.dispatch('pointerdown', pointer(41, 102, 56));
+  const moving = hud.joystick.read();
+  expect(moving.magnitude).toBeGreaterThan(0);
+
+  fake.buttons[1]!.dispatch('pointerdown', pointer(42, 28, 28));
+  fake.buttons[1]!.dispatch('pointerdown', pointer(42, 28, 28));
+  fake.buttons[1]!.dispatch('pointercancel', pointer(42, 28, 28));
+  expect(actions).toEqual(['bark']);
+  expect(hud.joystick.read()).toEqual(moving);
+
+  joystickHit.dispatch('pointerup', pointer(41, 102, 56));
+  expect(hud.joystick.read()).toEqual({ x: 0, y: 0, magnitude: 0 });
+  hud.destroy();
+});
+
+it('구매 성공과 실제 시전 시작만 햅틱·버튼 피드백을 한 번 발생시킨다', () => {
+  const fake = createFakeDom();
+  const pulses: number[] = [];
+  const hud = new HudSystem({
+    root: fake.root as never,
+    document: fake.document as never,
+    haptic: { pulse: () => { pulses.push(15); } },
+    queueSkillPurchase: (skillId) => ({
+      status: 'queued', skillId, cost: 15, spent: 0, snacks: 19, nextCost: 15,
+    }),
+    queuePlayerAction: (actionId) => ({ status: 'queued', actionId }),
+  });
+  hud.render(runSnapshot());
+
+  fake.buttons[2]!.dispatch('pointerdown', pointer(51, 28, 28));
+  fake.buttons[2]!.dispatch('pointerup', pointer(51, 28, 28));
+  expect(pulses).toEqual([15]);
+  expect(fake.buttons[2]!.dataset.accepted).toBe('true');
+
+  fake.buttons[1]!.dispatch('pointerdown', pointer(52, 28, 28));
+  fake.buttons[1]!.dispatch('pointerup', pointer(52, 28, 28));
+  expect(pulses).toEqual([15]);
+
+  hud.confirmActionAccepted('bark');
+  expect(pulses).toEqual([15, 15]);
+  expect(fake.buttons[1]!.dataset.accepted).toBe('true');
+  hud.step(120);
+  expect(fake.buttons[1]!.dataset.accepted).toBe('false');
+  expect(fake.buttons[2]!.dataset.accepted).toBe('false');
+  hud.destroy();
+});
+
 it('모바일 HUD CSS는 왼손 2x2 원형 기술과 오른손 112px joystick을 분리한다', () => {
   const styles = source('../../src/styles.css');
 
@@ -211,6 +277,8 @@ it('production scene은 수동 action port를 연결하고 이전 자동 기술 
 
   expect(scene).toContain('queuePlayerAction: (actionId) => this.session.queuePlayerAction(actionId)');
   expect(scene).toContain("event.type === 'playerActionRejected' && event.reason === 'noTarget'");
+  expect(scene).toContain("event.type === 'barkStarted'");
+  expect(scene).toContain("event.type === 'skillCastStarted'");
   expect(hud).toContain('new ActionDock(');
   expect(hud).toContain('new CompanionStatusHud(');
   expect(`${scene}\n${hud}\n${styles}`).not.toMatch(/AutoSkillHud|SkillDock|auto-skill-hud|skill-dock/);
@@ -342,7 +410,9 @@ function createFakeDom() {
       append: (...children) => element.children.push(...children),
       appendChild: (child) => { element.children.push(child); return child; },
       addEventListener: (type, listener) => { listenerAdds += 1; listeners.set(type, listener); },
-      click: () => { if (!element.disabled) listeners.get('click')?.(); },
+      click: () => {
+        if (!element.disabled) listeners.get('click')?.(click(0) as never);
+      },
       removeEventListener: (type, listener) => {
         if (listeners.get(type) === listener) {
           listenerRemoves += 1;
@@ -381,7 +451,17 @@ function createFakeDom() {
 }
 
 function pointer(pointerId: number, clientX: number, clientY: number) {
-  return { pointerId, clientX, clientY, preventDefault: () => undefined };
+  return {
+    pointerId,
+    clientX,
+    clientY,
+    preventDefault: () => undefined,
+    stopPropagation: () => undefined,
+  };
+}
+
+function click(detail: number) {
+  return { detail, preventDefault: () => undefined, stopPropagation: () => undefined };
 }
 
 function flatten(root: FakeElement): readonly FakeElement[] {

@@ -16,6 +16,7 @@ import {
   selectHuchuBodyAction,
 } from '../combat/CombatEffectPool';
 import { DamageFeedbackPool } from '../combat/DamageFeedbackPool';
+import { BARK_CADENCE_MS } from '../combat/BarkSystem';
 import { ImpactFeedbackSystem } from '../combat/ImpactFeedbackSystem';
 import { CompanionView } from '../companions/CompanionView';
 import {
@@ -72,7 +73,6 @@ import { runCleanupSteps, SceneRuntimeLifecycle } from './SceneRuntimeLifecycle'
 const INITIAL_PLAYER_POSITION = { x: 270, y: 650 } as const;
 const DEFAULT_RUN_SEED = 424242;
 const MAX_CATCH_UP_STEPS = 5;
-const BARK_CADENCE_MS = 800;
 const DEFAULT_PLAYER_FACING = { x: 0, y: -1 } as const;
 const AQUA_BODY_DURATION_MS = 600;
 const SNACK_DOCK_TARGET = { x: 48, y: 790 } as const;
@@ -611,6 +611,12 @@ export class GameScene extends Phaser.Scene {
       }
       if (event.type === 'skillPurchaseResolved') {
         this.hud.showLearned(event.result.skillId, this.session.snapshot());
+      }
+      if (event.type === 'barkStarted') {
+        this.hud.confirmActionAccepted('bark');
+      }
+      if (event.type === 'skillCastStarted') {
+        this.hud.confirmActionAccepted(event.skillId);
       }
       if (event.type === 'playerActionRejected' && event.reason === 'noTarget') {
         this.hud.showNoTarget();
