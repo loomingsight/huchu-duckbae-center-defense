@@ -48,4 +48,40 @@ describe('tail swipe layered assets', () => {
     expect(row.outlineAt390).toBeNull();
     expect(row.cssWidth).toBeCloseTo(256 * (72 / 204) * 2 * (390 / 540), 9);
   });
+
+  it('네 프레임 모두 직선 plume이 아닌 말린 꼬리의 compact silhouette를 갖는다', async () => {
+    expect(overlay).toBeDefined();
+    if (overlay === undefined) return;
+    const { data, info } = await sharp(overlay.source)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const ratios = Array.from({ length: overlay.frameCount }, (_, frame) => {
+      const frameLeft = frame * overlay.frameWidth;
+      let minX = overlay.frameWidth;
+      let maxX = -1;
+      let minY = overlay.frameHeight;
+      let maxY = -1;
+      for (let y = 0; y < overlay.frameHeight; y += 1) {
+        for (let x = 0; x < overlay.frameWidth; x += 1) {
+          if ((sample(frameLeft + x, y, data, info.width) ?? 0) <= 16) continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      const width = maxX - minX + 1;
+      const height = maxY - minY + 1;
+      expect(height).toBeGreaterThanOrEqual(100);
+      return width / height;
+    });
+
+    ratios.forEach((ratio) => expect(ratio).toBeLessThanOrEqual(1.2));
+  });
 });
+
+function sample(x: number, y: number, data: Buffer, width: number): number | undefined {
+  return data[(y * width + x) * 4 + 3];
+}

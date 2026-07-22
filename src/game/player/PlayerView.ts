@@ -32,6 +32,7 @@ const TAIL_ROOT_ORIGIN_X = TAIL_ROOT_X / 256;
 const TAIL_ROOT_ORIGIN_Y = TAIL_ROOT_Y / 256;
 export const TAIL_SWIPE_VISUAL_SCALE = 2;
 export const TAIL_SWIPE_LAST_FRAME_HOLD_MS = 800;
+export const TAIL_SWIPE_SWEEP_MS = 250;
 export const TAIL_SWIPE_BODY_DURATION_MS =
   (TAIL_OVERLAY_ENTRY.frameCount - 1) * 1000 / TAIL_OVERLAY_ENTRY.fps
   + TAIL_SWIPE_LAST_FRAME_HOLD_MS;
@@ -43,6 +44,24 @@ export function tailOverlayRoot(position: Point, facingLeft: boolean): Point {
   return {
     x: position.x + (facingLeft ? -HUCHU_RUMP_OFFSET_X : HUCHU_RUMP_OFFSET_X),
     y: position.y + HUCHU_RUMP_OFFSET_Y,
+  };
+}
+
+export interface TailSweepTransform {
+  readonly rootOffset: Point;
+  readonly rotationDeg: number;
+}
+
+export function tailSweepTransformAt(
+  elapsedMs: number,
+  facingLeft: boolean,
+): TailSweepTransform {
+  assertFiniteNonNegative(elapsedMs, 'Tail sweep elapsedMs');
+  const progress = Math.min(1, elapsedMs / TAIL_SWIPE_SWEEP_MS);
+  const rotationDeg = 180 * (1 - progress);
+  return {
+    rootOffset: { x: 0, y: 0 },
+    rotationDeg: facingLeft ? -rotationDeg : rotationDeg,
   };
 }
 
@@ -67,6 +86,10 @@ export class PlayerView implements ImpactFeedbackTarget {
   private position: Point;
   private facingLeft = false;
   private tailActive = false;
+  private tailSweepTransform: TailSweepTransform = {
+    rootOffset: { x: 0, y: 0 },
+    rotationDeg: 0,
+  };
   private flashRemainingMs = 0;
   private defeatedHold = false;
   private recoilState: {
@@ -122,6 +145,10 @@ export class PlayerView implements ImpactFeedbackTarget {
       .setScale(BASE_SCALE * breathScale)
       .setDepth(snapshot.y);
     if (this.tailActive) {
+      this.tailSweepTransform = tailSweepTransformAt(
+        snapshot.bodyAction?.elapsedMs ?? 0,
+        this.facingLeft,
+      );
       this.tailSprite
         .setTexture(TAIL_OVERLAY_ENTRY.key)
         .setFrame(animationFrameAt(
@@ -133,7 +160,8 @@ export class PlayerView implements ImpactFeedbackTarget {
         .setVisible(true)
         .setDepth(snapshot.y + 0.1);
     } else {
-      this.tailSprite.setVisible(false);
+      this.tailSweepTransform = { rootOffset: { x: 0, y: 0 }, rotationDeg: 0 };
+      this.tailSprite.setVisible(false).setAngle(0);
     }
     this.applyFeedbackTransform(BASE_SCALE * breathScale);
     this.hp.render(
@@ -289,9 +317,10 @@ export class PlayerView implements ImpactFeedbackTarget {
       const popScale = 1 + ((recoil?.popScale ?? 1) - 1) * progress;
       this.tailSprite
         .setPosition(
-          tailRoot.x + recoilX,
-          tailRoot.y + recoilY,
+          tailRoot.x + this.tailSweepTransform.rootOffset.x + recoilX,
+          tailRoot.y + this.tailSweepTransform.rootOffset.y + recoilY,
         )
+        .setAngle(this.tailSweepTransform.rotationDeg)
         .setScale(BASE_SCALE * TAIL_SWIPE_VISUAL_SCALE * popScale)
         .setFlipX(this.facingLeft)
         .setAlpha(this.defeatedHold ? 0.72 : 1);

@@ -4,6 +4,7 @@ import {
   PlayerView,
   TAIL_SWIPE_BODY_DURATION_MS,
   TAIL_SWIPE_LAST_FRAME_HOLD_MS,
+  tailSweepTransformAt,
 } from '../../src/game/player/PlayerView';
 import * as PlayerViewModule from '../../src/game/player/PlayerView';
 import { PresentationTelemetry } from '../../src/game/presentation/PresentationTelemetry';
@@ -103,6 +104,51 @@ it('꼬리 오버레이 뿌리는 후추 엉덩이 좌표를 좌우 대칭으로
   if (tailOverlayRoot === undefined) return;
   expect(tailOverlayRoot({ x: 270, y: 650 }, false)).toEqual({ x: 256, y: 605 });
   expect(tailOverlayRoot({ x: 270, y: 650 }, true)).toEqual({ x: 284, y: 605 });
+});
+
+it('말린 꼬리는 뿌리를 고정하고 우→상→좌 부채꼴을 좌우 대칭으로 보간한다', () => {
+  expect(tailSweepTransformAt(0, false)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: 180,
+  });
+  expect(tailSweepTransformAt(125, false)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: 90,
+  });
+  expect(tailSweepTransformAt(250, false)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: 0,
+  });
+  expect(tailSweepTransformAt(125, true)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: -90,
+  });
+  expect(tailSweepTransformAt(1050, true)).toEqual({
+    rootOffset: { x: 0, y: 0 }, rotationDeg: -0,
+  });
+});
+
+it('PlayerView는 보간 각도를 꼬리 sprite에 적용하고 250ms 뒤 마지막 자세를 유지한다', () => {
+  const fake = createScene();
+  const view = new PlayerView(fake.scene as never, { x: 270, y: 650 }, {} as never);
+
+  view.render({
+    x: 270, y: 650, worldAnimationMs: 0, moving: false,
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 125 },
+  });
+  expect(fake.spriteLast(1, 'setAngle')).toEqual([90]);
+  expect(fake.spriteLast(1, 'setPosition')).toEqual([256, 605]);
+
+  view.render({
+    x: 270, y: 650, worldAnimationMs: 0, moving: false,
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 900 },
+  });
+  expect(fake.spriteLast(1, 'setAngle')).toEqual([0]);
+  expect(fake.spriteLast(1, 'setPosition')).toEqual([256, 605]);
+
+  view.attackOrigin({ x: 270, y: 650 }, { x: 170, y: 650 });
+  view.render({
+    x: 270, y: 650, worldAnimationMs: 0, moving: false,
+    bodyAction: { kind: 'tailSwipe', elapsedMs: 125 },
+  });
+  expect(fake.spriteLast(1, 'setAngle')).toEqual([-90]);
+  expect(fake.spriteLast(1, 'setPosition')).toEqual([284, 605]);
 });
 
 it('공격 시각 효과는 좌우 대상에 맞춘 후추 입에서 시작한다', () => {
