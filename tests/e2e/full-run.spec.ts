@@ -17,7 +17,7 @@ test('2배 출현 빈도의 exact 3 seed는 끝까지 결정적으로 재현된�
     const runLog = await events(page);
     expect(result).toMatchObject({
       seed,
-      shelterMaxHp: 1000,
+      playerMaxHp: 1000,
       spawnCount: 68,
       purchaseCount: 3,
       countdowns: [3000, 3000, 3000, 3000],
@@ -28,8 +28,8 @@ test('2배 출현 빈도의 exact 3 seed는 끝까지 결정적으로 재현된�
       expect(durationMs, `seed ${seed} W${index + 1} lower bound`).toBeGreaterThanOrEqual(minimumMs);
       expect(durationMs, `seed ${seed} W${index + 1} upper bound`).toBeLessThanOrEqual(maximumMs);
     });
-    if (result.outcome === 'won') expect(result.finalShelterHp).toBeGreaterThan(0);
-    else expect(result.finalShelterHp).toBe(0);
+    if (result.outcome === 'won') expect(result.finalPlayerHp).toBeGreaterThan(0);
+    else expect(result.finalPlayerHp).toBe(0);
     expect(result.durationMs - result.simulationMs).toBeGreaterThanOrEqual(12_000);
     expect(result.durationMs - result.simulationMs).toBeLessThan(12_500);
     expect([...result.bossKinds].sort()).toEqual(['dogTrader', 'illegalBreeder']);
@@ -45,7 +45,7 @@ test('2배 출현 빈도의 exact 3 seed는 끝까지 결정적으로 재현된�
   expect(median).toBeLessThanOrEqual(300_000);
 });
 
-test('W5 final clear와 shelter HP 0이 같은 fixed step이면 lost가 우선한다', async ({ page }) => {
+test('W5 final clear와 player HP 0이 같은 fixed step이면 lost가 우선한다', async ({ page }) => {
   await openScenario(page, 'full-run', 104729);
   await page.evaluate(() => window.__HUCHU_TEST__!.prepareTerminalTieForTest());
   await advance(page, 250);
@@ -55,13 +55,13 @@ test('W5 final clear와 shelter HP 0이 같은 fixed step이면 lost가 우선�
   expect(ended).toHaveLength(1);
   expect(lostLog.filter((event) => event.type === 'runEnded' && event.outcome === 'won')).toHaveLength(0);
   const lethal = lostLog.find((event) => event.type === 'damageApplied' && event.lethal);
-  const shelterFailed = lostLog.find((event) => event.type === 'shelterDamaged' && event.hp === 0);
+  const playerFailed = lostLog.find((event) => event.type === 'playerDamaged' && event.hp === 0);
   expect(lethal).toBeDefined();
-  expect(shelterFailed).toBeDefined();
-  if (lethal?.type !== 'damageApplied' || shelterFailed?.type !== 'shelterDamaged') {
+  expect(playerFailed).toBeDefined();
+  if (lethal?.type !== 'damageApplied' || playerFailed?.type !== 'playerDamaged') {
     throw new Error('Terminal tie did not expose canonical damage events');
   }
-  expect(lethal.appliedAtStep).toBe(shelterFailed.appliedAtStep);
+  expect(lethal.appliedAtStep).toBe(playerFailed.appliedAtStep);
   expect(lostLog.filter(({ type }) => type === 'resultReady')).toHaveLength(0);
   await advance(page, 1199);
   expect((await events(page)).filter(({ type }) => type === 'resultReady')).toHaveLength(0);

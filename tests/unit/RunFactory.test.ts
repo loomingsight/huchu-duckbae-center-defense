@@ -9,7 +9,7 @@ const PLAYER = { x: 270, y: 650 } as const;
 it('E2E run factory는 V2 구매와 companion snapshot만 노출한다', () => {
   const run = E2eGameSession.create({ seed: 424242 });
   expect(run.snapshot()).toMatchObject({
-    shelterHp: 1000,
+    playerHp: 1000,
     companion: { companion: 'deokbae', active: true },
     nextSkillCost: 15,
     learnedSkills: { tailSwipe: false, aquaBeam: false, safetyReport: false },
@@ -59,7 +59,7 @@ it('reset은 같은 projectile pool을 재사용하고 V2 초기 상태를 복�
     from: { x: 0, y: 0 }, to: { x: 270, y: 480 }, speed: 1, damage: 0, lifeMs: 1000,
   });
   run.reset(8);
-  expect(run.snapshot()).toMatchObject({ mode: 'playing', shelterHp: 1000, snacks: 0, activeEnemyCount: 0, activeProjectileCount: 0 });
+  expect(run.snapshot()).toMatchObject({ mode: 'playing', playerHp: 1000, snacks: 0, activeEnemyCount: 0, activeProjectileCount: 0 });
   expect(run.scenarioPortForE2e().projectilePoolTelemetry()).toEqual(initialPool);
 });
 

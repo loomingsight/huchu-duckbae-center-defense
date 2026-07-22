@@ -747,27 +747,27 @@ describe('DamageFeedbackPool', () => {
 });
 
 describe('ImpactFeedbackSystem', () => {
-  it('적/보호소 모두 impact 반대 방향으로 recoil하고 보호소는 enemy lookup을 사용하지 않는다', () => {
+  it('적/후추 모두 impact 반대 방향으로 recoil하고 후추는 enemy lookup을 사용하지 않는다', () => {
     const enemyTarget = fakeTarget();
-    const shelterTarget = fakeTarget();
+    const playerTarget = fakeTarget();
     const enemyTargetLookup = vi.fn(() => enemyTarget);
-    const feedback = new ImpactFeedbackSystem({ enemyTarget: enemyTargetLookup, shelterTarget });
+    const feedback = new ImpactFeedbackSystem({ enemyTarget: enemyTargetLookup, playerTarget });
 
     feedback.handle(hit({ targetId: 8, impactDirection: { x: 1, y: 0 } }));
-    feedback.handle(shelterHit({ impactDirection: { x: 0, y: -1 } }));
+    feedback.handle(playerHit({ impactDirection: { x: 0, y: -1 } }));
 
     expect(enemyTarget.lastRecoil?.direction).toEqual({ x: -1, y: -0 });
-    expect(shelterTarget.lastRecoil?.direction).toEqual({ x: -0, y: 1 });
+    expect(playerTarget.lastRecoil?.direction).toEqual({ x: -0, y: 1 });
     expect(enemyTargetLookup).toHaveBeenCalledTimes(1);
   });
 
-  it('꼬리치기 적 리코일은 공격자 방향과 무관하게 보호소 중앙에서 바깥쪽을 향한다', () => {
+  it('꼬리치기 적 리코일은 후추에서 대상 쪽으로 바깥쪽을 향한다', () => {
     const east = fakeTarget();
     const centered = fakeTarget();
     const targets = new Map([[7, east], [8, centered]]);
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: (targetId) => targets.get(targetId),
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
     });
 
     feedback.handle(hit({
@@ -786,8 +786,8 @@ describe('ImpactFeedbackSystem', () => {
       impactDirection: { x: 1, y: 0 },
     }));
 
-    expect(east.lastRecoil?.direction).toEqual({ x: 1, y: 0 });
-    expect(centered.lastRecoil?.direction).toEqual({ x: 0, y: -1 });
+    expect(east.lastRecoil?.direction).toEqual({ x: 0, y: -1 });
+    expect(centered.lastRecoil?.direction).toEqual({ x: 1, y: 0 });
   });
 
   it('reduced motion은 rule state를 바꾸지 않고 camera=0/recoil 절반/pop delta 절반만 적용한다', () => {
@@ -799,13 +799,13 @@ describe('ImpactFeedbackSystem', () => {
 
     new ImpactFeedbackSystem({
       enemyTarget: () => normalTarget,
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       camera: normalCamera,
       reducedMotion: () => false,
     }).handle(event);
     new ImpactFeedbackSystem({
       enemyTarget: () => reducedTarget,
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       camera: reducedCamera,
       reducedMotion: () => true,
     }).handle(event);
@@ -821,7 +821,7 @@ describe('ImpactFeedbackSystem', () => {
     const compositeBurst = vi.fn();
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => fakeTarget(),
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       camera,
       compositeBurst,
     });
@@ -843,7 +843,7 @@ describe('ImpactFeedbackSystem', () => {
     const removeLethalTarget = vi.fn();
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => target,
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       removeLethalTarget,
     });
 
@@ -862,7 +862,7 @@ describe('ImpactFeedbackSystem', () => {
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => target,
       enemyDamageAnchor,
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       damageNumbers: pool,
       removeLethalTarget,
     });
@@ -898,7 +898,7 @@ describe('ImpactFeedbackSystem', () => {
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => undefined,
       enemyDamageAnchor: () => undefined,
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       damageNumbers: pool,
     });
 
@@ -913,13 +913,13 @@ describe('ImpactFeedbackSystem', () => {
   it('effectiveAmount 0은 number/death/camera/composite/target feedback 전체를 no-op한다', () => {
     const pool = createDamagePool();
     const target = fakeTarget();
-    const shelter = fakeTarget();
+    const player = fakeTarget();
     const camera = { shake: vi.fn() };
     const compositeBurst = vi.fn();
     const removeLethalTarget = vi.fn();
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => target,
-      shelterTarget: shelter,
+      playerTarget: player,
       damageNumbers: pool,
       camera,
       compositeBurst,
@@ -929,13 +929,13 @@ describe('ImpactFeedbackSystem', () => {
     feedback.handle(hit({
       source: 'aquaBeam', strength: 'heavy', amount: 30, effectiveAmount: 0, lethal: true,
     }));
-    feedback.handle(shelterHit({ effectiveAmount: 0 }));
+    feedback.handle(playerHit({ effectiveAmount: 0 }));
 
     expect(pool.active()).toEqual([]);
     expect(target.flashDurations).toEqual([]);
     expect(target.lastRecoil).toBeUndefined();
     expect(target.deathDurations).toEqual([]);
-    expect(shelter.flashDurations).toEqual([]);
+    expect(player.flashDurations).toEqual([]);
     expect(camera.shake).not.toHaveBeenCalled();
     expect(compositeBurst).not.toHaveBeenCalled();
     expect(removeLethalTarget).not.toHaveBeenCalled();
@@ -943,11 +943,11 @@ describe('ImpactFeedbackSystem', () => {
 
   it('resetDedupe는 damage producer를 건드리지 않고 reset만 정확히 한 번 reset한다', () => {
     const damageNumbers = {
-      show: vi.fn(), showShelter: vi.fn(), step: vi.fn(), render: vi.fn(), reset: vi.fn(),
+      show: vi.fn(), showPlayer: vi.fn(), step: vi.fn(), render: vi.fn(), reset: vi.fn(),
     } as unknown as DamageFeedbackPool;
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => fakeTarget(),
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       damageNumbers,
     });
 
@@ -959,11 +959,11 @@ describe('ImpactFeedbackSystem', () => {
 
   it('fixed step과 RAF render를 damage producer의 분리된 API로 위임한다', () => {
     const damageNumbers = {
-      show: vi.fn(), showShelter: vi.fn(), step: vi.fn(), render: vi.fn(), reset: vi.fn(),
+      show: vi.fn(), showPlayer: vi.fn(), step: vi.fn(), render: vi.fn(), reset: vi.fn(),
     } as unknown as DamageFeedbackPool;
     const feedback = new ImpactFeedbackSystem({
       enemyTarget: () => fakeTarget(),
-      shelterTarget: fakeTarget(),
+      playerTarget: fakeTarget(),
       damageNumbers,
     });
 
@@ -1034,9 +1034,9 @@ function hit(overrides: Partial<DamageAppliedEvent> = {}): DamageAppliedEvent {
   };
 }
 
-function shelterHit(overrides: Partial<Extract<GameEvent, { type: 'shelterDamaged' }>> = {}): Extract<GameEvent, { type: 'shelterDamaged' }> {
+function playerHit(overrides: Partial<Extract<GameEvent, { type: 'playerDamaged' }>> = {}): Extract<GameEvent, { type: 'playerDamaged' }> {
   return {
-    type: 'shelterDamaged',
+    type: 'playerDamaged',
     castId: 'enemy:1:1',
     appliedAtStep: 1,
     sourceEnemyId: 1,
@@ -1045,10 +1045,10 @@ function shelterHit(overrides: Partial<Extract<GameEvent, { type: 'shelterDamage
     effectiveAmount: 10,
     hp: 990,
     maxHp: 1000,
-    position: { x: 270, y: 480 },
+    lethal: false,
+    position: { x: 270, y: 650 },
     impactDirection: { x: 0, y: -1 },
     strength: 'medium',
-    visual: 'healthy',
     ...overrides,
   };
 }

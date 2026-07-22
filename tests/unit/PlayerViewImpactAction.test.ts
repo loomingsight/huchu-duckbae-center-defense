@@ -138,7 +138,7 @@ function createScene(): {
     },
   });
   return {
-    scene: { add: { sprite: () => recorded } },
+    scene: { add: { sprite: () => recorded, graphics: () => recorded } },
     last: (method) => calls.get(method)?.at(-1),
   };
 }

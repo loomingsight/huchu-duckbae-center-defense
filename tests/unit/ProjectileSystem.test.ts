@@ -18,10 +18,29 @@ const projectile = (overrides: Partial<ProjectileSpawn> = {}): ProjectileSpawn =
   ...overrides,
 });
 
-it('보호소 원에 닿을 때 구조화된 피해를 한 번 요청하고 풀로 반환한다', () => {
+const target = (position = { x: 270, y: 480 }, radius = 24) => ({ position, radius });
+
+it('발사 뒤 후추가 옆으로 피하면 조준점을 지나도 피해가 발생하지 않는다', () => {
+  const projectiles = new ProjectileSystem(4);
+  projectiles.spawn(projectile({
+    from: { x: 270, y: 300 },
+    to: { x: 270, y: 480 },
+    speed: 450,
+  }));
+
+  const events = projectiles.step(400, {
+    position: { x: 400, y: 480 },
+    radius: 24,
+  });
+
+  expect(events.some(({ type }) => type === 'playerDamageRequested')).toBe(false);
+  expect(projectiles.activeCount).toBe(1);
+});
+
+it('후추 원에 닿을 때 구조화된 피해를 한 번 요청하고 풀로 반환한다', () => {
   const projectiles = new ProjectileSystem(80);
   projectiles.spawn(projectile());
-  const events = projectiles.step(500);
+  const events = projectiles.step(500, target());
   expect(events).toEqual([
     {
       type: 'projectileHit',
@@ -30,10 +49,10 @@ it('보호소 원에 닿을 때 구조화된 피해를 한 번 요청하고 풀�
       projectileKind: 'poop',
       sourceEnemyId: 7,
       sourceEnemyKind: 'poopGuardian',
-      position: { x: 270, y: 518 },
+      position: { x: 270, y: 504 },
     },
     {
-      type: 'shelterDamageRequested',
+      type: 'playerDamageRequested',
       castId: 'enemy:7:1',
       sourceEnemyId: 7,
       sourceEnemyKind: 'poopGuardian',
@@ -44,17 +63,17 @@ it('보호소 원에 닿을 때 구조화된 피해를 한 번 요청하고 풀�
     },
   ]);
   expect(projectiles.activeCount).toBe(0);
-  expect(projectiles.step(500)).toEqual([]);
+  expect(projectiles.step(500, target())).toEqual([]);
 });
 
-it('큰 step과 분할 step은 보호소 원의 같은 최초 교차 좌표에서 hit한다', () => {
+it('큰 step과 분할 step은 후추 원의 같은 최초 교차 좌표에서 hit한다', () => {
   const input = projectile();
   const whole = new ProjectileSystem(1);
   const split = new ProjectileSystem(1);
   whole.spawn(input);
   split.spawn(input);
-  const wholeHit = whole.step(500).find(({ type }) => type === 'projectileHit');
-  const splitHit = Array.from({ length: 30 }, () => split.step(FIXED_STEP_MS))
+  const wholeHit = whole.step(500, target()).find(({ type }) => type === 'projectileHit');
+  const splitHit = Array.from({ length: 30 }, () => split.step(FIXED_STEP_MS, target()))
     .flat()
     .find(({ type }) => type === 'projectileHit');
   expect(splitHit).toEqual(wholeHit);
@@ -71,7 +90,7 @@ it('cap 이후 투사체는 새 객체 생성이나 crash 없이 drop event로 �
 });
 
 it('1200ms 만료도 한 번 반환되고 이후 step에서 다시 처리되지 않는다', () => {
-  const projectiles = new ProjectileSystem(1, 0);
+  const projectiles = new ProjectileSystem(1);
   projectiles.spawn(projectile({
     kind: 'illegalBreeder',
     projectileKind: 'electric',
@@ -80,14 +99,14 @@ it('1200ms 만료도 한 번 반환되고 이후 step에서 다시 처리되지 
     speed: 1,
     damage: 160,
   }));
-  expect(projectiles.step(1199)).toEqual([]);
-  expect(projectiles.step(1)).toEqual([]);
-  expect(projectiles.step(1)).toEqual([]);
+  expect(projectiles.step(1199, target({ x: 500, y: 500 }, 0))).toEqual([]);
+  expect(projectiles.step(1, target({ x: 500, y: 500 }, 0))).toEqual([]);
+  expect(projectiles.step(1, target({ x: 500, y: 500 }, 0))).toEqual([]);
   expect(projectiles.poolSnapshot()).toMatchObject({ active: 0, available: 1 });
 });
 
 it('한 step이 lifetime을 넘겨도 만료 뒤 경로의 늦은 충돌은 피해를 만들지 않는다', () => {
-  const projectiles = new ProjectileSystem(1, 0);
+  const projectiles = new ProjectileSystem(1);
   projectiles.spawn(projectile({
     kind: 'dogTrader',
     projectileKind: 'net',
@@ -97,12 +116,12 @@ it('한 step이 lifetime을 넘겨도 만료 뒤 경로의 늦은 충돌은 피�
     damage: 120,
     lifeMs: 100,
   }));
-  expect(projectiles.step(1000)).toEqual([]);
+  expect(projectiles.step(1000, target({ x: 1000, y: 0 }, 0))).toEqual([]);
   expect(projectiles.activeCount).toBe(0);
 });
 
-it('정확히 lifetime 경계에서 보호소 원에 닿으면 heavy 피해를 한 번 만든다', () => {
-  const projectiles = new ProjectileSystem(1, 0);
+it('정확히 lifetime 경계에서 후추 원에 닿으면 heavy 피해를 한 번 만든다', () => {
+  const projectiles = new ProjectileSystem(1);
   projectiles.spawn(projectile({
     kind: 'illegalBreeder',
     projectileKind: 'electric',
@@ -112,7 +131,7 @@ it('정확히 lifetime 경계에서 보호소 원에 닿으면 heavy 피해를 �
     damage: 160,
     lifeMs: 100,
   }));
-  expect(projectiles.step(1000)).toEqual([
+  expect(projectiles.step(1000, target({ x: 100, y: 0 }, 0))).toEqual([
     {
       type: 'projectileHit',
       castId: 'enemy:7:1',
@@ -123,7 +142,7 @@ it('정확히 lifetime 경계에서 보호소 원에 닿으면 heavy 피해를 �
       position: { x: 100, y: 0 },
     },
     {
-      type: 'shelterDamageRequested',
+      type: 'playerDamageRequested',
       castId: 'enemy:7:1',
       sourceEnemyId: 7,
       sourceEnemyKind: 'illegalBreeder',
@@ -136,14 +155,13 @@ it('정확히 lifetime 경계에서 보호소 원에 닿으면 heavy 피해를 �
 });
 
 it('invalid step과 spawn 입력은 상태 변경 전에 거부한다', () => {
-  for (const shelterRadius of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-    expect(() => new ProjectileSystem(1, shelterRadius)).toThrow(RangeError);
-  }
   const projectiles = new ProjectileSystem(1);
   const input = projectile();
   for (const stepMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-    expect(() => projectiles.step(stepMs)).toThrow(RangeError);
+    expect(() => projectiles.step(stepMs, target())).toThrow(RangeError);
   }
+  expect(() => projectiles.step(0, target({ x: Number.NaN, y: 0 }))).toThrow(RangeError);
+  expect(() => projectiles.step(0, target({ x: 0, y: 0 }, -1))).toThrow(RangeError);
   for (const invalid of [
     { ...input, castId: '' },
     { ...input, enemyId: -1 },
@@ -158,7 +176,7 @@ it('invalid step과 spawn 입력은 상태 변경 전에 거부한다', () => {
 });
 
 it('reports stable logical workload counters across capacity rejection, clear, and reuse', () => {
-  const projectiles = new ProjectileSystem(1, 0);
+  const projectiles = new ProjectileSystem(1);
   const counters = projectiles.workloadCounters();
   const poolInstanceId = projectiles.poolSnapshot().instanceId;
 
@@ -174,13 +192,13 @@ it('reports stable logical workload counters across capacity rejection, clear, a
   expect(projectiles.workloadCounters()).toBe(counters);
 
   const initialCounters = { ...counters };
-  expect(() => projectiles.step(Number.NaN)).toThrow(RangeError);
+  expect(() => projectiles.step(Number.NaN, target())).toThrow(RangeError);
   expect(() => projectiles.spawn(projectile({ speed: Number.NaN }))).toThrow(RangeError);
   expect(counters).toEqual(initialCounters);
 
   projectiles.spawn(projectile());
   projectiles.spawn(projectile({ id: 2 }));
-  projectiles.step(1);
+  projectiles.step(1, target({ x: 500, y: 500 }, 0));
 
   expect(counters).toMatchObject({
     poolInstanceId,
@@ -194,7 +212,7 @@ it('reports stable logical workload counters across capacity rejection, clear, a
 
   projectiles.clear();
   projectiles.spawn(projectile({ id: 3 }));
-  projectiles.step(1200);
+  projectiles.step(1200, target({ x: 500, y: 500 }, 0));
 
   expect(counters).toEqual({
     poolInstanceId,
@@ -208,7 +226,7 @@ it('reports stable logical workload counters across capacity rejection, clear, a
   expect(projectiles.workloadCounters()).toBe(counters);
   expect(projectiles.poolSnapshot().instanceId).toBe(poolInstanceId);
 
-  projectiles.step(0);
+  projectiles.step(0, target());
 
   expect(counters).toMatchObject({
     active: 0,

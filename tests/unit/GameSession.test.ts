@@ -6,7 +6,7 @@ import { WAVE_DEFINITIONS } from '../../src/game/data/waveDefinitions';
 import { EnemySystem } from '../../src/game/enemies/EnemySystem';
 import type { GameEvent } from '../../src/game/events/GameEvents';
 import { ProgressionSystem } from '../../src/game/progression/ProgressionSystem';
-import { ShelterSystem } from '../../src/game/shelter/ShelterSystem';
+import { PlayerHealthSystem } from '../../src/game/player/PlayerHealthSystem';
 import {
   GameSession,
   type GameSessionDependencies,
@@ -69,7 +69,7 @@ describe('GameSession V2 fixed-step integration', () => {
 
     expect(run.snapshot()).toMatchObject({
       mode: 'playing', simulationMs: 0, wave: 1,
-      shelterHp: 1000, shelterMaxHp: 1000, snacks: 0, nextSkillCost: 15,
+      playerHp: 1000, playerMaxHp: 1000, snacks: 0, nextSkillCost: 15,
       learnedSkills: { tailSwipe: false, aquaBeam: false, safetyReport: false },
       skillStates: {
         tailSwipe: { learned: false, activeCastId: null },
@@ -108,13 +108,13 @@ describe('GameSession V2 fixed-step integration', () => {
     const run = Harness.createHarness(3);
     run.suppressWave(1);
     const enemyId = run.spawnEnemy('poopGuardian', 'P6');
-    run.place(enemyId, 335);
+    run.placeAt(enemyId, { x: PLAYER.x, y: PLAYER.y + 150 });
     run.learnAt('tailSwipe', 0);
     run.setSimulationTicks(479);
     expect(run.step(FIXED_STEP_MS, PLAYER)).toContainEqual(
       expect.objectContaining({ type: 'skillCastStarted', skillId: 'tailSwipe' }),
     );
-    run.place(enemyId, 1_000_000);
+    run.placeAt(enemyId, PLAYER);
     const attackStartedEvents = run.step(FIXED_STEP_MS, PLAYER);
     const attackStarted = findAttackStarted(attackStartedEvents);
     expect(attackStarted).toEqual({
@@ -141,7 +141,7 @@ describe('GameSession V2 fixed-step integration', () => {
       kind: attackStarted!.kind,
     });
     expect(events.some((event) => event.type === 'projectileRequested')).toBe(false);
-    expect(events.some((event) => event.type === 'shelterDamageRequested')).toBe(false);
+    expect(events.some((event) => event.type === 'playerDamageRequested')).toBe(false);
     expect(run.snapshot().projectiles).toEqual([
       expect.objectContaining({ id: 77 }),
     ]);
@@ -167,28 +167,28 @@ describe('GameSession V2 fixed-step integration', () => {
     expect(run.snapshot().snacks).toBe(2);
   });
 
-  it('structured shelter request를 상세 shelterDamaged로 손실 없이 바꾼다', () => {
-    const shelter = new ShelterSystem(1000, 900);
-    const run = Harness.createHarness(5, { shelter });
+  it('structured player request를 상세 playerDamaged로 손실 없이 바꾼다', () => {
+    const playerHealth = new PlayerHealthSystem(1000, 900);
+    const run = Harness.createHarness(5, { playerHealth });
     run.suppressWave(1);
     run.spawnProjectile(projectile({
       id: 41, castId: 'enemy:41:1', enemyId: 41, kind: 'dogTrader',
-      projectileKind: 'net', from: { x: 270, y: 519 }, speed: 120, damage: 120,
+      projectileKind: 'net', from: { x: 270, y: 625 }, to: PLAYER,
+      speed: 120, damage: 120,
     }));
 
     const events = run.step(FIXED_STEP_MS, PLAYER);
-    expect(events.find((event) => event.type === 'shelterDamageRequested')).toMatchObject({
+    expect(events.find((event) => event.type === 'playerDamageRequested')).toMatchObject({
       castId: 'enemy:41:1', sourceEnemyId: 41, sourceEnemyKind: 'dogTrader',
-      amount: 120, position: { x: 270, y: 480 }, strength: 'heavy',
+      amount: 120, position: PLAYER, strength: 'heavy',
     });
-    expect(events.find((event) => event.type === 'shelterDamaged')).toMatchObject({
+    expect(events.find((event) => event.type === 'playerDamaged')).toMatchObject({
       castId: 'enemy:41:1', appliedAtStep: 1,
       sourceEnemyId: 41, sourceEnemyKind: 'dogTrader', amount: 120,
-      effectiveAmount: 120, hp: 780, maxHp: 1000,
-      position: { x: 270, y: 480 }, impactDirection: expect.any(Object),
-      strength: 'heavy', visual: 'healthy',
+      effectiveAmount: 120, hp: 780, maxHp: 1000, lethal: false,
+      position: PLAYER, impactDirection: expect.any(Object), strength: 'heavy',
     });
-    expect(run.snapshot()).toMatchObject({ shelterHp: 780, shelterMaxHp: 1000 });
+    expect(run.snapshot()).toMatchObject({ playerHp: 780, playerMaxHp: 1000 });
   });
 
   it('boss active event는 두 boss의 0→1과 1→0에만 발생한다', () => {
@@ -307,7 +307,7 @@ describe('GameSession terminal and transition priority', () => {
     progression.addSnacks(40);
     const run = GameSession.create(
       { seed: 11 },
-      { progression, shelter: new ShelterSystem(1000, 0) },
+      { progression, playerHealth: new PlayerHealthSystem(1000, 0) },
     );
 
     expect(run.step(FIXED_STEP_MS, PLAYER)).toEqual(expect.arrayContaining([
@@ -327,7 +327,7 @@ describe('GameSession terminal and transition priority', () => {
   });
 
   it('final clear와 loss가 같은 step이면 lost만 한 번 확정한다', () => {
-    const run = Harness.createHarness(12, { shelter: new ShelterSystem(1000, 0) });
+    const run = Harness.createHarness(12, { playerHealth: new PlayerHealthSystem(1000, 0) });
     run.suppressWave(5);
 
     const events = run.step(FIXED_STEP_MS, PLAYER);
@@ -352,8 +352,8 @@ describe('GameSession terminal and transition priority', () => {
   it('dependency reset은 주입 instance를 초기화하고 default session끼리 상태를 공유하지 않는다', () => {
     const progression = new ProgressionSystem();
     progression.addSnacks(40);
-    const shelter = new ShelterSystem(1000, 900);
-    const first = GameSession.create({ seed: 14 }, { progression, shelter });
+    const playerHealth = new PlayerHealthSystem(1000, 900);
+    const first = GameSession.create({ seed: 14 }, { progression, playerHealth });
     const second = GameSession.create({ seed: 15 });
     first.queueSkillPurchase('tailSwipe');
     first.step(FIXED_STEP_MS, PLAYER);
@@ -361,17 +361,17 @@ describe('GameSession terminal and transition priority', () => {
     first.reset(16);
 
     expect(progression.snapshot()).toMatchObject({ snacks: 0, queuedSkillId: null });
-    expect(shelter.currentHp).toBe(1000);
-    expect(first.snapshot()).toMatchObject({ snacks: 0, shelterHp: 1000, simulationMs: 0 });
-    expect(second.snapshot()).toMatchObject({ snacks: 0, shelterHp: 1000, simulationMs: 0 });
+    expect(playerHealth.currentHp).toBe(1000);
+    expect(first.snapshot()).toMatchObject({ snacks: 0, playerHp: 1000, simulationMs: 0 });
+    expect(second.snapshot()).toMatchObject({ snacks: 0, playerHp: 1000, simulationMs: 0 });
   });
 
-  it('maxHp 1000이 아닌 shelter dependency를 생성 시점에 상태 변경 없이 거부한다', () => {
-    const shelter = new ShelterSystem(500, 400);
+  it('maxHp 1000이 아닌 player dependency를 생성 시점에 상태 변경 없이 거부한다', () => {
+    const playerHealth = new PlayerHealthSystem(500, 400);
 
-    expect(() => GameSession.create({ seed: 18 }, { shelter })).toThrow(RangeError);
-    expect(shelter.currentHp).toBe(400);
-    expect(shelter.maximumHp).toBe(500);
+    expect(() => GameSession.create({ seed: 18 }, { playerHealth })).toThrow(RangeError);
+    expect(playerHealth.currentHp).toBe(400);
+    expect(playerHealth.maximumHp).toBe(500);
   });
 });
 
@@ -403,6 +403,10 @@ class Harness extends GameSession {
 
   place(enemyId: number, progress: number): void {
     this.enemies.applyPathProgress(enemyId, progress);
+  }
+
+  placeAt(enemyId: number, position: { readonly x: number; readonly y: number }): void {
+    this.enemies.applyWorldPosition(enemyId, position);
   }
 
   weaken(enemyId: number, hp: number): void {
@@ -475,7 +479,7 @@ function projectile(overrides: Partial<ProjectileSpawn> = {}): ProjectileSpawn {
     kind: 'poopGuardian',
     projectileKind: 'poop',
     from: { x: 20, y: 20 },
-    to: { x: 270, y: 480 },
+    to: PLAYER,
     speed: 1,
     damage: 25,
     lifeMs: 1200,

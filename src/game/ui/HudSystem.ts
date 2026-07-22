@@ -1,13 +1,11 @@
 import { VirtualJoystick } from '../player/VirtualJoystick';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import type { RunSnapshot, WaveNumber } from '../session/RunSnapshot';
-import type { ShelterVisualState } from '../shelter/ShelterTypes';
 import type { PurchasableSkillId } from '../types/GameTypes';
 import { AutoSkillHud, type AutoSkillRow } from './AutoSkillHud';
 import { NOOP_MUTE_PORT, type MutePort } from './MutePort';
 import { SkillDock, type DockButtonModel } from './SkillDock';
 import { SKILL_COPY } from './SkillIconSvg';
-import { shelterVisualState } from './ShelterHpView';
 import { TopHud } from './TopHud';
 
 const AFFORDABLE_TOAST_MS = 1200;
@@ -17,10 +15,10 @@ export interface HudSnapshot {
   readonly wave: WaveNumber;
   readonly timeText: string;
   readonly snacks: number;
-  readonly shelter: {
+  readonly player: {
     readonly current: number;
     readonly maximum: 1000;
-    readonly visual: ShelterVisualState;
+    readonly visual: 'healthy' | 'damaged' | 'critical' | 'failed';
   };
   readonly autoSkills: readonly AutoSkillRow[];
   readonly dock: readonly DockButtonModel[];
@@ -113,10 +111,10 @@ export class HudSystem {
       wave: run.wave,
       timeText: top.timeText,
       snacks: run.snacks,
-      shelter: {
-        current: run.shelterHp,
-        maximum: run.shelterMaxHp,
-        visual: shelterVisualState(run.shelterHp, run.shelterMaxHp),
+      player: {
+        current: run.playerHp,
+        maximum: run.playerMaxHp,
+        visual: playerVisualState(run.playerHp, run.playerMaxHp),
       },
       autoSkills: this.autoSkills.snapshot(),
       dock: this.dock.snapshot(),
@@ -145,4 +143,15 @@ export class HudSystem {
     this.toast.textContent = text ?? '';
     this.toast.dataset.visible = String(text !== null);
   }
+}
+
+function playerVisualState(
+  current: number,
+  maximum: number,
+): 'healthy' | 'damaged' | 'critical' | 'failed' {
+  const ratio = current / maximum;
+  if (ratio >= 0.67) return 'healthy';
+  if (ratio >= 0.34) return 'damaged';
+  if (ratio > 0) return 'critical';
+  return 'failed';
 }

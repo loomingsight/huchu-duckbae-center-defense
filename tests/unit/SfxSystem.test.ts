@@ -148,7 +148,7 @@ describe('AudioRegistry', () => {
   it('정확한 13개 합성 cue 정의를 보존한다', () => {
     expect(SFX_IDS).toEqual([
       'barkHuchu', 'barkDeokbae', 'hitLight', 'hitHeavy', 'tailSwipe',
-      'aquaCharge', 'aquaImpact', 'noticePaper', 'noticeStamp', 'shelterWood',
+      'aquaCharge', 'aquaImpact', 'noticePaper', 'noticeStamp', 'huchuHit',
       'skillLearned', 'electricCharge', 'electricImpact',
     ]);
     expect(AUDIO_REGISTRY).toEqual({
@@ -161,7 +161,7 @@ describe('AudioRegistry', () => {
       aquaImpact: { priority: 2, minGapMs: 120, maxPerCast: 1, tone: ['sine', 120, 60, 140], noise: ['lowpass', 1800, 180] },
       noticePaper: { priority: 2, minGapMs: 120, maxPerCast: 1, noise: ['bandpass', 2200, 100] },
       noticeStamp: { priority: 2, minGapMs: 45, maxPerCast: 3, tone: ['sine', 90, 50, 110], noise: ['lowpass', 700, 45] },
-      shelterWood: { priority: 3, minGapMs: 80, maxPerCast: 1, tone: ['sine', 130, 72, 120], noise: ['bandpass', 520, 70] },
+      huchuHit: { priority: 3, minGapMs: 80, maxPerCast: 1, tone: ['sine', 130, 72, 120], noise: ['bandpass', 520, 70] },
       skillLearned: { priority: 1, minGapMs: 250, maxPerCast: 1, chime: [659, 784, 988] },
       electricCharge: { priority: 3, minGapMs: 180, maxPerCast: 1, tone: ['sawtooth', 180, 520, 300], noise: ['highpass', 2400, 220] },
       electricImpact: { priority: 3, minGapMs: 120, maxPerCast: 1, tone: ['sine', 75, 38, 180], noise: ['highpass', 1800, 130] },
@@ -187,7 +187,7 @@ describe('SfxSystem', () => {
 
   it('active voice를 12개로 제한하고 strictly 높은 priority만 가장 오래된 낮은 voice를 선점한다', () => {
     const fake = new FakeAudioContext();
-    const registry = registryWithPriorities({ shelterWood: 3, electricCharge: 0 });
+    const registry = registryWithPriorities({ huchuHit: 3, electricCharge: 0 });
     const sfx = new SfxSystem(fake.asAudioContext(), registry);
 
     SFX_IDS.slice(0, 12).forEach((id, index) => {
@@ -197,7 +197,7 @@ describe('SfxSystem', () => {
     const oldest = fake.oscillators[0];
 
     expect(sfx.play('electricCharge', { castId: 'same-priority' })).toBe(false);
-    expect(sfx.play('shelterWood', { castId: 'higher-priority' })).toBe(true);
+    expect(sfx.play('huchuHit', { castId: 'higher-priority' })).toBe(true);
     expect(sfx.snapshot().voiceCount).toBe(12);
     expect(oldest?.stops).toContain(0);
     expect(oldest?.disconnectCalls).toBe(1);

@@ -1,7 +1,7 @@
 import type { WaveNumber } from './RunSnapshot';
 
 export interface PostStepInput {
-  readonly shelterHp: number;
+  readonly playerHp: number;
   readonly wave: WaveNumber;
   readonly active: number;
   readonly pending: number;
@@ -16,7 +16,7 @@ export type PostStepResolution =
   };
 
 export function resolvePostStep(input: PostStepInput): PostStepResolution {
-  if (input.shelterHp <= 0) return { mode: 'lost' };
+  if (input.playerHp <= 0) return { mode: 'lost' };
   if (input.active !== 0 || input.pending !== 0) return { mode: 'playing' };
   if (input.wave === 5) return { mode: 'won' };
   return {

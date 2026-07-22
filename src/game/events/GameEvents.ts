@@ -6,7 +6,6 @@ import type {
 import type { CompanionEvent } from '../companions/CompanionSystem';
 import type { GameMode } from '../core/GameMode';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
-import type { ShelterVisualState } from '../shelter/ShelterTypes';
 import type { SkillTimelineEvent } from '../skills/SkillSystem';
 import type { EnemyKind } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
@@ -39,7 +38,7 @@ export type CoreStateEvent =
     readonly activeBossCount: number;
   }
   | {
-    readonly type: 'shelterDamaged';
+    readonly type: 'playerDamaged';
     readonly castId: string;
     readonly appliedAtStep: number;
     readonly sourceEnemyId: number;
@@ -48,10 +47,10 @@ export type CoreStateEvent =
     readonly effectiveAmount: number;
     readonly hp: number;
     readonly maxHp: number;
+    readonly lethal: boolean;
     readonly position: Point;
     readonly impactDirection: Point;
     readonly strength: 'medium' | 'heavy';
-    readonly visual: ShelterVisualState;
   };
 
 export type EnemyCombatEvent = EnemySystemCombatEvent;

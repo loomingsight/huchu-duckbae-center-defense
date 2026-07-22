@@ -605,7 +605,10 @@ function snapshot(
   x: number,
   y: number,
 ): ProjectileSnapshot {
-  return { id, kind, x, y, speed: 220, damage: 3, lifeMs: 1200 };
+  return {
+    id, kind, x, y, speed: 220, damage: 3, lifeMs: 1200,
+    target: { x: 270, y: 480 },
+  };
 }
 
 interface FakeObject {

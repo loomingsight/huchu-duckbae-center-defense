@@ -831,7 +831,7 @@ function createBridgeHarness() {
       wave: run.snapshot().wave,
       timeText: '00:00',
       snacks: run.snapshot().snacks,
-      shelter: { current: 1000, maximum: 1000 as const, visual: 'healthy' as const },
+      player: { current: 1000, maximum: 1000 as const, visual: 'healthy' as const },
       autoSkills: [], dock: [], muted: false, toast: null,
     }),
     presentationTelemetryForTest: () => ({

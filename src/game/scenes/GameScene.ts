@@ -58,8 +58,6 @@ import {
   type GameSessionDependencies,
 } from '../session/GameSession';
 import type { RunSnapshot } from '../session/RunSnapshot';
-import { ShelterView } from '../shelter/ShelterView';
-import { shelterVisualState } from '../shelter/ShelterSystem';
 import {
   CountdownOverlay,
   type CountdownKind,
@@ -106,7 +104,6 @@ export class GameScene extends Phaser.Scene {
   private restoreOverlay!: RuntimeErrorOverlay;
   protected enemyActors: EnemyActorPool | undefined;
   protected projectileActors: ProjectileActorPool | undefined;
-  protected shelterView: ShelterView | undefined;
   private manualClock = false;
   private worldAnimationMs = 0;
   private moving = false;
@@ -165,14 +162,19 @@ export class GameScene extends Phaser.Scene {
     );
 
     new MapView(this);
-    this.shelterView = new ShelterView(this);
     this.combatEffects = this.createCombatEffectPool();
     this.damageFeedbackPool = new DamageFeedbackPool(this);
     this.projectileActors = new ProjectileActorPool(this, this.combatEffects);
+    this.playerController = new PlayerController({ ...INITIAL_PLAYER_POSITION });
+    this.playerView = new PlayerView(
+      this,
+      this.playerController.snapshot(),
+      this.combatEffects,
+    );
     this.impactFeedback = new ImpactFeedbackSystem({
       enemyTarget: (targetId) => this.enemyActors?.feedbackTarget(targetId),
       enemyDamageAnchor: (targetId) => this.enemyActors?.damageAnchor(targetId),
-      shelterTarget: this.shelterView,
+      playerTarget: this.playerView,
       damageNumbers: this.damageFeedbackPool,
       camera: { shake: (durationMs, intensity) => this.cameras.main.shake(durationMs, intensity) },
       reducedMotion: () => this.reducedMotion,
@@ -196,12 +198,6 @@ export class GameScene extends Phaser.Scene {
       queueSkillPurchase: (skillId) => this.session.queueSkillPurchase(skillId),
       mutePort,
     });
-    this.playerController = new PlayerController({ ...INITIAL_PLAYER_POSITION });
-    this.playerView = new PlayerView(
-      this,
-      this.playerController.snapshot(),
-      this.combatEffects,
-    );
     this.companionView = new CompanionView(this, {
       player: this.playerController.snapshot(),
       facing: this.lastMovementFacing,
@@ -313,7 +309,7 @@ export class GameScene extends Phaser.Scene {
     }
     const snapshot = this.session.snapshot();
     const renderDeltaMs = this.worldPaused ? 0 : delta;
-    this.renderPlayer();
+    this.renderPlayer(snapshot);
     this.renderCompanion(renderDeltaMs, snapshot);
     this.renderEnemies(renderDeltaMs, snapshot);
     this.renderProjectiles(snapshot);
@@ -325,14 +321,12 @@ export class GameScene extends Phaser.Scene {
     if (!Number.isFinite(stepMs) || Math.abs(stepMs - FIXED_STEP_MS) > TIME_EPSILON_MS) {
       throw new RangeError('GameScene requires one fixed step');
     }
-    const entryMode = this.session.currentMode();
     const canStepWorld = this.session.modeStateForControllers().canStepWorld();
     const intent = this.movementIntent.read();
     if (!canStepWorld) {
       if (this.waveEndPresentationGate.blocking) this.advanceWaveEndPresentation(stepMs);
       const events = this.stepLogicalWorld(stepMs, intent);
       this.hud.step(stepMs);
-      if (entryMode === 'lost') this.shelterView?.stepFailedHold(stepMs);
       this.applySessionEvents(events);
       if (renderHudAfterStep) this.renderHud();
       return events;
@@ -367,7 +361,7 @@ export class GameScene extends Phaser.Scene {
     this.presentationTelemetry.reset();
     this.dogTraderTelemetry.reset();
     this.impactFeedback.resetDedupe();
-    this.shelterView?.reset();
+    this.playerView.resetImpactVisuals();
     this.visibilityController.reset();
     this.webGlRecoveryController.reset();
     this.lifecyclePauseCoordinator.reset();
@@ -444,11 +438,6 @@ export class GameScene extends Phaser.Scene {
     return this.projectileActors.impactSnapshots();
   }
 
-  shelterShakeOffsetSnapshot(): number {
-    if (this.shelterView === undefined) throw new Error('Shelter view is not initialized');
-    return this.shelterView.shakeOffsetSnapshot();
-  }
-
   combatEffectsSnapshot(): PoolSnapshot {
     return this.combatEffects.snapshot();
   }
@@ -496,7 +485,7 @@ export class GameScene extends Phaser.Scene {
     readonly barkEffectAgesMs: readonly number[];
     readonly projectileEffectAgesMs: readonly number[];
     readonly skillEffectAgesMs: readonly number[];
-    readonly shelterEffectAgeMs: number | null;
+    readonly playerFeedbackAgeMs: number | null;
     readonly offLeashEffectAgeMs: number | null;
   } {
     return {
@@ -511,7 +500,7 @@ export class GameScene extends Phaser.Scene {
         ...this.combatEffects.effectAges('safetyNotice'),
         ...this.combatEffects.effectAges('safetyStamp'),
       ],
-      shelterEffectAgeMs: this.shelterView?.shakeElapsedSnapshot() ?? null,
+      playerFeedbackAgeMs: this.playerView.feedbackSnapshot().recoilRemainingMs || null,
       offLeashEffectAgeMs: this.combatEffects.effectAges('doorPush')[0] ?? null,
     };
   }
@@ -549,7 +538,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private renderPlayer(): void {
+  private renderPlayer(run: RunSnapshot = this.session.snapshot()): void {
     this.playerView.render({
       ...this.playerController.snapshot(),
       worldAnimationMs: this.worldAnimationMs,
@@ -560,6 +549,7 @@ export class GameScene extends Phaser.Scene {
         elapsedMs: this.playerBodyAction.elapsedMs,
       },
     });
+    this.playerView.renderHealth(run.playerHp, run.playerMaxHp);
   }
 
   private renderCompanion(
@@ -615,7 +605,7 @@ export class GameScene extends Phaser.Scene {
           this.waveEndPresentationGate.defer({ kind: 'countdown' });
         } else if (event.mode === 'lost') {
           this.waveEndPresentationGate.reset();
-          this.shelterView?.showFailedHold();
+          this.playerView.showDefeatedHold();
         }
       }
       if (event.type === 'skillPurchaseResolved') {
@@ -686,7 +676,7 @@ export class GameScene extends Phaser.Scene {
           .find(({ id }) => id === event.enemyId)?.position;
         if (position !== undefined) this.combatEffects.showBreederWarning(event.castId, position);
       }
-      if (event.type === 'shelterDamageRequested') {
+      if (event.type === 'playerDamageRequested') {
         this.showOffLeashAttack(event);
       }
       if (event.type === 'projectileRequested' && event.projectileKind === 'electric') {
@@ -698,8 +688,7 @@ export class GameScene extends Phaser.Scene {
           this.combatEffects.showElectricWave(event.castId, event.position);
         }
       }
-      if (event.type === 'shelterDamaged') {
-        this.shelterView?.render(event.visual, event.hp, event.maxHp);
+      if (event.type === 'playerDamaged') {
         this.impactFeedback.handle(event);
       }
       if (event.type === 'enemyDied') this.enemyActors?.release(event.enemyId);
@@ -774,13 +763,12 @@ export class GameScene extends Phaser.Scene {
       () => this.impactFeedback.resetDedupe(),
       () => { this.enemyActors = undefined; },
       () => { this.projectileActors = undefined; },
-      () => { this.shelterView = undefined; },
       () => this.keyboardInput.destroy(),
       () => this.movementIntent.reset(),
     ]);
   }
 
-  private showOffLeashAttack(event: Extract<GameEvent, { type: 'shelterDamageRequested' }>): void {
+  private showOffLeashAttack(event: Extract<GameEvent, { type: 'playerDamageRequested' }>): void {
     const enemy = this.session.snapshot().enemies.find(({ id }) => id === event.sourceEnemyId);
     if (enemy?.kind !== 'offLeashGuardian') return;
     this.combatEffects.showDoorPush(event.castId, enemy.position, event.position);
@@ -793,7 +781,7 @@ export class GameScene extends Phaser.Scene {
     this.enemyActors?.step(stepMs);
     this.stepPlayerBodyAction(stepMs);
     this.hud.step(stepMs);
-    this.shelterView?.stepSimulation(stepMs);
+    this.playerView.stepImpactFeedback(stepMs);
     if (this.barkAnimationElapsedMs === undefined) return;
     const nextElapsedMs = this.barkAnimationElapsedMs + stepMs;
     this.barkAnimationElapsedMs = nextElapsedMs + TIME_EPSILON_MS >= BARK_CADENCE_MS
@@ -817,15 +805,11 @@ export class GameScene extends Phaser.Scene {
     const snapshot = this.session.snapshot();
     this.snapCompanionPose();
     this.enemyActors?.snapCompositePoses();
-    this.renderPlayer();
+    this.renderPlayer(snapshot);
     this.renderCompanion(0);
     this.renderEnemies();
     this.renderProjectiles();
-    this.shelterView?.render(
-      shelterVisualState(snapshot.shelterHp, snapshot.shelterMaxHp),
-      snapshot.shelterHp,
-      snapshot.shelterMaxHp,
-    );
+    this.playerView.renderHealth(snapshot.playerHp, snapshot.playerMaxHp);
     this.renderHud();
     if (snapshot.mode === 'countdown') this.renderCountdown();
   }

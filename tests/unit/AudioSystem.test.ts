@@ -236,9 +236,9 @@ const routeEvents = (): readonly GameEvent[] => [
     effectiveAmount: 1, position: point, impactDirection: point, source: 'bark', strength: 'medium', lethal: false,
   },
   {
-    type: 'shelterDamaged', ...baseEvent, appliedAtStep: 1, sourceEnemyId: 1,
+    type: 'playerDamaged', ...baseEvent, appliedAtStep: 1, sourceEnemyId: 1,
     sourceEnemyKind: 'poopGuardian', amount: 1, effectiveAmount: 1, hp: 9, maxHp: 10,
-    position: point, impactDirection: point, strength: 'medium', visual: 'healthy',
+    position: point, impactDirection: point, strength: 'medium', lethal: false,
   },
 ];
 
@@ -366,7 +366,7 @@ describe('AudioSystem', () => {
 
     expect(port.played.map(({ id }) => id)).toEqual([
       'barkHuchu', 'barkDeokbae', 'aquaCharge', 'noticePaper', 'tailSwipe',
-      'aquaImpact', 'skillLearned', 'electricCharge', 'electricImpact', 'hitLight', 'shelterWood',
+      'aquaImpact', 'skillLearned', 'electricCharge', 'electricImpact', 'hitLight', 'huchuHit',
     ]);
   });
 

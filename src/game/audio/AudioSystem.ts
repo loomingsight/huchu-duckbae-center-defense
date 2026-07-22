@@ -117,8 +117,8 @@ export class AudioSystem {
         if (event.effectiveAmount <= 0) break;
         this.play(event.strength === 'heavy' ? 'hitHeavy' : 'hitLight', event);
         break;
-      case 'shelterDamaged':
-        this.play('shelterWood', event);
+      case 'playerDamaged':
+        this.play('huchuHit', event);
         break;
       default:
         break;

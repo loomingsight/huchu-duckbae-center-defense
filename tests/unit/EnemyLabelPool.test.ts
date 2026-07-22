@@ -169,7 +169,7 @@ it('composite lethal은 rig beginDeath를 중복하지 않고 wrapper 160ms cloc
   actors.acquire(enemy({ id: 11, kind: 'dogTrader', isBoss: true }));
   const feedback = new ImpactFeedbackSystem({
     enemyTarget: (targetId) => actors.feedbackTarget(targetId),
-    shelterTarget: createFakeRig(),
+    playerTarget: createFakeRig(),
     removeLethalTarget: (targetId) => { actors.beginDeath(targetId, true); },
   });
 

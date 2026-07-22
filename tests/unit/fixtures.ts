@@ -40,7 +40,6 @@ export const outOfRangeEnemy = (overrides: Partial<EnemySnapshot> = {}): EnemySn
 export const attackSystemFor = (kind: EnemyKind): EnemyAttackSystem => new EnemyAttackSystem({
   kind,
   balance: BALANCE.enemies[kind],
-  shelter: { center: { x: 270, y: 480 }, radius: 38 },
 });
 
 export function learnedSkillSystem(id: PurchasableSkillId, learnedAtMs = 0): SkillSystem {

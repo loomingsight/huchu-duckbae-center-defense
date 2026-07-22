@@ -1,6 +1,6 @@
 import {
   EnemyAttackSystem,
-  distanceToShelterBoundary,
+  distanceToTargetBoundary,
 } from '../../src/game/combat/EnemyAttackSystem';
 import { ProjectileSystem } from '../../src/game/combat/ProjectileSystem';
 import { BALANCE, attackImpactMs } from '../../src/game/data/balance';
@@ -17,7 +17,7 @@ const snapshot = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot => ({
   state: 'moving',
   pathId: 'P1',
   pathProgress: 77,
-  position: { x: 270, y: 550 },
+  position: { x: 270, y: 536 },
   heading: { x: 0, y: -1 },
   trailingPose: { position: { x: 270, y: 620 }, heading: { x: 0, y: -1 } },
   etaMs: 0,
@@ -32,6 +32,8 @@ const snapshot = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot => ({
   ...overrides,
 });
 
+const PLAYER_TARGET = { position: { x: 270, y: 480 }, radius: 24 } as const;
+
 const inRangeEnemy = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot =>
   snapshot(overrides);
 
@@ -41,20 +43,33 @@ const outOfRangeEnemy = (overrides: Partial<EnemySnapshot> = {}): EnemySnapshot 
 const attackSystemFor = (kind: EnemyKind): EnemyAttackSystem => new EnemyAttackSystem({
   kind,
   balance: BALANCE.enemies[kind],
-  shelter: { center: { x: 270, y: 480 }, radius: 38 },
+});
+
+it('공격 도중 후추가 사거리 밖으로 이동하면 같은 cast를 취소한다', () => {
+  const attack = attackSystemFor('offLeashGuardian');
+  const enemy = inRangeEnemy({ position: { x: 270, y: 520 } });
+  const near = { position: { x: 270, y: 480 }, radius: 24 };
+  const far = { position: { x: 500, y: 800 }, radius: 24 };
+
+  expect(attack.step(0, enemy, near)).toContainEqual(
+    expect.objectContaining({ type: 'attackStarted' }),
+  );
+  expect(attack.step(250, enemy, far)).toEqual([
+    expect.objectContaining({ type: 'attackCancelled', castId: 'enemy:1:1' }),
+  ]);
 });
 
 it('새 tail impact는 windup만 한 번 취소하고 holding/projectile은 지우지 않는다', () => {
   const attack = attackSystemFor('poopGuardian');
   const target = inRangeEnemy({ id: 3, state: 'windup' });
-  attack.step(0, target);
+  attack.step(0, target, PLAYER_TARGET);
 
   expect(attack.interruptWindup(3)).toBe(true);
   expect(attack.interruptWindup(3)).toBe(false);
   expect('stunnedMs' in target).toBe(false);
 
-  attack.step(0, target);
-  attack.step(250, target);
+  attack.step(0, target, PLAYER_TARGET);
+  attack.step(250, target, PLAYER_TARGET);
   expect(attack.snapshot(3).state).toBe('holding');
   expect(attack.interruptWindup(3)).toBe(false);
   expect(attack.snapshot(3).state).toBe('holding');
@@ -64,21 +79,21 @@ it('일반 공격은 250ms, 두 보스 공격은 500ms event frame에 release한
   const regular = attackSystemFor('poopGuardian');
   const dogTrader = attackSystemFor('dogTrader');
   const illegalBreeder = attackSystemFor('illegalBreeder');
-  expect(regular.step(249, inRangeEnemy({ id: 1 })).some(
+  expect(regular.step(249, inRangeEnemy({ id: 1 }), PLAYER_TARGET).some(
     (event) => event.type === 'projectileRequested',
   )).toBe(false);
-  expect(regular.step(1, inRangeEnemy({ id: 1 })).some(
+  expect(regular.step(1, inRangeEnemy({ id: 1 }), PLAYER_TARGET).some(
     (event) => event.type === 'projectileRequested',
   )).toBe(true);
-  expect(dogTrader.step(499, inRangeEnemy({ id: 2, kind: 'dogTrader', isBoss: true })).some(
+  expect(dogTrader.step(499, inRangeEnemy({ id: 2, kind: 'dogTrader', isBoss: true }), PLAYER_TARGET).some(
     (event) => event.type === 'projectileRequested',
   )).toBe(false);
-  expect(dogTrader.step(1, inRangeEnemy({ id: 2, kind: 'dogTrader', isBoss: true })).some(
+  expect(dogTrader.step(1, inRangeEnemy({ id: 2, kind: 'dogTrader', isBoss: true }), PLAYER_TARGET).some(
     (event) => event.type === 'projectileRequested',
   )).toBe(true);
   expect(illegalBreeder.step(
     500,
-    inRangeEnemy({ id: 4, kind: 'illegalBreeder', isBoss: true }),
+    inRangeEnemy({ id: 4, kind: 'illegalBreeder', isBoss: true }), PLAYER_TARGET,
   ).some((event) => event.type === 'projectileRequested')).toBe(true);
   expect(attackImpactMs(BALANCE.enemies.illegalBreeder.attackTiming)).toBe(500);
 });
@@ -94,14 +109,13 @@ it('dogTrader는 499ms 전에는 발사하지 않고 정확히 500ms에 현재 �
   const attack = new EnemyAttackSystem({
     kind: 'dogTrader',
     balance: BALANCE.enemies.dogTrader,
-    shelter: { center: { x: 270, y: 480 }, radius: 38 },
     projectileOrigin: dogTraderAttackOrigin,
   });
 
-  expect(attack.step(499, target).some(
+  expect(attack.step(499, target, PLAYER_TARGET).some(
     (event) => event.type === 'projectileRequested',
   )).toBe(false);
-  expect(attack.step(1, target).find(
+  expect(attack.step(1, target, PLAYER_TARGET).find(
     (event) => event.type === 'projectileRequested',
   )).toMatchObject({
     from: dogTraderAttackOrigin(target),
@@ -112,19 +126,19 @@ it('dogTrader는 499ms 전에는 발사하지 않고 정확히 500ms에 현재 �
 it('enemy castId와 kind는 attack start부터 projectile hit까지 보존된다', () => {
   const attack = attackSystemFor('poopGuardian');
   const target = inRangeEnemy({ id: 7 });
-  const started = attack.step(0, target)[0];
-  const projectileRequest = attack.step(250, target)
+  const started = attack.step(0, target, PLAYER_TARGET)[0];
+  const projectileRequest = attack.step(250, target, PLAYER_TARGET)
     .find((event) => event.type === 'projectileRequested')!;
   const projectiles = new ProjectileSystem(1);
   projectiles.spawn({ ...projectileRequest, id: 99 });
   expect(attack.interruptWindup(7)).toBe(false);
-  const impactEvents = projectiles.step(500);
+  const impactEvents = projectiles.step(500, PLAYER_TARGET);
 
   expect([
     started,
     projectileRequest,
     impactEvents.find((event) => event.type === 'projectileHit'),
-    impactEvents.find((event) => event.type === 'shelterDamageRequested'),
+    impactEvents.find((event) => event.type === 'playerDamageRequested'),
   ]).toEqual([
     expect.objectContaining({ type: 'attackStarted', castId: 'enemy:7:1', kind: 'poopGuardian' }),
     expect.objectContaining({
@@ -138,7 +152,7 @@ it('enemy castId와 kind는 attack start부터 projectile hit까지 보존된다
       sourceEnemyKind: 'poopGuardian',
     }),
     expect.objectContaining({
-      type: 'shelterDamageRequested',
+      type: 'playerDamageRequested',
       castId: 'enemy:7:1',
       sourceEnemyId: 7,
       sourceEnemyKind: 'poopGuardian',
@@ -148,12 +162,12 @@ it('enemy castId와 kind는 attack start부터 projectile hit까지 보존된다
   ]);
 });
 
-it('off-leash direct release도 250ms에 구조화된 보호소 요청을 낸다', () => {
+it('off-leash direct release도 250ms에 구조화된 후추 피해 요청을 낸다', () => {
   const attack = attackSystemFor('offLeashGuardian');
   const target = inRangeEnemy({ id: 8, kind: 'offLeashGuardian' });
-  attack.step(0, target);
-  expect(attack.step(250, target).find(
-    (event) => event.type === 'shelterDamageRequested',
+  attack.step(0, target, PLAYER_TARGET);
+  expect(attack.step(250, target, PLAYER_TARGET).find(
+    (event) => event.type === 'playerDamageRequested',
   )).toMatchObject({
     castId: 'enemy:8:1',
     sourceEnemyId: 8,
@@ -170,11 +184,10 @@ it('순수 projectile origin을 사용하고 0 방향은 위쪽 fallback으로 �
   const attack = new EnemyAttackSystem({
     kind: 'dogTrader',
     balance: BALANCE.enemies.dogTrader,
-    shelter: { center: { x: 270, y: 480 }, radius: 38 },
     projectileOrigin: () => origin,
   });
   const target = inRangeEnemy({ id: 9, kind: 'dogTrader', isBoss: true });
-  const request = attack.step(500, target).find(
+  const request = attack.step(500, target, PLAYER_TARGET).find(
     (event) => event.type === 'projectileRequested',
   );
   expect(request).toMatchObject({ from: origin, castId: 'enemy:9:1' });
@@ -182,30 +195,29 @@ it('순수 projectile origin을 사용하고 0 방향은 위쪽 fallback으로 �
   const direct = new EnemyAttackSystem({
     kind: 'offLeashGuardian',
     balance: BALANCE.enemies.offLeashGuardian,
-    shelter: { center: { x: 270, y: 480 }, radius: 38 },
     projectileOrigin: () => ({ x: 270, y: 480 }),
   });
-  expect(direct.step(250, inRangeEnemy({ id: 10 })).find(
-    (event) => event.type === 'shelterDamageRequested',
+  expect(direct.step(250, inRangeEnemy({ id: 10 }), PLAYER_TARGET).find(
+    (event) => event.type === 'playerDamageRequested',
   )).toMatchObject({ impactDirection: { x: 0, y: -1 } });
 });
 
-it('보스 projectile은 보호소 hit에 heavy 요청을 낸다', () => {
+it('보스 projectile은 후추 hit에 heavy 요청을 낸다', () => {
   const attack = attackSystemFor('dogTrader');
   const target = inRangeEnemy({ id: 11, kind: 'dogTrader', isBoss: true });
-  const request = attack.step(500, target).find(
+  const request = attack.step(500, target, PLAYER_TARGET).find(
     (event) => event.type === 'projectileRequested',
   )!;
   const projectiles = new ProjectileSystem(1);
   projectiles.spawn({ ...request, id: 1 });
-  const events = projectiles.step(500);
+  const events = projectiles.step(500, PLAYER_TARGET);
   expect(events.find((event) => event.type === 'projectileHit')).toMatchObject({
     castId: 'enemy:11:1',
     projectileKind: 'net',
     sourceEnemyId: 11,
     sourceEnemyKind: 'dogTrader',
   });
-  expect(events.find((event) => event.type === 'shelterDamageRequested')).toMatchObject({
+  expect(events.find((event) => event.type === 'playerDamageRequested')).toMatchObject({
     castId: 'enemy:11:1',
     amount: 120,
     strength: 'heavy',
@@ -214,8 +226,8 @@ it('보스 projectile은 보호소 hit에 heavy 요청을 낸다', () => {
   });
 });
 
-it('발에서 보호소 원 경계까지의 거리를 사용한다', () => {
-  expect(distanceToShelterBoundary(
+it('발에서 후추 원 경계까지의 거리를 사용한다', () => {
+  expect(distanceToTargetBoundary(
     { x: 270, y: 566 },
     { x: 270, y: 480 },
     38,
@@ -224,8 +236,8 @@ it('발에서 보호소 원 경계까지의 거리를 사용한다', () => {
 
 it('release 전 범위 밖이면 동일 castId로 공격을 취소한다', () => {
   const attack = attackSystemFor('poopGuardian');
-  attack.step(249, inRangeEnemy());
-  expect(attack.step(1, outOfRangeEnemy())).toEqual([{
+  attack.step(249, inRangeEnemy(), PLAYER_TARGET);
+  expect(attack.step(1, outOfRangeEnemy(), PLAYER_TARGET)).toEqual([{
     type: 'attackCancelled',
     castId: 'enemy:1:1',
     enemyId: 1,
@@ -236,14 +248,14 @@ it('release 전 범위 밖이면 동일 castId로 공격을 취소한다', () =>
 it('release 뒤 holding에서 시작 시각 기준 interval로 다음 windup을 연다', () => {
   const attack = attackSystemFor('offLeashGuardian');
   const target = inRangeEnemy({ pathProgress: 77 });
-  expect(attack.step(250, target).map((event) => event.type)).toEqual([
+  expect(attack.step(250, target, PLAYER_TARGET).map((event) => event.type)).toEqual([
     'attackStarted',
-    'shelterDamageRequested',
+    'playerDamageRequested',
     'attackHolding',
   ]);
   expect(attack.snapshot(1)).toMatchObject({ state: 'holding', pathProgress: 77 });
-  expect(attack.step(1549, target)).toEqual([]);
-  expect(attack.step(1, target)).toEqual([{
+  expect(attack.step(1549, target, PLAYER_TARGET)).toEqual([]);
+  expect(attack.step(1, target, PLAYER_TARGET)).toEqual([{
     type: 'attackStarted',
     castId: 'enemy:1:2',
     enemyId: 1,
@@ -257,7 +269,7 @@ it('windup에서 holding으로 바뀐 때 release frame elapsed를 보존한다'
   const attack = attackSystemFor('offLeashGuardian');
   for (let tick = 0; tick < 15; tick += 1) {
     enemies.step(stepMs);
-    for (const event of attack.step(stepMs, inRangeEnemy())) {
+    for (const event of attack.step(stepMs, inRangeEnemy(), PLAYER_TARGET)) {
       if (event.type === 'attackStarted') enemies.setState(0, 'windup', stepMs);
       if (event.type === 'attackHolding') enemies.setState(0, 'holding');
     }
@@ -270,8 +282,8 @@ it('큰 step도 cadence 경계를 유실하지 않고 분할 step과 같은 even
   const target = inRangeEnemy();
   const whole = attackSystemFor('offLeashGuardian');
   const split = attackSystemFor('offLeashGuardian');
-  const wholeEvents = whole.step(3450, target);
-  const splitEvents = Array.from({ length: 69 }, () => split.step(50, target)).flat();
+  const wholeEvents = whole.step(3450, target, PLAYER_TARGET);
+  const splitEvents = Array.from({ length: 69 }, () => split.step(50, target, PLAYER_TARGET)).flat();
   expect(wholeEvents).toEqual(splitEvents);
   expect(whole.snapshot(1)).toEqual(split.snapshot(1));
 });
@@ -279,7 +291,7 @@ it('큰 step도 cadence 경계를 유실하지 않고 분할 step과 같은 even
 it('invalid attack step은 track 변경 전에 거부한다', () => {
   const attack = attackSystemFor('poopGuardian');
   for (const stepMs of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-    expect(() => attack.step(stepMs, inRangeEnemy())).toThrow(RangeError);
+    expect(() => attack.step(stepMs, inRangeEnemy(), PLAYER_TARGET)).toThrow(RangeError);
   }
   expect(() => attack.snapshot(1)).toThrow('Unknown attack enemy 1');
   expect(attack.interruptWindup(99)).toBe(false);

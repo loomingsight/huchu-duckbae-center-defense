@@ -19,7 +19,6 @@ import type {
 } from './ProjectileSystem';
 
 const POOP_ARC_HEIGHT = 16;
-const SHELTER_CENTER = { x: BALANCE.shelter.x, y: BALANCE.shelter.y } as const;
 
 export { projectileImpactFrameAt };
 export type { ProjectileImpactSnapshot };
@@ -97,7 +96,7 @@ class ProjectileActor {
       snapshot.kind,
       this.start,
       { x: snapshot.x, y: snapshot.y },
-      SHELTER_CENTER,
+      snapshot.target,
     );
     if (this.projectileKind !== snapshot.kind) {
       const frame = projectileShapeFrame(snapshot.kind);

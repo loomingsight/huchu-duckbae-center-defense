@@ -35,8 +35,8 @@ export interface FullRunResult {
   readonly outcome: 'won' | 'lost';
   readonly durationMs: number;
   readonly simulationMs: number;
-  readonly shelterMaxHp: 1000;
-  readonly finalShelterHp: number;
+  readonly playerMaxHp: 1000;
+  readonly finalPlayerHp: number;
   readonly spawnCount: number;
   readonly purchaseCount: number;
   readonly countdowns: readonly number[];
@@ -62,7 +62,7 @@ export async function runFullGame(
     let elapsedMs = 0;
     const countdowns: number[] = [];
     const bossKinds = new Set<string>();
-    const shelterDamageByKind = new Map<string, { hits: number; total: number }>();
+    const playerDamageByKind = new Map<string, { hits: number; total: number }>();
     const waveDurationsMs: number[] = [];
     let waveStartedAtMs: number | null = null;
     const normalize = (x: number, y: number): { x: number; y: number } => {
@@ -79,8 +79,8 @@ export async function runFullGame(
           outcome: run.mode,
           durationMs: elapsedMs,
           simulationMs: run.simulationMs,
-          shelterMaxHp: run.shelterMaxHp,
-          finalShelterHp: run.shelterHp,
+          playerMaxHp: run.playerMaxHp,
+          finalPlayerHp: run.playerHp,
           spawnCount,
           purchaseCount,
           countdowns,
@@ -146,9 +146,9 @@ export async function runFullGame(
           waveDurationsMs.push(event.atSimulationMs - waveStartedAtMs);
           waveStartedAtMs = null;
         }
-        if (event.type === 'shelterDamaged') {
-          const previous = shelterDamageByKind.get(event.sourceEnemyKind) ?? { hits: 0, total: 0 };
-          shelterDamageByKind.set(event.sourceEnemyKind, {
+        if (event.type === 'playerDamaged') {
+          const previous = playerDamageByKind.get(event.sourceEnemyKind) ?? { hits: 0, total: 0 };
+          playerDamageByKind.set(event.sourceEnemyKind, {
             hits: previous.hits + 1,
             total: previous.total + event.amount,
           });

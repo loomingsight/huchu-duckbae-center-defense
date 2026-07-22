@@ -12,7 +12,7 @@ it('protected adapter getter는 preallocated damage pool의 같은 identity만 �
   expect(getter).not.toContain('new DamageFeedbackPool');
 });
 
-it('Scene adapter는 damage/shelter를 ImpactFeedbackSystem에 전달하고 lethal actor lookup을 먼저 제거한다', () => {
+it('Scene adapter는 enemy/player damage를 ImpactFeedbackSystem에 전달하고 lethal actor lookup을 먼저 제거한다', () => {
   const source = gameSceneSource();
   const apply = source.slice(
     source.indexOf('protected applySessionEvents'),
@@ -20,8 +20,7 @@ it('Scene adapter는 damage/shelter를 ImpactFeedbackSystem에 전달하고 leth
   );
   expect(apply).toContain("event.type === 'damageApplied'");
   expect(apply).toContain('this.impactFeedback.handle(event)');
-  expect(apply).toContain("event.type === 'shelterDamaged'");
-  expect(apply).not.toContain('this.shelterView?.showDamage()');
+  expect(apply).toContain("event.type === 'playerDamaged'");
 });
 
 it('Scene adapter는 active pooled label의 damageAnchor resolver를 impact feedback에 연결한다', () => {
@@ -104,6 +103,7 @@ it('resetSession은 telemetry가 shared effect/damage producer를 한 번만 res
   expect(reset).toContain('this.presentationTelemetry.reset()');
   expect(reset).toContain('this.impactFeedback.resetDedupe()');
   expect(reset).not.toContain('this.playerView.resetCombatVisuals()');
+  expect(reset).toContain('this.playerView.resetImpactVisuals()');
   expect(reset).not.toContain('this.projectileActors?.releaseAll()');
   expect(reset).not.toContain('this.combatEffects.releaseAll()');
   expect(reset).not.toContain('this.impactFeedback.reset()');

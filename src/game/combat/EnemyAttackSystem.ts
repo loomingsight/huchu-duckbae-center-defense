@@ -13,13 +13,13 @@ interface AttackBalance {
   readonly attackTiming: Parameters<typeof attackImpactMs>[0];
 }
 
-interface ShelterCircle {
-  readonly center: Point;
+export interface PlayerTargetSnapshot {
+  readonly position: Point;
   readonly radius: number;
 }
 
-export interface ShelterDamageRequest {
-  readonly type: 'shelterDamageRequested';
+export interface PlayerDamageRequest {
+  readonly type: 'playerDamageRequested';
   readonly castId: string;
   readonly sourceEnemyId: number;
   readonly sourceEnemyKind: EnemyKind;
@@ -57,12 +57,12 @@ export type EnemyCombatEvent =
     readonly sourceEnemyKind: EnemyKind;
     readonly position: Point;
   }
-  | ShelterDamageRequest;
+  | PlayerDamageRequest;
 
 export type EnemyAttackEvent = Extract<
   EnemyCombatEvent,
   { readonly type: 'attackStarted' | 'attackCancelled' | 'attackHolding' | 'projectileRequested' }
-> | ShelterDamageRequest;
+> | PlayerDamageRequest;
 
 export type AttackOriginResolver = (enemy: EnemySnapshot) => Point;
 
@@ -75,7 +75,7 @@ interface AttackTrack {
   castId: string | null;
 }
 
-export const distanceToShelterBoundary = (
+export const distanceToTargetBoundary = (
   feet: Point,
   center: Point,
   radius: number,
@@ -94,12 +94,17 @@ export class EnemyAttackSystem {
   constructor(private readonly config: {
     readonly kind: EnemyKind;
     readonly balance: AttackBalance;
-    readonly shelter: ShelterCircle;
     readonly projectileOrigin?: AttackOriginResolver;
   }) {}
 
-  step(stepMs: number, enemy: EnemySnapshot): readonly EnemyAttackEvent[] {
+  step(
+    stepMs: number,
+    enemy: EnemySnapshot,
+    target: PlayerTargetSnapshot,
+  ): readonly EnemyAttackEvent[] {
     assertFiniteNonNegative(stepMs, 'Enemy attack stepMs');
+    assertFinitePoint(target.position, 'Enemy attack target');
+    assertFiniteNonNegative(target.radius, 'Enemy attack target radius');
     const track = this.tracks.get(enemy.id) ?? {
       phase: 'moving',
       cycleMs: 0,
@@ -111,10 +116,10 @@ export class EnemyAttackSystem {
     this.tracks.set(enemy.id, track);
     track.pathProgress = enemy.pathProgress;
 
-    const inRange = distanceToShelterBoundary(
+    const inRange = distanceToTargetBoundary(
       enemy.position,
-      this.config.shelter.center,
-      this.config.shelter.radius,
+      target.position,
+      target.radius,
     ) <= this.config.balance.range + 1e-9;
     const events: EnemyAttackEvent[] = [];
 
@@ -150,7 +155,7 @@ export class EnemyAttackSystem {
         track.windupMs = releaseMs;
         track.cycleMs += untilRelease;
         remainingMs = Math.max(0, remainingMs - untilRelease);
-        events.push(this.releaseEvent(enemy, requireCastId(track)));
+        events.push(this.releaseEvent(enemy, target, requireCastId(track)));
         track.phase = 'holding';
         events.push({
           type: 'attackHolding',
@@ -240,19 +245,23 @@ export class EnemyAttackSystem {
     throw new Error('Off-leash attacks are immediate and have no projectile');
   }
 
-  private releaseEvent(enemy: EnemySnapshot, castId: string): EnemyAttackEvent {
+  private releaseEvent(
+    enemy: EnemySnapshot,
+    target: PlayerTargetSnapshot,
+    castId: string,
+  ): EnemyAttackEvent {
     const origin = this.config.projectileOrigin?.(enemy) ?? enemy.position;
     assertFinitePoint(origin, 'Enemy attack origin');
-    const impactDirection = normalizedImpactDirection(origin, this.config.shelter.center);
+    const impactDirection = normalizedImpactDirection(origin, target.position);
     const strength = this.config.balance.attackTiming === 'boss' ? 'heavy' : 'medium';
     if (this.config.kind === 'offLeashGuardian') {
       return {
-        type: 'shelterDamageRequested',
+        type: 'playerDamageRequested',
         castId,
         sourceEnemyId: enemy.id,
         sourceEnemyKind: this.config.kind,
         amount: this.config.balance.damage,
-        position: { ...this.config.shelter.center },
+        position: { ...target.position },
         impactDirection,
         strength,
       };
@@ -265,7 +274,7 @@ export class EnemyAttackSystem {
       kind: this.config.kind,
       projectileKind: projectile.kind,
       from: { ...origin },
-      to: { ...this.config.shelter.center },
+      to: { ...target.position },
       speed: projectile.speed,
       damage: this.config.balance.damage,
       lifeMs: 1200,

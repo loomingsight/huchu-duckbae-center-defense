@@ -8,7 +8,7 @@ export type SfxId =
   | 'aquaImpact'
   | 'noticePaper'
   | 'noticeStamp'
-  | 'shelterWood'
+  | 'huchuHit'
   | 'skillLearned'
   | 'electricCharge'
   | 'electricImpact';

@@ -65,7 +65,7 @@ export class E2eGameSession extends GameSession {
             kind: 'poopGuardian',
             projectileKind: 'poop',
             from: projectileOrigin(id),
-            to: { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
+            to: { x: 270, y: 650 },
             speed: 1,
             damage: 0,
             lifeMs: 60_000,
@@ -80,7 +80,7 @@ export class E2eGameSession extends GameSession {
       },
       prepareTerminalTie: () => {
         useWaveSchedule(5, 'exhausted');
-        this.shelter.damage(840);
+        this.playerHealth.damage(840);
         const enemyId = (this.enemies as E2eEnemySystem).spawnSeed({
           kind: 'poopGuardian',
           variant: 'male',
@@ -97,7 +97,7 @@ export class E2eGameSession extends GameSession {
           kind: 'illegalBreeder',
           projectileKind: 'electric',
           from: { x: 270, y: 377 },
-          to: { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
+          to: { x: 270, y: 650 },
           speed: 260,
           damage: 160,
           lifeMs: 1200,

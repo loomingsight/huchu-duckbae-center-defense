@@ -4,7 +4,7 @@ const POLL_MS = 25;
 const TIMEOUT_MS = 3500;
 const BURST_IDS: readonly SfxId[] = [
   'barkHuchu', 'barkDeokbae', 'hitLight', 'hitHeavy', 'tailSwipe', 'aquaCharge',
-  'aquaImpact', 'noticePaper', 'noticeStamp', 'shelterWood', 'skillLearned', 'electricCharge',
+  'aquaImpact', 'noticePaper', 'noticeStamp', 'huchuHit', 'skillLearned', 'electricCharge',
 ];
 
 interface StressAudioPort {

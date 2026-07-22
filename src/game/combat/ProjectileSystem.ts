@@ -6,6 +6,7 @@ import type { Point } from '../world/Geometry';
 import {
   normalizedImpactDirection,
   type EnemyCombatEvent,
+  type PlayerTargetSnapshot,
 } from './EnemyAttackSystem';
 
 export type ProjectileKind = 'poop' | 'net' | 'electric';
@@ -31,6 +32,7 @@ export interface ProjectileSnapshot {
   readonly speed: number;
   readonly damage: number;
   readonly lifeMs: number;
+  readonly target: Point;
 }
 
 export type ProjectileEvent =
@@ -45,7 +47,7 @@ export type ProjectileEvent =
     readonly kind: ProjectileKind;
     readonly reason: 'capacity';
   }
-  | Extract<EnemyCombatEvent, { readonly type: 'projectileHit' | 'shelterDamageRequested' }>;
+  | Extract<EnemyCombatEvent, { readonly type: 'projectileHit' | 'playerDamageRequested' }>;
 
 interface MutableProjectile {
   id: number;
@@ -106,14 +108,9 @@ function canonicalPoint(point: Point): Point {
 export class ProjectileSystem {
   private readonly pool: ObjectPool<MutableProjectile>;
   private readonly active = new Set<MutableProjectile>();
-  private readonly shelterRadius: number;
   private readonly workload: ProjectileLogicalWorkloadCounters;
 
-  constructor(capacity: number, shelterRadius = 38) {
-    if (!Number.isFinite(shelterRadius) || shelterRadius < 0) {
-      throw new RangeError('Projectile shelter radius must be finite and non-negative');
-    }
-    this.shelterRadius = shelterRadius;
+  constructor(capacity: number) {
     this.pool = new ObjectPool(capacity, () => ({
       id: -1,
       castId: '',
@@ -194,9 +191,17 @@ export class ProjectileSystem {
     return [{ type: 'projectileSpawned', projectileId: input.id, kind: input.projectileKind }];
   }
 
-  step(stepMs: number): readonly ProjectileEvent[] {
+  step(stepMs: number, target: PlayerTargetSnapshot): readonly ProjectileEvent[] {
     if (!Number.isFinite(stepMs) || stepMs < 0) {
       throw new RangeError('Projectile step must be finite and non-negative');
+    }
+    if (
+      !Number.isFinite(target.position.x)
+      || !Number.isFinite(target.position.y)
+      || !Number.isFinite(target.radius)
+      || target.radius < 0
+    ) {
+      throw new RangeError('Projectile target must be finite with a non-negative radius');
     }
     const activeAtStart = this.active.size;
     const events: ProjectileEvent[] = [];
@@ -212,8 +217,8 @@ export class ProjectileSystem {
       const impactPosition = firstSegmentCircleIntersection(
         previous,
         next,
-        projectile.target,
-        this.shelterRadius,
+        target.position,
+        target.radius,
       );
       projectile.position = impactPosition ?? next;
       if (impactPosition !== undefined) {
@@ -228,12 +233,12 @@ export class ProjectileSystem {
             position: impactPosition,
           },
           {
-            type: 'shelterDamageRequested',
+            type: 'playerDamageRequested',
             castId: projectile.castId,
             sourceEnemyId: projectile.sourceEnemyId,
             sourceEnemyKind: projectile.sourceEnemyKind,
             amount: projectile.damage,
-            position: { ...projectile.target },
+            position: { ...target.position },
             impactDirection: { ...projectile.impactDirection },
             strength: isBoss(projectile.sourceEnemyKind) ? 'heavy' : 'medium',
           },
@@ -257,6 +262,7 @@ export class ProjectileSystem {
       speed: projectile.speed,
       damage: projectile.damage,
       lifeMs: projectile.lifeMs,
+      target: { ...projectile.target },
     }));
   }
 

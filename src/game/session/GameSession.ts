@@ -8,7 +8,8 @@ import type {
 import {
   EnemyAttackSystem,
   type AttackOriginResolver,
-  type ShelterDamageRequest,
+  type PlayerDamageRequest,
+  type PlayerTargetSnapshot,
 } from '../combat/EnemyAttackSystem';
 import { ProjectileSystem } from '../combat/ProjectileSystem';
 import { CompanionSystem } from '../companions/CompanionSystem';
@@ -22,13 +23,13 @@ import { EnemySystem, type EnemyLifecycleEvent } from '../enemies/EnemySystem';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
+import { PlayerHealthSystem } from '../player/PlayerHealthSystem';
 import {
   assertPurchasableSkillId,
   ProgressionSystem,
   skillPurchaseCost,
 } from '../progression/ProgressionSystem';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
-import { ShelterSystem } from '../shelter/ShelterSystem';
 import {
   AUTO_SKILL_IDS,
   damageCommandsForSkillImpact,
@@ -56,7 +57,7 @@ interface ActiveEnemyAttack {
 
 export interface GameSessionDependencies {
   readonly progression?: ProgressionSystem;
-  readonly shelter?: ShelterSystem;
+  readonly playerHealth?: PlayerHealthSystem;
   readonly projectileOriginByKind?: Partial<Record<EnemyKind, AttackOriginResolver>>;
 }
 
@@ -69,11 +70,8 @@ export class GameSession {
   protected readonly bark = new BarkSystem();
   protected readonly companion = new CompanionSystem();
   protected readonly attacks: Record<EnemyKind, EnemyAttackSystem>;
-  protected readonly projectiles = new ProjectileSystem(
-    BALANCE.caps.projectiles,
-    BALANCE.shelter.hitRadius,
-  );
-  protected readonly shelter: ShelterSystem;
+  protected readonly projectiles = new ProjectileSystem(BALANCE.caps.projectiles);
+  protected readonly playerHealth: PlayerHealthSystem;
   protected readonly skills = new SkillSystem();
   protected readonly progression: ProgressionSystem;
   protected readonly uiClock = new UiTransitionClock(0);
@@ -94,15 +92,15 @@ export class GameSession {
     dependencies: GameSessionDependencies = {},
   ) {
     assertSeed(seed);
-    const shelter = dependencies.shelter ?? new ShelterSystem(BALANCE.shelter.maxHp);
-    if (shelter.maximumHp !== BALANCE.shelter.maxHp) {
+    const playerHealth = dependencies.playerHealth ?? new PlayerHealthSystem(BALANCE.player.maxHp);
+    if (playerHealth.maximumHp !== BALANCE.player.maxHp) {
       throw new RangeError(
-        `GameSession shelter maximumHp must be ${BALANCE.shelter.maxHp}`,
+        `GameSession player maximumHp must be ${BALANCE.player.maxHp}`,
       );
     }
     this.enemies = enemies;
     this.progression = dependencies.progression ?? new ProgressionSystem();
-    this.shelter = shelter;
+    this.playerHealth = playerHealth;
     const learned = this.progression.snapshot().learned;
     for (const skillId of AUTO_SKILL_IDS) {
       if (learned[skillId]) this.skills.learn(skillId, 0);
@@ -136,7 +134,11 @@ export class GameSession {
       this.eventBuffer.push({ type: 'waveStarted', wave: this.currentWave() });
     }
     this.spawnWaveRequests();
-    this.enemies.step(FIXED_STEP_MS, { x: 270, y: 480 });
+    const target: PlayerTargetSnapshot = {
+      position: { x: player.x, y: player.y },
+      radius: BALANCE.player.hitRadius,
+    };
+    this.enemies.step(FIXED_STEP_MS, target.position);
 
     const damageCommands = this.collectPlayerDamage(player);
     const snapshotsBeforeDamage = this.enemies.snapshots();
@@ -148,10 +150,10 @@ export class GameSession {
       this.combatSnapshots.clear();
     }
 
-    const shelterRequests: ShelterDamageRequest[] = [];
-    this.stepEnemyAttacks(shelterRequests);
-    this.stepProjectiles(shelterRequests);
-    this.applyShelterDamage(shelterRequests, appliedAtStep);
+    const playerRequests: PlayerDamageRequest[] = [];
+    this.stepEnemyAttacks(target, playerRequests);
+    this.stepProjectiles(target, playerRequests);
+    this.applyPlayerDamage(playerRequests, appliedAtStep);
 
     this.resolvePostStepOutcome();
     this.refreshBossActiveEvent();
@@ -181,8 +183,8 @@ export class GameSession {
       mode: this.stateMachine.current(),
       simulationMs: this.simulationTimeMs(),
       wave: this.currentWave(),
-      shelterHp: this.shelter.currentHp,
-      shelterMaxHp: BALANCE.shelter.maxHp,
+      playerHp: this.playerHealth.currentHp,
+      playerMaxHp: BALANCE.player.maxHp,
       snacks: progression.snacks,
       nextSkillCost: progression.nextCost,
       learnedSkills: { ...progression.learned },
@@ -245,7 +247,7 @@ export class GameSession {
     this.enemies.clear();
     for (const attack of Object.values(this.attacks)) attack.clear();
     this.projectiles.clear();
-    this.shelter.reset();
+    this.playerHealth.reset();
     this.progression.reset();
     this.bark.reset();
     this.companion.reset();
@@ -268,7 +270,7 @@ export class GameSession {
 
   protected resolvePostStepOutcome(): void {
     const resolution = this.outcomes.resolve({
-      shelterHp: this.shelter.currentHp,
+      playerHp: this.playerHealth.currentHp,
       wave: this.currentWave(),
       active: this.enemies.activeCount,
       pending: this.waves.pendingCount,
@@ -432,19 +434,22 @@ export class GameSession {
     });
   }
 
-  private stepEnemyAttacks(shelterRequests: ShelterDamageRequest[]): void {
+  private stepEnemyAttacks(
+    target: PlayerTargetSnapshot,
+    playerRequests: PlayerDamageRequest[],
+  ): void {
     for (const enemy of this.enemies.snapshots()) {
       const attack = this.attacks[enemy.kind];
       let cancelled = false;
-      for (const event of attack.step(FIXED_STEP_MS, enemy)) {
+      for (const event of attack.step(FIXED_STEP_MS, enemy, target)) {
         this.eventBuffer.push(event);
         if (event.type === 'attackStarted') {
           this.activeEnemyAttacks.set(enemy.id, { castId: event.castId, kind: event.kind });
         } else if (event.type === 'attackCancelled') {
           cancelled = true;
           this.activeEnemyAttacks.delete(enemy.id);
-        } else if (event.type === 'shelterDamageRequested') {
-          shelterRequests.push(event);
+        } else if (event.type === 'playerDamageRequested') {
+          playerRequests.push(event);
         } else if (event.type === 'projectileRequested') {
           this.projectiles.spawn({
             id: this.nextProjectileId,
@@ -471,37 +476,38 @@ export class GameSession {
     }
   }
 
-  private stepProjectiles(shelterRequests: ShelterDamageRequest[]): void {
-    for (const event of this.projectiles.step(FIXED_STEP_MS)) {
+  private stepProjectiles(
+    target: PlayerTargetSnapshot,
+    playerRequests: PlayerDamageRequest[],
+  ): void {
+    for (const event of this.projectiles.step(FIXED_STEP_MS, target)) {
       if (event.type === 'projectileSpawned' || event.type === 'projectileDropped') continue;
       this.eventBuffer.push(event);
-      if (event.type === 'shelterDamageRequested') shelterRequests.push(event);
+      if (event.type === 'playerDamageRequested') playerRequests.push(event);
     }
   }
 
-  private applyShelterDamage(
-    requests: readonly ShelterDamageRequest[],
+  private applyPlayerDamage(
+    requests: readonly PlayerDamageRequest[],
     appliedAtStep: number,
   ): void {
     for (const request of requests) {
-      const before = this.shelter.currentHp;
-      const [result] = this.shelter.damage(request.amount);
-      const effectiveAmount = before - this.shelter.currentHp;
-      if (result === undefined || effectiveAmount <= 0) continue;
+      const result = this.playerHealth.damage(request.amount);
+      if (result.effectiveAmount <= 0) continue;
       this.eventBuffer.push({
-        type: 'shelterDamaged',
+        type: 'playerDamaged',
         castId: request.castId,
         appliedAtStep,
         sourceEnemyId: request.sourceEnemyId,
         sourceEnemyKind: request.sourceEnemyKind,
         amount: request.amount,
-        effectiveAmount,
-        hp: this.shelter.currentHp,
-        maxHp: BALANCE.shelter.maxHp,
+        effectiveAmount: result.effectiveAmount,
+        hp: result.hp,
+        maxHp: this.playerHealth.maximumHp,
+        lethal: result.lethal,
         position: { ...request.position },
         impactDirection: { ...request.impactDirection },
         strength: request.strength,
-        visual: result.visual,
       });
     }
   }
@@ -586,17 +592,12 @@ export class GameSession {
 function createAttackSystems(
   projectileOriginByKind: GameSessionDependencies['projectileOriginByKind'] = {},
 ): Record<EnemyKind, EnemyAttackSystem> {
-  const shelter = {
-    center: { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
-    radius: BALANCE.shelter.hitRadius,
-  };
   return Object.fromEntries(
     (Object.keys(BALANCE.enemies) as EnemyKind[]).map((kind) => [
       kind,
       new EnemyAttackSystem({
         kind,
         balance: BALANCE.enemies[kind],
-        shelter,
         projectileOrigin: projectileOriginByKind[kind],
       }),
     ]),

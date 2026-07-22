@@ -11,8 +11,8 @@ export interface RunSnapshot {
   readonly mode: GameMode;
   readonly simulationMs: number;
   readonly wave: WaveNumber;
-  readonly shelterHp: number;
-  readonly shelterMaxHp: 1000;
+  readonly playerHp: number;
+  readonly playerMaxHp: 1000;
   readonly snacks: number;
   readonly nextSkillCost: SkillCost | null;
   readonly learnedSkills: Readonly<Record<PurchasableSkillId, boolean>>;

@@ -1,5 +1,4 @@
 import type { ImpactFeedbackTarget } from '../enemies/ImpactFeedbackTarget';
-import { BALANCE } from '../data/balance';
 import type { GameEvent } from '../events/GameEvents';
 import type { Point } from '../world/Geometry';
 import type { DamageAppliedEvent } from './CombatTypes';
@@ -11,10 +10,8 @@ import {
 export { IMPACT_STYLE };
 
 const CAST_DEDUPE_CAP = 256;
-const DEFAULT_CENTER_OUTWARD_DIRECTION: Point = { x: 0, y: -1 };
-
-type ShelterDamagedEvent = Extract<GameEvent, { readonly type: 'shelterDamaged' }>;
-type ImpactEvent = DamageAppliedEvent | ShelterDamagedEvent;
+type PlayerDamagedEvent = Extract<GameEvent, { readonly type: 'playerDamaged' }>;
+type ImpactEvent = DamageAppliedEvent | PlayerDamagedEvent;
 
 export interface CameraFeedbackPort {
   shake(durationMs: number, intensity: number): void;
@@ -23,7 +20,7 @@ export interface CameraFeedbackPort {
 export interface ImpactFeedbackSystemOptions {
   readonly enemyTarget: (targetId: number) => ImpactFeedbackTarget | undefined;
   readonly enemyDamageAnchor?: (targetId: number) => Point | undefined;
-  readonly shelterTarget: ImpactFeedbackTarget;
+  readonly playerTarget: ImpactFeedbackTarget;
   readonly damageNumbers?: DamageFeedbackPool;
   readonly camera?: CameraFeedbackPort;
   readonly reducedMotion?: () => boolean;
@@ -39,8 +36,8 @@ export class ImpactFeedbackSystem {
 
   handle(event: ImpactEvent): void {
     if (event.effectiveAmount <= 0) return;
-    if (event.type === 'shelterDamaged') {
-      this.handleShelter(event);
+    if (event.type === 'playerDamaged') {
+      this.handlePlayer(event);
       return;
     }
     this.handleEnemy(event);
@@ -78,9 +75,9 @@ export class ImpactFeedbackSystem {
     this.options.removeLethalTarget?.(event.targetId);
   }
 
-  private handleShelter(event: ShelterDamagedEvent): void {
-    this.applyTargetFeedback(this.options.shelterTarget, event);
-    this.options.damageNumbers?.showShelter(event);
+  private handlePlayer(event: PlayerDamagedEvent): void {
+    this.applyTargetFeedback(this.options.playerTarget, event);
+    this.options.damageNumbers?.showPlayer(event);
     this.emitCompositeOnce(event);
     this.shakeOnce(event);
   }
@@ -91,7 +88,7 @@ export class ImpactFeedbackSystem {
     target.flash(style.flashMs);
     target.recoil({
       direction: event.type === 'damageApplied' && event.source === 'tailSwipe'
-        ? centerOutwardDirection(event.position)
+        ? { ...event.impactDirection }
         : inverse(event.impactDirection),
       distancePx: reduced ? style.recoilPx / 2 : style.recoilPx,
       popScale: reduced ? 1 + (style.popScale - 1) / 2 : style.popScale,
@@ -137,15 +134,6 @@ class BoundedCastSet {
 
 function inverse(direction: Point): Point {
   return { x: -direction.x, y: -direction.y };
-}
-
-function centerOutwardDirection(position: Point): Point {
-  const dx = position.x - BALANCE.shelter.x;
-  const dy = position.y - BALANCE.shelter.y;
-  const length = Math.hypot(dx, dy);
-  return length === 0
-    ? { ...DEFAULT_CENTER_OUTWARD_DIRECTION }
-    : { x: dx / length, y: dy / length };
 }
 
 function cameraFeedback(strength: ImpactEvent['strength']): {

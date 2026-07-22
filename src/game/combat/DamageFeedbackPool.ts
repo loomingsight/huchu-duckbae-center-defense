@@ -53,7 +53,7 @@ export const IMPACT_STYLE = {
 export interface DamageNumberSnapshot {
   readonly actorId: number;
   readonly targetId: number | null;
-  readonly targetKind: 'enemy' | 'shelter';
+  readonly targetKind: 'enemy' | 'player';
   readonly text: string;
   readonly amount: number;
   readonly strength: ImpactStrength;
@@ -66,7 +66,7 @@ export interface DamageNumberSnapshot {
 
 interface DamageNumberInput {
   readonly targetId: number | null;
-  readonly targetKind: 'enemy' | 'shelter';
+  readonly targetKind: 'enemy' | 'player';
   readonly effectiveAmount: number;
   readonly position: Point;
   readonly strength: ImpactStrength;
@@ -81,7 +81,7 @@ interface DamageNumberCheckpoint {
   readonly order: number;
 }
 
-export interface ShelterDamageNumberEvent {
+export interface PlayerDamageNumberEvent {
   readonly effectiveAmount: number;
   readonly position: Point;
   readonly strength: Extract<ImpactStrength, 'medium' | 'heavy'>;
@@ -134,16 +134,16 @@ export class DamageFeedbackPool {
     });
   }
 
-  showShelter(event: ShelterDamageNumberEvent): boolean {
+  showPlayer(event: PlayerDamageNumberEvent): boolean {
     assertEffectiveAmount(event.effectiveAmount);
-    assertPoint(event.position, 'Shelter damage number position');
+    assertPoint(event.position, 'Player damage number position');
     if (event.effectiveAmount <= 0) {
       this.counters.rejected += 1;
       return false;
     }
     return this.showInput({
       targetId: null,
-      targetKind: 'shelter',
+      targetKind: 'player',
       effectiveAmount: event.effectiveAmount,
       position: event.position,
       strength: event.strength,
