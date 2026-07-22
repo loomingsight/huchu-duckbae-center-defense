@@ -1,12 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 960">
   <rect width="540" height="960" fill="#84ad74"/>
-  <g fill="none" stroke="#cfa66d" stroke-width="54" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M110 0L116 75L138 159L222 214L264 265L270 350L270 430"/>
-    <path d="M430 0L424 75L402 159L318 214L276 265L270 350L270 430"/>
-    <path d="M270 0L270 110L270 220L270 340L270 430"/>
-    <path d="M0 482L90 482L170 445L220 420L240 447L220 480"/>
-    <path d="M540 482L450 482L370 445L320 420L300 447L320 480"/>
-    <path d="M270 960L270 875L270 790L270 704L270 625L270 530"/>
+  <defs><path id="grass-shape" d="M-9 9Q-7 2-11-2Q-3 1 0 8Q-1-1 3-7Q4 1 3 8Q8 1 11 1Q7 6 6 9Z"/></defs>
+  <g id="grass-decorations" fill="#638c60" opacity="0.46">
+    <use class="grass-tuft" href="#grass-shape" transform="translate(62 82) scale(.9)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(174 126) scale(.72)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(365 88) scale(.82)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(485 158) scale(.76)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(74 284) scale(.86)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(442 312) scale(.74)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(150 402) scale(.88)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(392 438) scale(.7)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(74 596) scale(.84)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(472 618) scale(.78)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(178 804) scale(.9)"/>
+    <use class="grass-tuft" href="#grass-shape" transform="translate(372 838) scale(.76)"/>
   </g>
-  <g fill="#668d5d"><circle cx="18" cy="110" r="11"/><circle cx="522" cy="205" r="9"/><circle cx="22" cy="825" r="10"/><circle cx="516" cy="890" r="12"/></g>
 </svg>
