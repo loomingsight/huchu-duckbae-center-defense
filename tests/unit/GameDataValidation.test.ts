@@ -4,6 +4,10 @@ import { PATH_DEFINITIONS } from '../../src/game/data/pathDefinitions';
 import { validateGameData } from '../../src/game/data/validateGameData';
 import { WAVE_DEFINITIONS } from '../../src/game/data/waveDefinitions';
 import type { PathId } from '../../src/game/types/GameTypes';
+import {
+  NAV_CELL_SIZE,
+  NAV_RECOMPUTE_INTERVAL_MS,
+} from '../../src/game/world/NavigationField';
 
 vi.mock('phaser', () => ({
   default: {
@@ -29,6 +33,11 @@ const cloneWaves = (): TestWaveDefinition[] => WAVE_DEFINITIONS.map((wave) => ({
 }));
 
 describe('고정 게임 데이터', () => {
+  it('동적 경로장은 30px 셀과 200ms 재계산 경계를 사용한다', () => {
+    expect({ cellSize: NAV_CELL_SIZE, recomputeMs: NAV_RECOMPUTE_INTERVAL_MS })
+      .toEqual({ cellSize: 30, recomputeMs: 200 });
+  });
+
   it('540x960 맵의 exact 6개 경로를 유지한다', () => {
     expect(PATH_DEFINITIONS).toEqual({
       P1: [[110, 0], [116, 75], [138, 159], [222, 214], [264, 265], [270, 350], [270, 430]],
