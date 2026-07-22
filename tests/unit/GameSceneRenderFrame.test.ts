@@ -258,6 +258,15 @@ function runSnapshot(enemies: RunSnapshot['enemies']): RunSnapshot {
     nextSkillCost: 15,
     learnedSkills: { tailSwipe: false, aquaBeam: false, safetyReport: false },
     skillStates: { tailSwipe: skill, aquaBeam: skill, safetyReport: skill },
+    actionStates: {
+      bark: {
+        learned: true, ready: true, cooldownRemainingMs: 0, progress: 1,
+        activeCastId: null, phase: 'ready', elapsedMs: 0, lockedTargetId: null,
+      },
+      tailSwipe: skill,
+      aquaBeam: skill,
+      safetyReport: skill,
+    },
     companion: { companion: 'deokbae', active: true, cooldownRemainingMs: 0 },
     enemies,
     projectiles: [{

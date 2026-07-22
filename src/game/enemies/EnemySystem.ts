@@ -32,6 +32,7 @@ export interface TailEffect {
   readonly knockbackPx: number;
   readonly multiplier: number;
   readonly durationMs: number;
+  readonly direction?: Point;
 }
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
@@ -285,11 +286,27 @@ export class EnemySystem {
     if (!Number.isFinite(effect.multiplier) || effect.multiplier <= 0) {
       throw new RangeError('Tail multiplier must be finite and positive');
     }
+    if (effect.direction !== undefined) assertPoint(effect.direction, 'Tail direction');
     const enemy = this.enemies.get(enemyId);
     if (enemy === undefined) return { interruptedWindup: false };
 
     const interruptedWindup = enemy.state === 'windup';
-    if (effect.knockbackPx > 0) this.moveBehind(enemy, effect.knockbackPx);
+    if (effect.knockbackPx > 0) {
+      if (effect.direction === undefined) {
+        this.moveBehind(enemy, effect.knockbackPx);
+      } else {
+        const direction = normalizedOrFallback(effect.direction, { x: 0, y: -1 });
+        enemy.position = clampWorld({
+          x: enemy.position.x + direction.x * effect.knockbackPx,
+          y: enemy.position.y + direction.y * effect.knockbackPx,
+        });
+        enemy.heading = normalizedOrFallback(
+          this.navigation.directionFrom(enemy.position),
+          enemy.heading,
+        );
+        enemy.trail.reset(enemy.position, enemy.heading);
+      }
+    }
     enemy.moveSpeedMultiplier = effect.durationMs > 0 ? effect.multiplier : 1;
     enemy.slowRemainingMs = Math.max(enemy.slowRemainingMs, effect.durationMs);
     if (interruptedWindup) {

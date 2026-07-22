@@ -33,18 +33,24 @@ export class E2eEnemySystem extends EnemySystem {
     const currentHp = seed.currentHp ?? maxHp;
     assertHp(currentHp, maxHp);
     const path = this.paths[request.pathId];
+    const attackBoundary = {
+      x: 270,
+      y: 650 - BALANCE.player.hitRadius - BALANCE.enemies[request.kind].range,
+    };
     const pathProgress = seed.placement.kind === 'attackBoundary'
-      ? path.firstProgressWithinCircle(
-        { x: BALANCE.shelter.x, y: BALANCE.shelter.y },
-        BALANCE.shelter.hitRadius + BALANCE.enemies[request.kind].range,
-      )
+      ? path.closestProgressTo(attackBoundary)
       : seed.placement.kind === 'pathProgress'
         ? seed.placement.value
         : path.closestProgressTo({ x: seed.placement.x, y: seed.placement.y });
     const enemyId = this.spawn(request);
     const enemy = this.enemies.get(enemyId)!;
-    if (seed.placement.kind === 'worldPoint') {
-      this.applyWorldPosition(enemyId, { x: seed.placement.x, y: seed.placement.y });
+    if (seed.placement.kind === 'worldPoint' || seed.placement.kind === 'attackBoundary') {
+      this.applyWorldPosition(
+        enemyId,
+        seed.placement.kind === 'worldPoint'
+          ? { x: seed.placement.x, y: seed.placement.y }
+          : attackBoundary,
+      );
       enemy.pathProgress = pathProgress;
     } else {
       this.applyPathProgress(enemyId, pathProgress);

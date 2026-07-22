@@ -17,6 +17,21 @@ import { WaveSystem } from '../../src/game/waves/WaveSystem';
 const PLAYER = { x: 270, y: 600 } as const;
 
 describe('GameSession V2 fixed-step integration', () => {
+  it('수동 action만 시도하고 대상 없음은 cooldown을 소비하지 않는다', () => {
+    const run = Harness.createHarness(98);
+    run.suppressWave(1);
+    const enemyId = run.spawnEnemy('poopGuardian', 'P1');
+    run.placeAt(enemyId, { x: 30, y: 80 });
+
+    expect(run.step(FIXED_STEP_MS, PLAYER).some((event) => event.type === 'barkStarted'))
+      .toBe(false);
+    expect(run.queuePlayerAction('bark')).toEqual({ status: 'queued', actionId: 'bark' });
+    expect(run.step(FIXED_STEP_MS, PLAYER)).toContainEqual({
+      type: 'playerActionRejected', actionId: 'bark', reason: 'noTarget',
+    });
+    expect(run.snapshot().actionStates.bark).toMatchObject({ ready: true, progress: 1 });
+  });
+
   it('malformed purchase ID를 queue/tick 변경 전에 거부하고 이후 valid purchase를 처리한다', () => {
     const progression = new ProgressionSystem();
     progression.addSnacks(40);
@@ -111,6 +126,7 @@ describe('GameSession V2 fixed-step integration', () => {
     run.placeAt(enemyId, { x: PLAYER.x, y: PLAYER.y + 150 });
     run.learnAt('tailSwipe', 0);
     run.setSimulationTicks(479);
+    run.queuePlayerAction('tailSwipe');
     expect(run.step(FIXED_STEP_MS, PLAYER)).toContainEqual(
       expect.objectContaining({ type: 'skillCastStarted', skillId: 'tailSwipe' }),
     );
@@ -153,6 +169,7 @@ describe('GameSession V2 fixed-step integration', () => {
     const enemyId = run.spawnEnemy('poopGuardian', 'P6');
     run.place(enemyId, 335);
     run.weaken(enemyId, 1);
+    run.queuePlayerAction('bark');
 
     const events = stepsUntil(run, (event) => event.type === 'enemyDied', 30);
     const damageIndex = events.findIndex((event) => event.type === 'damageApplied');
@@ -431,6 +448,7 @@ class Harness extends GameSession {
       this.enemies.damage(enemy.id, Math.max(0, enemy.currentHp - 1));
       this.enemies.applyPathProgress(enemy.id, 1_000_000);
     }
+    this.queuePlayerAction('bark');
   }
 }
 
@@ -445,6 +463,7 @@ function stepsUntil(
 ): GameEvent[] {
   const events: GameEvent[] = [];
   for (let tick = 0; tick < maxSteps; tick += 1) {
+    run.queuePlayerAction('bark');
     const next = run.step(FIXED_STEP_MS, PLAYER);
     events.push(...next);
     if (next.some(predicate)) break;

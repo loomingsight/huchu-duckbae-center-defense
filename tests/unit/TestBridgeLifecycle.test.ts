@@ -228,7 +228,6 @@ it('GameScene post-shutdown은 Phaser GameObject cleanup을 반복하지 않고 
   const resetPresentation = vi.fn();
   const resetTrader = vi.fn();
   const resetDedupe = vi.fn();
-  const destroyShelter = vi.fn();
   const destroyPlayer = vi.fn();
   const destroyCompanion = vi.fn();
   const destroyKeyboard = vi.fn();
@@ -247,7 +246,6 @@ it('GameScene post-shutdown은 Phaser GameObject cleanup을 반복하지 않고 
     impactFeedback: { value: { resetDedupe } },
     enemyActors: { configurable: true, value: {}, writable: true },
     projectileActors: { configurable: true, value: {}, writable: true },
-    shelterView: { configurable: true, value: { destroy: destroyShelter }, writable: true },
     playerView: { value: { destroy: destroyPlayer } },
     companionView: { value: { destroy: destroyCompanion } },
     keyboardInput: { value: { destroy: destroyKeyboard } },
@@ -267,7 +265,6 @@ it('GameScene post-shutdown은 Phaser GameObject cleanup을 반복하지 않고 
   expect(resetPresentation).not.toHaveBeenCalled();
   expect(resetTrader).toHaveBeenCalledOnce();
   expect(resetDedupe).toHaveBeenCalledOnce();
-  expect(destroyShelter).not.toHaveBeenCalled();
   expect(destroyPlayer).not.toHaveBeenCalled();
   expect(destroyCompanion).not.toHaveBeenCalled();
   expect(destroyKeyboard).toHaveBeenCalledOnce();
@@ -276,7 +273,6 @@ it('GameScene post-shutdown은 Phaser GameObject cleanup을 반복하지 않고 
     .toBe(0);
   expect((scene as unknown as { enemyActors?: unknown }).enemyActors).toBeUndefined();
   expect((scene as unknown as { projectileActors?: unknown }).projectileActors).toBeUndefined();
-  expect((scene as unknown as { shelterView?: unknown }).shelterView).toBeUndefined();
 });
 
 it('GameScene restart는 visible 문서에서 자신이 획득한 audio lifecycle pause를 반환한다', () => {
@@ -291,7 +287,6 @@ it('GameScene restart는 visible 문서에서 자신이 획득한 audio lifecycl
     impactFeedback: { value: { resetDedupe: vi.fn() } },
     enemyActors: { configurable: true, value: {}, writable: true },
     projectileActors: { configurable: true, value: {}, writable: true },
-    shelterView: { configurable: true, value: {}, writable: true },
     keyboardInput: { value: { destroy: vi.fn() } },
     movementIntent: { value: { reset: vi.fn() } },
     audio: { value: { resumeForLifecycle } },
@@ -318,7 +313,6 @@ it('늦게 도착한 이전 generation shutdown은 현재 Scene의 audio lease�
     impactFeedback: { value: { resetDedupe: vi.fn() } },
     enemyActors: { configurable: true, value: {}, writable: true },
     projectileActors: { configurable: true, value: {}, writable: true },
-    shelterView: { configurable: true, value: {}, writable: true },
     keyboardInput: { value: { destroy: vi.fn() } },
     movementIntent: { value: { reset: vi.fn() } },
     audio: { value: { resumeForLifecycle } },
@@ -852,6 +846,7 @@ function createBridgeHarness() {
     setAcceleratedAudio: () => undefined,
     advanceAudioFromGameMs: (ms: number) => { audioAdvances.push(ms); },
     queueSkillPurchaseForTest: (id: 'tailSwipe' | 'aquaBeam' | 'safetyReport') => run.queueSkillPurchase(id),
+    queuePlayerActionForTest: (id: 'bark' | 'tailSwipe' | 'aquaBeam' | 'safetyReport') => run.queuePlayerAction(id),
     scenarioAdapter: () => ({
       seedEnemy: scenario.spawnEnemy,
       suppressWaveSpawns: scenario.suppressWaveSpawns,

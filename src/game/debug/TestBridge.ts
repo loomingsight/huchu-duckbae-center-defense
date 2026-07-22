@@ -3,10 +3,11 @@ import { FIXED_STEP_MS } from '../constants';
 import type { DogTraderRigTelemetrySnapshot } from '../enemies/DogTraderRigTelemetry';
 import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
+import type { PlayerActionQueueResult } from '../player/PlayerActionGate';
 import type { PresentationTelemetrySnapshot } from '../presentation/PresentationTelemetry';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
-import type { PurchasableSkillId } from '../types/GameTypes';
+import type { PlayerActionId, PurchasableSkillId } from '../types/GameTypes';
 import type { HudSnapshot } from '../ui/HudSystem';
 import { runCleanupSteps } from '../scenes/SceneRuntimeLifecycle';
 import type { E2eAudioStressSnapshot } from './E2eAudioStressLoadController';
@@ -46,6 +47,7 @@ interface SessionScenePort {
   setAcceleratedAudio(enabled: boolean): void;
   advanceAudioFromGameMs(gameMs: number): void;
   queueSkillPurchaseForTest(skillId: PurchasableSkillId): SkillPurchaseResult;
+  queuePlayerActionForTest(actionId: PlayerActionId): PlayerActionQueueResult;
   scenarioAdapter(): ScenarioScenePort;
   onSessionReset(listener: () => void): () => void;
   setVisibilityForTest(hidden: boolean): void;
@@ -138,6 +140,10 @@ export class SessionTestBridge implements HuchuTestBridge, SessionScenarioRuntim
 
   async purchaseSkill(id: PurchasableSkillId): Promise<SkillPurchaseResult> {
     return this.scenePort.queueSkillPurchaseForTest(id);
+  }
+
+  async castAction(id: PlayerActionId): Promise<PlayerActionQueueResult> {
+    return this.scenePort.queuePlayerActionForTest(id);
   }
 
   snapshot(): GameDebugSnapshot {

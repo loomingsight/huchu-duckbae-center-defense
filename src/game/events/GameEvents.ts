@@ -7,7 +7,7 @@ import type { CompanionEvent } from '../companions/CompanionSystem';
 import type { GameMode } from '../core/GameMode';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import type { SkillTimelineEvent } from '../skills/SkillSystem';
-import type { EnemyKind } from '../types/GameTypes';
+import type { EnemyKind, PlayerActionId } from '../types/GameTypes';
 import type { Point } from '../world/Geometry';
 import type { EnemySpawnRequest } from '../waves/WaveTypes';
 import type { WaveNumber } from '../session/RunSnapshot';
@@ -31,6 +31,11 @@ export type CoreStateEvent =
     readonly kind: EnemyKind;
     readonly amount: number;
     readonly snacks: number;
+  }
+  | {
+    readonly type: 'playerActionRejected';
+    readonly actionId: PlayerActionId;
+    readonly reason: 'noTarget' | 'notReady' | 'notLearned';
   }
   | {
     readonly type: 'bossActiveChanged';

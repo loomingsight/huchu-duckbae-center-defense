@@ -6,6 +6,8 @@ import type { PoolSnapshot } from '../pooling/ObjectPool';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { PurchasableSkillId } from '../types/GameTypes';
+import type { PlayerActionId } from '../types/GameTypes';
+import type { PlayerActionQueueResult } from '../player/PlayerActionGate';
 import type { HudSnapshot } from '../ui/HudSystem';
 import type { E2eAudioStressSnapshot } from './E2eAudioStressLoadController';
 import type { E2ePresentationStressSnapshot } from './E2ePresentationStressController';
@@ -63,6 +65,7 @@ export interface HuchuTestBridge {
   advanceSimulationBatch(stepCount: number, input: Readonly<{ x: number; y: number }>): Promise<void>;
   prepareTerminalTieForTest(): void;
   purchaseSkill(id: PurchasableSkillId): Promise<SkillPurchaseResult>;
+  castAction(id: PlayerActionId): Promise<PlayerActionQueueResult>;
   snapshot(): GameDebugSnapshot;
   eventsSince(sequence: number): readonly GameDebugEvent[];
   simulateVisibility(hidden: boolean): Promise<void>;

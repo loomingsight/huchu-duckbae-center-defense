@@ -32,8 +32,16 @@ export interface BarkImpactEvent {
 
 export type BarkEvent = BarkStartedEvent | BarkImpactEvent;
 
+export type BarkCastRequestResult =
+  | { readonly status: 'started'; readonly events: readonly [BarkStartedEvent] }
+  | { readonly status: 'noTarget' | 'notReady'; readonly events: readonly [] };
+
 export interface BarkSnapshot {
+  readonly learned: true;
   readonly ready: boolean;
+  readonly cooldownRemainingMs: number;
+  readonly progress: number;
+  readonly activeCastId: string | null;
   readonly phase: BarkPhase;
   readonly elapsedMs: number;
   readonly lockedTargetId: number | null;
@@ -50,17 +58,10 @@ export class BarkSystem {
   step(stepMs: number, context: BarkContext): readonly BarkEvent[] {
     assertFiniteNonNegative(stepMs, 'Bark stepMs');
     const events: BarkEvent[] = [];
-    if (
-      this.phase === 'ready'
-      && !this.start(
-        selectThreatTarget(context.origin, context.enemies, BARK_RANGE_LOGICAL),
-        context.origin,
-        events,
-      )
-    ) return events;
+    if (this.phase === 'ready') return events;
 
     let remainingMs = stepMs;
-    while (this.phase !== 'ready') {
+    while (true) {
       if (this.phase === 'windup') {
         const untilImpactMs = WINDUP_MS - this.cycleElapsedMs;
         if (!crossesBoundary(remainingMs, untilImpactMs)) {
@@ -86,12 +87,19 @@ export class BarkSystem {
         this.cycleElapsedMs = 0;
         this.lockedTargetId = null;
         this.castId = null;
-        const target = selectThreatTarget(context.origin, context.enemies, BARK_RANGE_LOGICAL);
-        if (!this.start(target, context.origin, events)) break;
-        if (remainingMs === 0) break;
+        break;
       }
     }
     return events;
+  }
+
+  requestCast(context: BarkContext): BarkCastRequestResult {
+    if (this.phase !== 'ready') return { status: 'notReady', events: [] };
+    const target = selectThreatTarget(context.origin, context.enemies, BARK_RANGE_LOGICAL);
+    if (target === undefined) return { status: 'noTarget', events: [] };
+    const events: BarkStartedEvent[] = [];
+    this.start(target, context.origin, events);
+    return { status: 'started', events: [events[0]!] };
   }
 
   reset(): void {
@@ -105,7 +113,11 @@ export class BarkSystem {
 
   snapshot(): BarkSnapshot {
     return {
+      learned: true,
       ready: this.phase === 'ready',
+      cooldownRemainingMs: this.phase === 'ready' ? 0 : Math.max(0, CADENCE_MS - this.cycleElapsedMs),
+      progress: this.phase === 'ready' ? 1 : Math.max(0, Math.min(1, this.cycleElapsedMs / CADENCE_MS)),
+      activeCastId: this.castId,
       phase: this.phase,
       elapsedMs: this.cycleElapsedMs,
       lockedTargetId: this.lockedTargetId,
@@ -115,7 +127,7 @@ export class BarkSystem {
   private start(
     target: EnemySnapshot | undefined,
     origin: Point,
-    events: BarkEvent[],
+    events: BarkStartedEvent[],
   ): boolean {
     if (target === undefined) return false;
     this.phase = 'windup';

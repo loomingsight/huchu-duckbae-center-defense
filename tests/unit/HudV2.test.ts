@@ -520,6 +520,13 @@ function runSnapshotBase(): RunSnapshot {
     nextSkillCost: state.nextSkillCost,
     learnedSkills: state.learnedSkills,
     skillStates: state.skillStates,
+    actionStates: {
+      bark: {
+        learned: true, ready: true, cooldownRemainingMs: 0, progress: 1,
+        activeCastId: null, phase: 'ready', elapsedMs: 0, lockedTargetId: null,
+      },
+      ...state.skillStates,
+    },
     companion: state.companion,
     enemies: [],
     projectiles: [],

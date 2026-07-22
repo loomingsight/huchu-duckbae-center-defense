@@ -10,9 +10,22 @@ import { CombatEffectPool } from '../../src/game/combat/CombatEffectPool';
 import { enemy } from './fixtures';
 
 describe('BarkSystem', () => {
+  it('명시적 요청 전에는 자동 시전하지 않고 요청 뒤에만 impact한다', () => {
+    const bark = new BarkSystem();
+    const context = {
+      origin: { x: 0, y: 0 },
+      enemies: [enemy({ id: 1, position: { x: 100, y: 0 } })],
+    };
+
+    expect(bark.step(250, context)).toEqual([]);
+    expect(bark.requestCast(context)).toMatchObject({ status: 'started' });
+    expect(bark.step(250, context)).toContainEqual(
+      expect.objectContaining({ type: 'barkImpact', castId: 'bark:1' }),
+    );
+  });
   it('3H와 120도 경계를 포함해 모든 대상을 같은 impact에 담는다', () => {
     const bark = new BarkSystem();
-    bark.step(0, {
+    bark.requestCast({
       origin: { x: 0, y: 0 },
       enemies: [enemy({ id: 1, position: { x: 216, y: 0 } })],
     });
@@ -35,7 +48,7 @@ describe('BarkSystem', () => {
 
   it('locked target 사망 뒤 current origin과 last direction으로 release한다', () => {
     const bark = new BarkSystem();
-    bark.step(0, {
+    bark.requestCast({
       origin: { x: 0, y: 0 },
       enemies: [enemy({ id: 1, position: { x: 100, y: 0 } })],
     });
@@ -51,7 +64,7 @@ describe('BarkSystem', () => {
 
   it('locked target이 살아 있으면 impact 시점 위치로 direction을 갱신한다', () => {
     const bark = new BarkSystem();
-    bark.step(0, {
+    bark.requestCast({
       origin: { x: 0, y: 0 },
       enemies: [enemy({ id: 1, position: { x: 100, y: 0 } })],
     });
@@ -73,15 +86,20 @@ describe('BarkSystem', () => {
     };
 
     expect(bark.step(5000, { origin: context.origin, enemies: [] })).toEqual([]);
-    expect(bark.step(0, context)).toEqual([{
-      type: 'barkStarted', castId: 'bark:1', targetId: 7,
-    }]);
+    expect(bark.requestCast({ origin: context.origin, enemies: [] }))
+      .toEqual({ status: 'noTarget', events: [] });
+    expect(bark.requestCast(context)).toEqual({
+      status: 'started',
+      events: [{ type: 'barkStarted', castId: 'bark:1', targetId: 7 }],
+    });
     expect(bark.step(249, context)).toEqual([]);
     expect(bark.step(1, context).at(-1)).toMatchObject({ type: 'barkImpact', targetIds: [7] });
     expect(bark.step(549, context)).toEqual([]);
-    expect(bark.step(1, context)).toEqual([{
-      type: 'barkStarted', castId: 'bark:2', targetId: 7,
-    }]);
+    expect(bark.step(1, context)).toEqual([]);
+    expect(bark.requestCast(context)).toEqual({
+      status: 'started',
+      events: [{ type: 'barkStarted', castId: 'bark:2', targetId: 7 }],
+    });
   });
 
   it('cooldown 중에는 다음 cast가 ready가 될 때까지 target ranking을 수행하지 않는다', () => {
@@ -90,6 +108,7 @@ describe('BarkSystem', () => {
       origin: { x: 0, y: 0 },
       enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
     };
+    bark.requestCast(context);
     bark.step(250, context);
     const unreadableEnemies = new Proxy([] as ReturnType<typeof enemy>[], {
       get: () => { throw new Error('cooldown enemies were read'); },
@@ -109,9 +128,9 @@ describe('BarkSystem', () => {
       enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
     };
 
-    const singleEvents = single.step(1601, context);
-    const splitEvents: BarkEvent[] = [];
-    for (const duration of [0, 200, 50, 549, 1, 250, 550, 1]) {
+    const singleEvents: BarkEvent[] = [...single.requestCast(context).events, ...single.step(800, context)];
+    const splitEvents: BarkEvent[] = [...split.requestCast(context).events];
+    for (const duration of [0, 200, 50, 549, 1]) {
       splitEvents.push(...split.step(duration, context));
     }
 
@@ -125,14 +144,16 @@ describe('BarkSystem', () => {
       origin: { x: 0, y: 0 },
       enemies: [enemy({ id: 7, position: { x: 100, y: 0 } })],
     };
+    bark.requestCast(context);
     bark.step(250, context);
 
     bark.reset();
 
     expect(bark.snapshot()).toEqual({
-      ready: true, phase: 'ready', elapsedMs: 0, lockedTargetId: null,
+      learned: true, ready: true, cooldownRemainingMs: 0, progress: 1,
+      activeCastId: null, phase: 'ready', elapsedMs: 0, lockedTargetId: null,
     });
-    expect(bark.step(0, context).at(0)).toMatchObject({ castId: 'bark:1' });
+    expect(bark.requestCast(context).events.at(0)).toMatchObject({ castId: 'bark:1' });
   });
 
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
@@ -209,11 +230,11 @@ describe('PlayerView bark presentation', () => {
     const view = new PlayerView(fake.scene as never, { x: 10, y: 20 }, effects);
     const initial = view.effectPoolSnapshot();
 
-    expect(fake.graphics).toHaveLength(0);
+    expect(fake.graphics).toHaveLength(1);
     expect(Array.from({ length: BARK_WAVE_POOL_CAPACITY }, (_, index) => (
       view.showBarkWave({ x: 10, y: 20 }, { x: 100 + index, y: 20 })
     )).every(Boolean)).toBe(true);
-    expect(fake.graphics).toHaveLength(BARK_WAVE_POOL_CAPACITY);
+    expect(fake.graphics).toHaveLength(BARK_WAVE_POOL_CAPACITY + 1);
     expect(view.showBarkWave({ x: 10, y: 20 }, { x: 999, y: 20 })).toBe(false);
     expect(view.effectPoolSnapshot()).toEqual({
       ...initial,
@@ -240,7 +261,8 @@ describe('PlayerView bark presentation', () => {
 
     view.resetCombatVisuals();
     expect(view.effectPoolSnapshot()).toEqual({ ...initial, active: 0, available: BARK_WAVE_POOL_CAPACITY });
-    expect(fake.graphics.every((graphics) => lastPlayerCall(graphics, 'setVisible')?.at(0) === false))
+    expect(fake.graphics.filter((graphics) => graphics.calls.has('setVisible'))
+      .every((graphics) => lastPlayerCall(graphics, 'setVisible')?.at(0) === false))
       .toBe(true);
 
     view.showBarkWave({ x: 10, y: 20 }, { x: 100, y: 20 });

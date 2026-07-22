@@ -25,19 +25,23 @@ import type { GameEvent } from '../events/GameEvents';
 import type { PlayerSnapshot } from '../player/PlayerTypes';
 import { PlayerHealthSystem } from '../player/PlayerHealthSystem';
 import {
+  PlayerActionGate,
+  type PlayerActionQueueResult,
+} from '../player/PlayerActionGate';
+import {
   assertPurchasableSkillId,
   ProgressionSystem,
   skillPurchaseCost,
 } from '../progression/ProgressionSystem';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import {
-  AUTO_SKILL_IDS,
+  PLAYER_SKILL_IDS,
   damageCommandsForSkillImpact,
   SkillSystem,
   tailEffectFor,
 } from '../skills/SkillSystem';
 import { impactStrengthFor } from '../skills/skillDefinitions';
-import type { EnemyKind, PurchasableSkillId } from '../types/GameTypes';
+import type { EnemyKind, PlayerActionId, PurchasableSkillId } from '../types/GameTypes';
 import { UiTransitionClock } from '../ui/UiTransitionClock';
 import type { Point } from '../world/Geometry';
 import { WaveSystem } from '../waves/WaveSystem';
@@ -68,6 +72,7 @@ export class GameSession {
   protected readonly enemies: EnemySystem;
   protected readonly combat: CombatSystem;
   protected readonly bark = new BarkSystem();
+  protected readonly playerActions = new PlayerActionGate();
   protected readonly companion = new CompanionSystem();
   protected readonly attacks: Record<EnemyKind, EnemyAttackSystem>;
   protected readonly projectiles = new ProjectileSystem(BALANCE.caps.projectiles);
@@ -102,7 +107,7 @@ export class GameSession {
     this.progression = dependencies.progression ?? new ProgressionSystem();
     this.playerHealth = playerHealth;
     const learned = this.progression.snapshot().learned;
-    for (const skillId of AUTO_SKILL_IDS) {
+    for (const skillId of PLAYER_SKILL_IDS) {
       if (learned[skillId]) this.skills.learn(skillId, 0);
     }
     this.combat = new CombatSystem({
@@ -176,6 +181,13 @@ export class GameSession {
     };
   }
 
+  queuePlayerAction(actionId: PlayerActionId): PlayerActionQueueResult {
+    if (this.stateMachine.current() !== 'playing') {
+      return { status: 'queueBusy', actionId };
+    }
+    return this.playerActions.queue(actionId);
+  }
+
   snapshot(): RunSnapshot {
     const progression = this.progression.snapshot();
     const projectiles = this.projectiles.snapshots();
@@ -189,6 +201,12 @@ export class GameSession {
       nextSkillCost: progression.nextCost,
       learnedSkills: { ...progression.learned },
       skillStates: {
+        tailSwipe: this.skills.snapshot('tailSwipe'),
+        aquaBeam: this.skills.snapshot('aquaBeam'),
+        safetyReport: this.skills.snapshot('safetyReport'),
+      },
+      actionStates: {
+        bark: this.bark.snapshot(),
         tailSwipe: this.skills.snapshot('tailSwipe'),
         aquaBeam: this.skills.snapshot('aquaBeam'),
         safetyReport: this.skills.snapshot('safetyReport'),
@@ -250,6 +268,7 @@ export class GameSession {
     this.playerHealth.reset();
     this.progression.reset();
     this.bark.reset();
+    this.playerActions.reset();
     this.companion.reset();
     this.skills.reset();
     this.uiClock.restart(0);
@@ -318,7 +337,26 @@ export class GameSession {
     const enemiesById = new Map(enemies.map((enemy) => [enemy.id, enemy]));
     const commands: DamageCommand[] = [];
 
-    for (const event of this.bark.step(FIXED_STEP_MS, { origin, enemies })) {
+    const barkContext = { origin, enemies };
+    const skillContext = { player: origin, enemies };
+    const actionId = this.playerActions.consume(this.simulationTimeMs());
+    if (actionId !== null) {
+      const result = actionId === 'bark'
+        ? this.bark.requestCast(barkContext)
+        : this.skills.requestCast(actionId, this.simulationTimeMs(), skillContext);
+      this.eventBuffer.push(...result.events);
+      if (result.status === 'started') {
+        this.playerActions.accept(this.simulationTimeMs());
+      } else {
+        this.eventBuffer.push({
+          type: 'playerActionRejected',
+          actionId,
+          reason: result.status,
+        });
+      }
+    }
+
+    for (const event of this.bark.step(FIXED_STEP_MS, barkContext)) {
       this.eventBuffer.push(event);
       if (event.type !== 'barkImpact') continue;
       for (const targetId of event.targetIds) {
@@ -348,7 +386,7 @@ export class GameSession {
       });
     }
 
-    for (const event of this.skills.step(this.simulationTimeMs(), { player: origin, enemies })) {
+    for (const event of this.skills.step(this.simulationTimeMs(), skillContext)) {
       this.eventBuffer.push(event);
       if (event.type === 'skillImpact') {
         commands.push(...damageCommandsForSkillImpact(event, enemies));
@@ -383,7 +421,7 @@ export class GameSession {
       if (event.type === 'damageApplied') {
         this.eventBuffer.push(event);
         if (event.source === 'tailSwipe' && !event.lethal) {
-          this.applyTailEffect(event.targetId);
+          this.applyTailEffect(event.targetId, event.impactDirection);
         }
         continue;
       }
@@ -391,10 +429,13 @@ export class GameSession {
     }
   }
 
-  private applyTailEffect(enemyId: number): void {
+  private applyTailEffect(enemyId: number, direction: Point): void {
     const enemy = this.combatSnapshots.get(enemyId);
     if (enemy === undefined || !this.enemies.has(enemyId)) return;
-    const result = this.enemies.applyTailEffect(enemyId, tailEffectFor(enemy.isBoss));
+    const result = this.enemies.applyTailEffect(enemyId, {
+      ...tailEffectFor(enemy.isBoss),
+      direction,
+    });
     if (!result.interruptedWindup) return;
 
     const active = this.activeEnemyAttacks.get(enemyId);

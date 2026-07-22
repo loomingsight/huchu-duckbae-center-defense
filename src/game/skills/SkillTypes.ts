@@ -14,6 +14,13 @@ export interface SkillSnapshot {
   readonly activeCastId: string | null;
 }
 
+export type CastRequestResult =
+  | { readonly status: 'started'; readonly events: readonly [SkillCastStartedEvent] }
+  | {
+    readonly status: 'noTarget' | 'notReady' | 'notLearned';
+    readonly events: readonly [];
+  };
+
 export interface SkillCastStartedEvent {
   readonly type: 'skillCastStarted';
   readonly castId: string;

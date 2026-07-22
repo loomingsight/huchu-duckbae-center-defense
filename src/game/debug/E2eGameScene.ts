@@ -7,6 +7,8 @@ import { GameScene } from '../scenes/GameScene';
 import type { GameSession } from '../session/GameSession';
 import type { RunSnapshot } from '../session/RunSnapshot';
 import type { PurchasableSkillId } from '../types/GameTypes';
+import type { PlayerActionId } from '../types/GameTypes';
+import type { PlayerActionQueueResult } from '../player/PlayerActionGate';
 import { runCleanupSteps } from '../scenes/SceneRuntimeLifecycle';
 import { E2eAudioStressLoadController, type E2eAudioStressSnapshot } from './E2eAudioStressLoadController';
 import { E2E_AUDIO_TEST_PORT_REGISTRY_KEY, E2eAudioTestPort } from './E2eAudioTestPort';
@@ -209,6 +211,10 @@ export class E2eGameScene extends GameScene {
 
   queueSkillPurchaseForTest(skillId: PurchasableSkillId): SkillPurchaseResult {
     return this.session.queueSkillPurchase(skillId);
+  }
+
+  queuePlayerActionForTest(actionId: PlayerActionId): PlayerActionQueueResult {
+    return this.session.queuePlayerAction(actionId);
   }
 
   protected override createSession(seed: number): GameSession {

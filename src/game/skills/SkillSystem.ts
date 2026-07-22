@@ -12,6 +12,7 @@ import type { Point } from '../world/Geometry';
 import { impactStrengthFor, SKILL_DEFINITIONS } from './skillDefinitions';
 import type {
   SkillCastStartedEvent,
+  CastRequestResult,
   SkillImpactEvent,
   SkillSnapshot,
   SkillTargetChangedEvent,
@@ -21,6 +22,7 @@ import type {
 
 export type {
   SkillCastStartedEvent,
+  CastRequestResult,
   SkillImpactEvent,
   SkillSnapshot,
   SkillTargetChangedEvent,
@@ -28,13 +30,12 @@ export type {
   SkillTimelineEvent,
 } from './SkillTypes';
 
-export const AUTO_SKILL_IDS = [
+export const PLAYER_SKILL_IDS = [
   'tailSwipe',
   'aquaBeam',
   'safetyReport',
 ] as const satisfies readonly PurchasableSkillId[];
 
-export type AutoSkillId = PurchasableSkillId;
 export const INITIAL_SKILL_COOLDOWN_MS = 1000;
 
 export interface SkillContext {
@@ -71,7 +72,6 @@ interface StartedCast {
   readonly started: SkillCastStartedEvent;
 }
 
-const GLOBAL_CAST_LOCK_MS = 200;
 const TAIL_RADIUS = BALANCE.player.opaqueHeightLogical * 2.2;
 const GEOMETRY_EPSILON = 1e-9;
 const DEFAULT_DIRECTION: Point = { x: 0, y: -1 };
@@ -96,7 +96,6 @@ export class SkillSystem {
     safetyReport: 1,
   };
   private pending: PendingCast[] = [];
-  private nextGlobalCastAtMs = 0;
   private lastNowMs = 0;
   private nextStartSequence = 1;
 
@@ -121,31 +120,31 @@ export class SkillSystem {
     }
 
     this.lastNowMs = nowMs;
-    const events = this.advancePending(nowMs, context);
-    if (nowMs + TIME_EPSILON_MS < this.nextGlobalCastAtMs) return events;
+    return this.advancePending(nowMs, context);
+  }
 
-    const ready = AUTO_SKILL_IDS
-      .filter((skillId) => (
-        this.learned.has(skillId)
-        && this.readyAt[skillId] <= nowMs + TIME_EPSILON_MS
-      ))
-      .slice()
-      .sort((left, right) => (
-        this.readyAt[left] - this.readyAt[right]
-        || priorityOf(left) - priorityOf(right)
-      ));
-
-    for (const skillId of ready) {
-      const cast = this.startIfTargetExists(skillId, nowMs, context);
-      if (cast === undefined) continue;
-      this.pending.push(cast.pending);
-      this.readyAt[skillId] = nowMs + SKILL_DEFINITIONS[skillId].cooldownMs;
-      this.cooldownWindowMs[skillId] = SKILL_DEFINITIONS[skillId].cooldownMs;
-      this.nextGlobalCastAtMs = nowMs + GLOBAL_CAST_LOCK_MS;
-      events.push(cast.started);
-      break;
+  requestCast(
+    skillId: PurchasableSkillId,
+    nowMs: number,
+    context: SkillContext,
+  ): CastRequestResult {
+    assertSkillId(skillId);
+    assertTimestamp(nowMs, 'Skill nowMs');
+    validateContext(context);
+    if (nowMs < this.lastNowMs) {
+      throw new RangeError('Skill nowMs must be monotonic');
     }
-    return events;
+    this.lastNowMs = nowMs;
+    if (!this.learned.has(skillId)) return { status: 'notLearned', events: [] };
+    if (this.readyAt[skillId] > nowMs + TIME_EPSILON_MS) {
+      return { status: 'notReady', events: [] };
+    }
+    const cast = this.startIfTargetExists(skillId, nowMs, context);
+    if (cast === undefined) return { status: 'noTarget', events: [] };
+    this.pending.push(cast.pending);
+    this.readyAt[skillId] = nowMs + SKILL_DEFINITIONS[skillId].cooldownMs;
+    this.cooldownWindowMs[skillId] = SKILL_DEFINITIONS[skillId].cooldownMs;
+    return { status: 'started', events: [cast.started] };
   }
 
   snapshot(skillId: PurchasableSkillId): SkillSnapshot {
@@ -180,13 +179,12 @@ export class SkillSystem {
 
   reset(): void {
     this.learned.clear();
-    for (const skillId of AUTO_SKILL_IDS) {
+    for (const skillId of PLAYER_SKILL_IDS) {
       this.readyAt[skillId] = 0;
       this.cooldownWindowMs[skillId] = SKILL_DEFINITIONS[skillId].cooldownMs;
       this.castSequence[skillId] = 1;
     }
     this.pending = [];
-    this.nextGlobalCastAtMs = 0;
     this.lastNowMs = 0;
     this.nextStartSequence = 1;
   }
@@ -401,13 +399,9 @@ function validateContext(context: SkillContext): void {
   validateTargetingCandidates(context.player, context.enemies);
 }
 
-function priorityOf(skillId: PurchasableSkillId): number {
-  return AUTO_SKILL_IDS.indexOf(skillId);
-}
-
 function assertSkillId(skillId: PurchasableSkillId): void {
-  if (!(AUTO_SKILL_IDS as readonly string[]).includes(skillId)) {
-    throw new RangeError(`Unknown auto skill ${String(skillId)}`);
+  if (!(PLAYER_SKILL_IDS as readonly string[]).includes(skillId)) {
+    throw new RangeError(`Unknown player skill ${String(skillId)}`);
   }
 }
 

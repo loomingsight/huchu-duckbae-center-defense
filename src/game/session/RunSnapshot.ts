@@ -4,6 +4,7 @@ import type { GameMode } from '../core/GameMode';
 import type { EnemySnapshot } from '../enemies/EnemyTypes';
 import type { SkillSnapshot } from '../skills/SkillSystem';
 import type { PurchasableSkillId, SkillCost } from '../types/GameTypes';
+import type { BarkSnapshot } from '../combat/BarkSystem';
 
 export type WaveNumber = 1 | 2 | 3 | 4 | 5;
 
@@ -17,6 +18,12 @@ export interface RunSnapshot {
   readonly nextSkillCost: SkillCost | null;
   readonly learnedSkills: Readonly<Record<PurchasableSkillId, boolean>>;
   readonly skillStates: Readonly<Record<PurchasableSkillId, SkillSnapshot>>;
+  readonly actionStates: Readonly<{
+    readonly bark: BarkSnapshot;
+    readonly tailSwipe: SkillSnapshot;
+    readonly aquaBeam: SkillSnapshot;
+    readonly safetyReport: SkillSnapshot;
+  }>;
   readonly companion: CompanionSnapshot;
   readonly enemies: readonly EnemySnapshot[];
   readonly projectiles: readonly ProjectileSnapshot[];

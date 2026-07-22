@@ -67,6 +67,21 @@ it('slow가 step 중간에 끝나면 0.6/정상 구간을 나눠 적분한다', 
   expect(system.snapshots()[0]).toMatchObject({ moveSpeedMultiplier: 1, slowRemainingMs: 0 });
 });
 
+it('꼬리치기 넉백은 경로 역방향이 아니라 후추에서 바깥쪽인 impact 방향을 따른다', () => {
+  const system = EnemySystem.withSingleEnemy({ kind: 'poopGuardian', pathId: 'P3' });
+  const id = system.snapshots()[0]!.id;
+  system.applyWorldPosition(id, { x: 270, y: 600 });
+
+  system.applyTailEffect(id, {
+    knockbackPx: 35,
+    multiplier: 0.6,
+    durationMs: 1500,
+    direction: { x: 1, y: 0 },
+  });
+
+  expect(system.snapshots()[0]!.position).toEqual({ x: 305, y: 600 });
+});
+
 it('재감속은 배율을 중첩하지 않고 더 긴 남은 시간만 보존한다', () => {
   const system = EnemySystem.withSingleEnemy({ kind: 'dogTrader', pathId: 'P3' });
   const id = system.snapshots()[0]!.id;
