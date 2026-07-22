@@ -1,4 +1,4 @@
-import type { PurchasableSkillId } from '../types/GameTypes';
+import type { PlayerActionId, PurchasableSkillId } from '../types/GameTypes';
 
 export type SkillIconId = 'bark' | 'deokbae' | 'tail' | 'water' | 'report';
 
@@ -7,6 +7,11 @@ export const SKILL_COPY = {
   aquaBeam: { name: '아쿠아빔', icon: 'water' },
   safetyReport: { name: '안전신문고', icon: 'report' },
 } as const satisfies Record<PurchasableSkillId, { readonly name: string; readonly icon: SkillIconId }>;
+
+export const ACTION_COPY = {
+  bark: { name: '짖기', icon: 'bark' },
+  ...SKILL_COPY,
+} as const satisfies Record<PlayerActionId, { readonly name: string; readonly icon: SkillIconId }>;
 
 export function skillCopy(skillId: PurchasableSkillId): typeof SKILL_COPY[PurchasableSkillId] {
   return SKILL_COPY[skillId];

@@ -75,7 +75,7 @@ const MAX_CATCH_UP_STEPS = 5;
 const BARK_CADENCE_MS = 800;
 const DEFAULT_PLAYER_FACING = { x: 0, y: -1 } as const;
 const AQUA_BODY_DURATION_MS = 600;
-const SNACK_DOCK_TARGET = { x: 34, y: 900 } as const;
+const SNACK_DOCK_TARGET = { x: 48, y: 790 } as const;
 
 export class GameScene extends Phaser.Scene {
   private readonly fixedClock = new FixedStepClock(FIXED_STEP_MS, MAX_CATCH_UP_STEPS);
@@ -196,6 +196,7 @@ export class GameScene extends Phaser.Scene {
     this.hud = new HudSystem({
       root,
       queueSkillPurchase: (skillId) => this.session.queueSkillPurchase(skillId),
+      queuePlayerAction: (actionId) => this.session.queuePlayerAction(actionId),
       mutePort,
     });
     this.companionView = new CompanionView(this, {
@@ -463,7 +464,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   skillCooldownProgressSnapshot(): Readonly<Record<string, number>> {
-    const snapshot = this.session.snapshot().skillStates;
+    const snapshot = this.session.snapshot().actionStates;
     return {
       tailSwipe: snapshot.tailSwipe.progress,
       aquaBeam: snapshot.aquaBeam.progress,
@@ -610,6 +611,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (event.type === 'skillPurchaseResolved') {
         this.hud.showLearned(event.result.skillId, this.session.snapshot());
+      }
+      if (event.type === 'playerActionRejected' && event.reason === 'noTarget') {
+        this.hud.showNoTarget();
       }
       if (event.type === 'enemySpawned') {
         const snapshot = this.session.snapshot().enemies.find(({ id }) => id === event.enemyId);

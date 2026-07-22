@@ -1,27 +1,27 @@
 import { VirtualJoystick } from '../player/VirtualJoystick';
+import type { PlayerActionQueueResult } from '../player/PlayerActionGate';
 import type { SkillPurchaseResult } from '../progression/ProgressionTypes';
 import type { RunSnapshot, WaveNumber } from '../session/RunSnapshot';
-import type { PurchasableSkillId } from '../types/GameTypes';
-import { AutoSkillHud, type AutoSkillRow } from './AutoSkillHud';
+import type { PlayerActionId, PurchasableSkillId } from '../types/GameTypes';
+import { ActionDock, type ActionDockSnapshot } from './ActionDock';
+import {
+  CompanionStatusHud,
+  type CompanionStatusSnapshot,
+} from './CompanionStatusHud';
 import { NOOP_MUTE_PORT, type MutePort } from './MutePort';
-import { SkillDock, type DockButtonModel } from './SkillDock';
 import { SKILL_COPY } from './SkillIconSvg';
 import { TopHud } from './TopHud';
 
 const AFFORDABLE_TOAST_MS = 1200;
 const LEARNED_TOAST_MS = 1000;
+const NO_TARGET_TOAST_MS = 700;
 
 export interface HudSnapshot {
   readonly wave: WaveNumber;
   readonly timeText: string;
   readonly snacks: number;
-  readonly player: {
-    readonly current: number;
-    readonly maximum: 1000;
-    readonly visual: 'healthy' | 'damaged' | 'critical' | 'failed';
-  };
-  readonly autoSkills: readonly AutoSkillRow[];
-  readonly dock: readonly DockButtonModel[];
+  readonly companion: CompanionStatusSnapshot;
+  readonly actions: ActionDockSnapshot;
   readonly muted: boolean;
   readonly toast: string | null;
 }
@@ -29,6 +29,7 @@ export interface HudSnapshot {
 export interface HudSystemOptions {
   readonly root: HTMLElement;
   readonly queueSkillPurchase: (skillId: PurchasableSkillId) => SkillPurchaseResult;
+  readonly queuePlayerAction: (actionId: PlayerActionId) => PlayerActionQueueResult;
   readonly mutePort?: MutePort;
   readonly document?: Document;
 }
@@ -37,8 +38,8 @@ export class HudSystem {
   readonly joystick: VirtualJoystick;
   private readonly overlay: HTMLElement;
   private readonly top: TopHud;
-  private readonly autoSkills: AutoSkillHud;
-  private readonly dock: SkillDock;
+  private readonly companion: CompanionStatusHud;
+  private readonly actions: ActionDock;
   private readonly toast: HTMLElement;
   private toastText: string | null = null;
   private toastRemainingMs = 0;
@@ -53,8 +54,13 @@ export class HudSystem {
     this.overlay.dataset.active = 'true';
     options.root.appendChild(this.overlay);
     this.top = new TopHud(this.overlay, documentRef, options.mutePort ?? NOOP_MUTE_PORT);
-    this.autoSkills = new AutoSkillHud(this.overlay, documentRef);
-    this.dock = new SkillDock(this.overlay, documentRef, options.queueSkillPurchase);
+    this.companion = new CompanionStatusHud(this.overlay, documentRef);
+    this.actions = new ActionDock(
+      this.overlay,
+      documentRef,
+      options.queueSkillPurchase,
+      options.queuePlayerAction,
+    );
     this.joystick = new VirtualJoystick(this.overlay, documentRef);
     this.toast = documentRef.createElement('div');
     this.toast.className = 'hud-toast';
@@ -67,9 +73,9 @@ export class HudSystem {
     if (this.destroyed) return;
     this.lastRun = run;
     this.top.render({ wave: run.wave, simulationMs: run.simulationMs });
-    this.autoSkills.render(run);
-    this.dock.render(run);
-    const affordable = this.dock.hasAffordableSkill();
+    this.companion.render(run.companion);
+    this.actions.render(run);
+    const affordable = this.actions.hasAffordableSkill();
     if (affordable && !this.hadAffordable) this.showToast('배울 수 있어요', AFFORDABLE_TOAST_MS);
     this.hadAffordable = affordable;
   }
@@ -85,15 +91,20 @@ export class HudSystem {
 
   showLearned(skillId: PurchasableSkillId, run: RunSnapshot): void {
     if (this.destroyed) return;
-    this.dock.resolve(skillId);
+    this.actions.resolve(skillId);
     this.render(run);
     this.showToast(`${SKILL_COPY[skillId].name} 습득!`, LEARNED_TOAST_MS);
+  }
+
+  showNoTarget(): void {
+    if (this.destroyed) return;
+    this.showToast('대상이 없어요', NO_TARGET_TOAST_MS);
   }
 
   reset(): void {
     if (this.destroyed) return;
     this.hadAffordable = false;
-    this.dock.reset();
+    this.actions.reset();
     this.showToast(null, 0);
   }
 
@@ -111,13 +122,8 @@ export class HudSystem {
       wave: run.wave,
       timeText: top.timeText,
       snacks: run.snacks,
-      player: {
-        current: run.playerHp,
-        maximum: run.playerMaxHp,
-        visual: playerVisualState(run.playerHp, run.playerMaxHp),
-      },
-      autoSkills: this.autoSkills.snapshot(),
-      dock: this.dock.snapshot(),
+      companion: this.companion.snapshot(),
+      actions: this.actions.snapshot(),
       muted: top.muted,
       toast: this.toastText,
     };
@@ -127,8 +133,8 @@ export class HudSystem {
     if (this.destroyed) return;
     this.destroyed = true;
     this.top.destroy();
-    this.autoSkills.destroy();
-    this.dock.destroy();
+    this.companion.destroy();
+    this.actions.destroy();
     this.joystick.destroy();
     this.toast.remove();
     this.overlay.remove();
@@ -143,15 +149,4 @@ export class HudSystem {
     this.toast.textContent = text ?? '';
     this.toast.dataset.visible = String(text !== null);
   }
-}
-
-function playerVisualState(
-  current: number,
-  maximum: number,
-): 'healthy' | 'damaged' | 'critical' | 'failed' {
-  const ratio = current / maximum;
-  if (ratio >= 0.67) return 'healthy';
-  if (ratio >= 0.34) return 'damaged';
-  if (ratio > 0) return 'critical';
-  return 'failed';
 }

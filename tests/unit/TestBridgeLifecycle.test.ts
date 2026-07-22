@@ -825,8 +825,10 @@ function createBridgeHarness() {
       wave: run.snapshot().wave,
       timeText: '00:00',
       snacks: run.snapshot().snacks,
-      player: { current: 1000, maximum: 1000 as const, visual: 'healthy' as const },
-      autoSkills: [], dock: [], muted: false, toast: null,
+      companion: { label: '덕배 · 자동' as const, ready: true },
+      actions: { snacks: run.snapshot().snacks, buttons: [] },
+      muted: false,
+      toast: null,
     }),
     presentationTelemetryForTest: () => ({
       enemies: pool, labels: pool, labelBindings: [], projectiles: pool, effects: pool, damageNumbers: pool, listenerCount: 1,
